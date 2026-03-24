@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/riakgu/moxy/internal/delivery/cli"
+	"github.com/riakgu/moxy/web"
 )
 
 var rootCmd = &cobra.Command{
@@ -15,6 +16,9 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.AddCommand(cli.NewServeCommand(web.DashboardFS))
+	rootCmd.AddCommand(cli.NewProvisionCommand())
+	rootCmd.AddCommand(cli.NewTeardownCommand())
 	rootCmd.AddCommand(cli.NewDialCommand())
 }
 
