@@ -5,11 +5,17 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/riakgu/moxy/internal/delivery/cli"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "moxy",
 	Short: "Multi-IP proxy server using network namespace slots",
+}
+
+func init() {
+	rootCmd.AddCommand(cli.NewDialCommand())
 }
 
 func main() {
