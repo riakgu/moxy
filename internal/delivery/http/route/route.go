@@ -28,7 +28,8 @@ func (c *RouteConfig) Setup() {
 
 	c.App.Use("/", filesystem.New(filesystem.Config{
 		Root:       http.FS(c.DashboardFS),
-		PathPrefix: "web/dashboard",
+		PathPrefix: "dashboard",
 		Browse:     false,
+		Index:      "index.html",
 	}))
 }
