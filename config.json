@@ -1,0 +1,26 @@
+{
+    "proxy": {
+        "socks5_port": 1080,
+        "http_port": 8080,
+        "username": "admin",
+        "password": "changeme"
+    },
+    "api": {
+        "port": 9090
+    },
+    "slots": {
+        "discovery_interval_seconds": 30,
+        "discovery_concurrency": 20
+    },
+    "provision": {
+        "interface": "usb0",
+        "dns64_server": "2001:4860:4860::6464"
+    },
+    "server": {
+        "shutdown_drain_seconds": 30
+    },
+    "log": {
+        "level": "info",
+        "format": "json"
+    }
+}
