@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -53,6 +54,10 @@ func NewProvisionCommand() *cobra.Command {
 			}
 
 			log.Infof("provisioning complete: %d created, %d failed", successCount, failCount)
+
+			// Wait for SLAAC to assign IPv6 addresses
+			log.Info("waiting 5s for SLAAC IPv6 assignment...")
+			time.Sleep(5 * time.Second)
 
 			// Verify: resolve public IPv4 for each created slot
 			log.Info("verifying slot IPs...")
