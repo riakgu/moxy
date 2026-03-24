@@ -38,7 +38,12 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		p.Log.Debugf("slot %s: %s", name, c.desc)
 		cmd := exec.Command(c.args[0], c.args[1:]...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("%s failed for %s: %w (output: %s)", c.desc, name, err, strings.TrimSpace(string(output)))
+			outStr := strings.TrimSpace(string(output))
+			// Ignore "File exists" for namespace and link creation so provisioning is idempotent
+			if strings.Contains(outStr, "File exists") {
+				continue
+			}
+			return fmt.Errorf("%s failed for %s: %w (output: %s)", c.desc, name, err, outStr)
 		}
 	}
 
