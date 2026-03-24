@@ -32,7 +32,7 @@ func ParseIPFromOutput(output string) (string, error) {
 }
 
 func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
-	cmd := exec.Command("ip", "netns", "exec", slotName, "curl", "-s", "--max-time", "10", "http://api64.ipify.org")
+	cmd := exec.Command("ip", "netns", "exec", slotName, "curl", "-s", "--max-time", "10", "http://api.ipify.org")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("resolve IP for %s failed: %w (output: %s)", slotName, err, strings.TrimSpace(string(output)))
