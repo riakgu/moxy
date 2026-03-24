@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moxy Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>Moxy Dashboard</h1>
+        <div id="health-badge"></div>
+    </header>
+
+    <section id="stats">
+        <div class="stat-card">
+            <span class="stat-value" id="total-slots">-</span>
+            <span class="stat-label">Total Slots</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value" id="healthy-slots">-</span>
+            <span class="stat-label">Healthy</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value" id="active-connections">-</span>
+            <span class="stat-label">Active Connections</span>
+        </div>
+    </section>
+
+    <section id="slots-section">
+        <h2>Slots</h2>
+        <table id="slots-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>IPv6</th>
+                    <th>Public IPv4</th>
+                    <th>Status</th>
+                    <th>Connections</th>
+                    <th>Last Checked</th>
+                </tr>
+            </thead>
+            <tbody id="slots-body"></tbody>
+        </table>
+    </section>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
