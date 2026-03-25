@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -18,16 +19,18 @@ import (
 )
 
 type HttpProxyHandler struct {
-	Log     *logrus.Logger
-	ProxyUC *usecase.ProxyUseCase
-	sem     chan struct{}
+	Log         *logrus.Logger
+	ProxyUC     *usecase.ProxyUseCase
+	sem         chan struct{}
+	idleTimeout time.Duration
 }
 
-func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}) *HttpProxyHandler {
+func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *HttpProxyHandler {
 	return &HttpProxyHandler{
-		Log:     log,
-		ProxyUC: proxyUC,
-		sem:     sem,
+		Log:         log,
+		ProxyUC:     proxyUC,
+		sem:         sem,
+		idleTimeout: idleTimeout,
 	}
 }
 
@@ -62,6 +65,9 @@ func (h *HttpProxyHandler) ListenAndServe(addr string) error {
 func (h *HttpProxyHandler) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// Set handshake deadline
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+
 	reader := bufio.NewReader(conn)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
@@ -86,6 +92,8 @@ func (h *HttpProxyHandler) handleConnection(conn net.Conn) {
 		}
 		return
 	}
+
+	conn.SetDeadline(time.Time{})
 
 	if req.Method == http.MethodConnect {
 		h.handleConnect(conn, req, slot)
@@ -128,16 +136,7 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	errc := make(chan error, 2)
-	go func() {
-		_, err := io.Copy(remote, conn)
-		errc <- err
-	}()
-	go func() {
-		_, err := io.Copy(conn, remote)
-		errc <- err
-	}()
-	<-errc
+	bridgeWithTimeout(conn, remote, h.idleTimeout)
 }
 
 func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *entity.Slot) {
@@ -164,6 +163,11 @@ func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot 
 	if err := req.Write(remote); err != nil {
 		h.sendResponse(conn, http.StatusBadGateway, "", "")
 		return
+	}
+
+	// Set read deadline on client for the response relay
+	if h.idleTimeout > 0 {
+		conn.SetDeadline(time.Now().Add(h.idleTimeout))
 	}
 
 	io.Copy(conn, remote)
