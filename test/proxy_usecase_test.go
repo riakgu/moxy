@@ -9,7 +9,7 @@ import (
 )
 
 func TestProxyUseCase_Authenticate_ValidRandom(t *testing.T) {
-	slotUC := usecase.NewSlotUseCase(nil, nil, nil)
+	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	slotUC.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
 	})
@@ -26,7 +26,7 @@ func TestProxyUseCase_Authenticate_ValidRandom(t *testing.T) {
 }
 
 func TestProxyUseCase_Authenticate_ValidSticky(t *testing.T) {
-	slotUC := usecase.NewSlotUseCase(nil, nil, nil)
+	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	slotUC.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
 		{Name: "slot3", PublicIPv4: "3.3.3.3", Status: entity.SlotStatusHealthy},

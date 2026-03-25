@@ -26,6 +26,7 @@ async function fetchStats() {
                 <td><span class="badge badge-${slot.status}">${slot.status}</span></td>
                 <td>${slot.active_connections}</td>
                 <td>${slot.last_checked_at ? new Date(slot.last_checked_at).toLocaleTimeString() : '-'}</td>
+                <td><button class="btn-changeip" onclick="changeIP('${slot.name}')" ${slot.status !== 'healthy' ? 'disabled' : ''}>Change IP</button></td>
             `;
             tbody.appendChild(tr);
         }
@@ -53,6 +54,33 @@ async function fetchHealth() {
 function refresh() {
     fetchStats();
     fetchHealth();
+}
+
+async function changeIP(slotName) {
+    const btn = document.querySelector(`button[onclick="changeIP('${slotName}')"]`);
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Changing...';
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/api/slots/${slotName}/changeip`, { method: 'POST' });
+        const json = await res.json();
+
+        if (!res.ok) {
+            alert(`Failed: ${json.errors || res.statusText}`);
+            return;
+        }
+
+        refresh();
+    } catch (err) {
+        alert(`Change IP failed: ${err.message}`);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Change IP';
+        }
+    }
 }
 
 refresh();

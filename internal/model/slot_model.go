@@ -12,3 +12,7 @@ type SlotResponse struct {
 type GetSlotRequest struct {
 	SlotName string `validate:"required" json:"-"`
 }
+
+type ChangeIPRequest struct {
+	SlotName string `validate:"required" json:"-"`
+}

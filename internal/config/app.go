@@ -43,7 +43,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	provisioner := netns.NewProvisioner(cfg.Logger)
 
 	// UseCases
-	slotUC := usecase.NewSlotUseCase(cfg.Logger, cfg.Validator, discovery)
+	slotUC := usecase.NewSlotUseCase(
+		cfg.Logger, cfg.Validator, discovery,
+		provisioner,
+		cfg.Viper.GetString("provision.interface"),
+		cfg.Viper.GetString("provision.dns64_server"),
+	)
 	proxyUC := usecase.NewProxyUseCase(
 		cfg.Logger, slotUC, dialer,
 		cfg.Viper.GetString("proxy.username"),

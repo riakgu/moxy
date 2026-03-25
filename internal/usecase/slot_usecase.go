@@ -3,6 +3,8 @@ package usecase
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,20 +18,28 @@ import (
 	"github.com/riakgu/moxy/internal/model/converter"
 )
 
+const slaacWaitDuration = 5 * time.Second
+
 type SlotUseCase struct {
-	Log       *logrus.Logger
-	Validate  *validator.Validate
-	Discovery *netns.Discovery
-	slots     map[string]*entity.Slot
-	mu        sync.RWMutex
+	Log         *logrus.Logger
+	Validate    *validator.Validate
+	Discovery   *netns.Discovery
+	Provisioner *netns.Provisioner
+	Interface   string
+	DNS64Server string
+	slots       map[string]*entity.Slot
+	mu          sync.RWMutex
 }
 
-func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery *netns.Discovery) *SlotUseCase {
+func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery *netns.Discovery, provisioner *netns.Provisioner, iface string, dns64 string) *SlotUseCase {
 	return &SlotUseCase{
-		Log:       log,
-		Validate:  validate,
-		Discovery: discovery,
-		slots:     make(map[string]*entity.Slot),
+		Log:         log,
+		Validate:    validate,
+		Discovery:   discovery,
+		Provisioner: provisioner,
+		Interface:   iface,
+		DNS64Server: dns64,
+		slots:       make(map[string]*entity.Slot),
 	}
 }
 
@@ -166,4 +176,89 @@ func (c *SlotUseCase) DecrementConnections(slotName string) {
 	if slot, ok := c.slots[slotName]; ok {
 		atomic.AddInt64(&slot.ActiveConnections, -1)
 	}
+}
+
+func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotResponse, error) {
+	if c.Validate != nil {
+		if err := c.Validate.Struct(request); err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse slot index from name (e.g., "slot3" -> 3)
+	indexStr := strings.TrimPrefix(request.SlotName, "slot")
+	slotIndex, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid slot name %s: cannot parse index", request.SlotName)
+	}
+
+	// Lock: check slot exists, no active connections, mark as discovering
+	c.mu.Lock()
+	slot, ok := c.slots[request.SlotName]
+	if !ok {
+		c.mu.Unlock()
+		return nil, model.ErrSlotNotFound
+	}
+	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
+		c.mu.Unlock()
+		return nil, model.ErrSlotBusy
+	}
+	slot.Status = entity.SlotStatusDiscovering
+	slot.PublicIPv4 = ""
+	slot.IPv6Address = ""
+	c.mu.Unlock()
+
+	if c.Log != nil {
+		c.Log.Infof("recycling slot %s (index %d)", request.SlotName, slotIndex)
+	}
+
+	// Destroy old namespace
+	if err := c.Provisioner.DestroySlot(request.SlotName); err != nil {
+		c.mu.Lock()
+		if s, ok := c.slots[request.SlotName]; ok {
+			s.Status = entity.SlotStatusUnhealthy
+		}
+		c.mu.Unlock()
+		return nil, fmt.Errorf("destroy slot %s: %w", request.SlotName, err)
+	}
+
+	// Recreate namespace with same index
+	if err := c.Provisioner.CreateSlot(slotIndex, c.Interface, c.DNS64Server); err != nil {
+		c.mu.Lock()
+		if s, ok := c.slots[request.SlotName]; ok {
+			s.Status = entity.SlotStatusUnhealthy
+		}
+		c.mu.Unlock()
+		return nil, fmt.Errorf("recreate slot %s: %w", request.SlotName, err)
+	}
+
+	// Wait for SLAAC address assignment
+	time.Sleep(slaacWaitDuration)
+
+	// Resolve new IPs
+	ipv4, ipv4Err := c.Discovery.ResolveSlotIP(request.SlotName)
+
+	// Lock: update slot with new IP data
+	c.mu.Lock()
+	slot = c.slots[request.SlotName]
+	if ipv4Err != nil {
+		if c.Log != nil {
+			c.Log.Warnf("slot %s: IPv4 resolution failed after recycle: %v", request.SlotName, ipv4Err)
+		}
+		slot.Status = entity.SlotStatusUnhealthy
+	} else {
+		ipv6, _ := c.Discovery.ResolveSlotIPv6(request.SlotName)
+		slot.PublicIPv4 = ipv4
+		slot.IPv6Address = ipv6
+		slot.Status = entity.SlotStatusHealthy
+	}
+	slot.LastCheckedAt = time.Now().UnixMilli()
+	response := converter.SlotToResponse(slot)
+	c.mu.Unlock()
+
+	if c.Log != nil {
+		c.Log.Infof("slot %s recycled: IPv4=%s status=%s", request.SlotName, response.PublicIPv4, response.Status)
+	}
+
+	return response, nil
 }

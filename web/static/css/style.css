@@ -110,3 +110,23 @@ th {
     background: #6e7681;
     color: #fff;
 }
+
+.btn-changeip {
+    background: #1f6feb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.btn-changeip:hover:not(:disabled) {
+    background: #388bfd;
+}
+
+.btn-changeip:disabled {
+    background: #30363d;
+    color: #6e7681;
+    cursor: not-allowed;
+}

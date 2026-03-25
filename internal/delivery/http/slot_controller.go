@@ -1,6 +1,8 @@
 package http
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 
@@ -41,6 +43,27 @@ func (c *SlotController) Get(ctx *fiber.Ctx) error {
 	response, err := c.UseCase.GetByName(request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
+	}
+
+	return ctx.JSON(model.WebResponse[*model.SlotResponse]{
+		Data: response,
+	})
+}
+
+func (c *SlotController) ChangeIP(ctx *fiber.Ctx) error {
+	request := &model.ChangeIPRequest{
+		SlotName: ctx.Params("slotName"),
+	}
+
+	response, err := c.UseCase.RecycleSlot(request)
+	if err != nil {
+		if errors.Is(err, model.ErrSlotNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, err.Error())
+		}
+		if errors.Is(err, model.ErrSlotBusy) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	return ctx.JSON(model.WebResponse[*model.SlotResponse]{

@@ -8,7 +8,7 @@ import (
 )
 
 func TestSlotUseCase_SelectRandom_ReturnsHealthySlot(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
 		{Name: "slot1", PublicIPv4: "2.2.2.2", Status: entity.SlotStatusHealthy},
@@ -24,7 +24,7 @@ func TestSlotUseCase_SelectRandom_ReturnsHealthySlot(t *testing.T) {
 }
 
 func TestSlotUseCase_SelectRandom_NoHealthySlots(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", Status: entity.SlotStatusUnhealthy},
 	})
@@ -36,7 +36,7 @@ func TestSlotUseCase_SelectRandom_NoHealthySlots(t *testing.T) {
 }
 
 func TestSlotUseCase_SelectByName_Found(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
 		{Name: "slot5", PublicIPv4: "5.5.5.5", Status: entity.SlotStatusHealthy},
@@ -52,7 +52,7 @@ func TestSlotUseCase_SelectByName_Found(t *testing.T) {
 }
 
 func TestSlotUseCase_SelectByName_NotFound(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", Status: entity.SlotStatusHealthy},
 	})
@@ -64,7 +64,7 @@ func TestSlotUseCase_SelectByName_NotFound(t *testing.T) {
 }
 
 func TestSlotUseCase_SelectByName_Unhealthy(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", Status: entity.SlotStatusUnhealthy},
 	})
@@ -76,7 +76,7 @@ func TestSlotUseCase_SelectByName_Unhealthy(t *testing.T) {
 }
 
 func TestSlotUseCase_ListAll(t *testing.T) {
-	uc := usecase.NewSlotUseCase(nil, nil, nil)
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 	uc.UpdateSlots([]*entity.Slot{
 		{Name: "slot0", Status: entity.SlotStatusHealthy},
 		{Name: "slot1", Status: entity.SlotStatusUnhealthy},

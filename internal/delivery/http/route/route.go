@@ -23,6 +23,7 @@ func (c *RouteConfig) Setup() {
 	api := c.App.Group("/api")
 	api.Get("/slots", c.SlotController.List)
 	api.Get("/slots/:slotName", c.SlotController.Get)
+	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)
 	api.Get("/stats", c.StatsController.Stats)
 	api.Get("/health", c.StatsController.Health)
 
