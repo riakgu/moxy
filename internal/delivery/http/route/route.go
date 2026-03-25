@@ -24,6 +24,9 @@ func (c *RouteConfig) Setup() {
 	api.Get("/slots", c.SlotController.List)
 	api.Get("/slots/:slotName", c.SlotController.Get)
 	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)
+	api.Post("/provision", c.SlotController.Provision)
+	api.Post("/teardown", c.SlotController.Teardown)
+	api.Delete("/slots/:slotName", c.SlotController.Delete)
 	api.Get("/stats", c.StatsController.Stats)
 	api.Get("/health", c.StatsController.Health)
 

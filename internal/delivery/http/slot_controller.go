@@ -70,3 +70,54 @@ func (c *SlotController) ChangeIP(ctx *fiber.Ctx) error {
 		Data: response,
 	})
 }
+
+func (c *SlotController) Provision(ctx *fiber.Ctx) error {
+	request := &model.ProvisionRequest{}
+	if err := ctx.BodyParser(request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	if request.Slots <= 0 {
+		request.Slots = 20
+	}
+
+	response, err := c.UseCase.ProvisionSlots(request.Interface, request.Slots, request.DNS64)
+	if err != nil {
+		c.Log.WithError(err).Error("provision failed")
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{
+		Data: response,
+	})
+}
+
+func (c *SlotController) Delete(ctx *fiber.Ctx) error {
+	slotName := ctx.Params("slotName")
+
+	if err := c.UseCase.DestroySlot(slotName); err != nil {
+		if errors.Is(err, model.ErrSlotNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, err.Error())
+		}
+		if errors.Is(err, model.ErrSlotBusy) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return ctx.JSON(model.WebResponse[string]{
+		Data: "slot deleted",
+	})
+}
+
+func (c *SlotController) Teardown(ctx *fiber.Ctx) error {
+	response, err := c.UseCase.TeardownAll()
+	if err != nil {
+		c.Log.WithError(err).Error("teardown failed")
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{
+		Data: response,
+	})
+}
