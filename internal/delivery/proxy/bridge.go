@@ -11,7 +11,7 @@ import (
 // If no data is transferred in either direction for idleTimeout duration,
 // both sides are closed to free resources.
 // An idleTimeout of 0 disables the idle timeout (bridge runs until one side closes).
-func bridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) {
+func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) {
 	var timer *time.Timer
 	var once sync.Once
 	closeAll := func() {

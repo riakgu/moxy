@@ -183,5 +183,5 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	conn.SetDeadline(time.Time{})
 
 	// 7. Bridge with idle timeout
-	bridgeWithTimeout(conn, remote, h.idleTimeout)
+	BridgeWithTimeout(conn, remote, h.idleTimeout)
 }

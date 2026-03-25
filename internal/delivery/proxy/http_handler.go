@@ -136,7 +136,7 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	bridgeWithTimeout(conn, remote, h.idleTimeout)
+	BridgeWithTimeout(conn, remote, h.idleTimeout)
 }
 
 func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *entity.Slot) {
