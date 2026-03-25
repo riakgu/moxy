@@ -16,3 +16,19 @@ type GetSlotRequest struct {
 type ChangeIPRequest struct {
 	SlotName string `validate:"required" json:"-"`
 }
+
+type ProvisionRequest struct {
+	Interface string `json:"interface" validate:"required"`
+	Slots     int    `json:"slots" validate:"required,min=1,max=500"`
+	DNS64     string `json:"dns64"`
+}
+
+type ProvisionResponse struct {
+	Created int `json:"created"`
+	Failed  int `json:"failed"`
+	Total   int `json:"total"`
+}
+
+type DeleteSlotRequest struct {
+	SlotName string `validate:"required" json:"-"`
+}
