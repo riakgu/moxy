@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ func dialInNamespace(addr string) (net.Conn, error) {
 		addr = net.JoinHostPort(host, port)
 	}
 
-	return net.Dial("tcp6", addr)
+	return net.DialTimeout("tcp6", addr, 10*time.Second)
 }
 
 func NewDialCommand() *cobra.Command {
