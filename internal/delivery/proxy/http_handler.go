@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -23,6 +25,9 @@ type HttpProxyHandler struct {
 	ProxyUC     *usecase.ProxyUseCase
 	sem         chan struct{}
 	idleTimeout time.Duration
+	ln          net.Listener
+	wg          sync.WaitGroup
+	closeCh     chan struct{}
 }
 
 func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *HttpProxyHandler {
@@ -31,6 +36,7 @@ func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem 
 		ProxyUC:     proxyUC,
 		sem:         sem,
 		idleTimeout: idleTimeout,
+		closeCh:     make(chan struct{}),
 	}
 }
 
@@ -39,18 +45,26 @@ func (h *HttpProxyHandler) ListenAndServe(addr string) error {
 	if err != nil {
 		return fmt.Errorf("http proxy listen: %w", err)
 	}
+	h.ln = ln
 	h.Log.Infof("HTTP proxy listening on %s", addr)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case <-h.closeCh:
+				return nil
+			default:
+			}
 			h.Log.WithError(err).Error("http proxy accept failed")
 			continue
 		}
 
 		select {
 		case h.sem <- struct{}{}:
+			h.wg.Add(1)
 			go func() {
+				defer h.wg.Done()
 				defer func() { <-h.sem }()
 				h.handleConnection(conn)
 			}()
@@ -181,4 +195,24 @@ func (h *HttpProxyHandler) sendResponse(conn net.Conn, status int, headerKey, he
 	}
 	resp += "\r\n"
 	conn.Write([]byte(resp))
+}
+
+func (h *HttpProxyHandler) Shutdown(ctx context.Context) error {
+	close(h.closeCh)
+	if h.ln != nil {
+		h.ln.Close()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
