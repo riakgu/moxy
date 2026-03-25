@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -99,6 +100,21 @@ func NewServeCommand(dashboardFS embed.FS) *cobra.Command {
 			close(stopDiscovery)
 
 			drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+			defer cancel()
+
+			// Stop accepting new proxy connections
+			log.Info("stopping SOCKS5 listener...")
+			if err := b.Socks5Handler.Shutdown(ctx); err != nil {
+				log.WithError(err).Warn("SOCKS5 shutdown: some connections did not drain in time")
+			}
+
+			log.Info("stopping HTTP proxy listener...")
+			if err := b.HttpProxyHandler.Shutdown(ctx); err != nil {
+				log.WithError(err).Warn("HTTP proxy shutdown: some connections did not drain in time")
+			}
+
+			// Stop API/dashboard
 			if err := app.ShutdownWithTimeout(drainTimeout); err != nil {
 				log.WithError(err).Error("API shutdown error")
 			}
