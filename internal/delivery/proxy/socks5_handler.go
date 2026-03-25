@@ -17,12 +17,14 @@ import (
 type Socks5Handler struct {
 	Log     *logrus.Logger
 	ProxyUC *usecase.ProxyUseCase
+	sem     chan struct{}
 }
 
-func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase) *Socks5Handler {
+func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}) *Socks5Handler {
 	return &Socks5Handler{
 		Log:     log,
 		ProxyUC: proxyUC,
+		sem:     sem,
 	}
 }
 
@@ -39,7 +41,17 @@ func (h *Socks5Handler) ListenAndServe(addr string) error {
 			h.Log.WithError(err).Error("socks5 accept failed")
 			continue
 		}
-		go h.handleConnection(conn)
+
+		select {
+		case h.sem <- struct{}{}:
+			go func() {
+				defer func() { <-h.sem }()
+				h.handleConnection(conn)
+			}()
+		default:
+			h.Log.Warn("socks5: connection rejected — too many concurrent connections")
+			conn.Close()
+		}
 	}
 }
 
