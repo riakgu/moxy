@@ -212,6 +212,15 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		c.Log.Infof("recycling slot %s (index %d)", request.SlotName, slotIndex)
 	}
 
+	// Remove old NDP proxy entry before destroying namespace
+	if slot.IPv6Address != "" && c.Provisioner != nil {
+		if err := c.Provisioner.RemoveNDPProxyEntry(slot.IPv6Address, c.Interface); err != nil {
+			if c.Log != nil {
+				c.Log.Warnf("slot %s: remove NDP proxy for %s: %v", request.SlotName, slot.IPv6Address, err)
+			}
+		}
+	}
+
 	// Destroy old namespace
 	if err := c.Provisioner.DestroySlot(request.SlotName); err != nil {
 		c.mu.Lock()
@@ -251,6 +260,15 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		slot.PublicIPv4 = ipv4
 		slot.IPv6Address = ipv6
 		slot.Status = entity.SlotStatusHealthy
+
+		// Add NDP proxy entry for new IPv6
+		if ipv6 != "" && c.Provisioner != nil {
+			if err := c.Provisioner.AddNDPProxyEntry(ipv6, c.Interface); err != nil {
+				if c.Log != nil {
+					c.Log.Warnf("slot %s: add NDP proxy for %s: %v", request.SlotName, ipv6, err)
+				}
+			}
+		}
 	}
 	slot.LastCheckedAt = time.Now().UnixMilli()
 	response := converter.SlotToResponse(slot)
