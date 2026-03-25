@@ -3,7 +3,8 @@
         "socks5_port": 1080,
         "http_port": 8080,
         "username": "admin",
-        "password": "changeme"
+        "password": "changeme",
+        "max_connections": 500
     },
     "api": {
         "port": 9090
