@@ -4,7 +4,9 @@
         "http_port": 8080,
         "username": "admin",
         "password": "changeme",
-        "max_connections": 500
+        "max_connections": 500,
+        "dial_timeout_seconds": 10,
+        "idle_timeout_seconds": 300
     },
     "api": {
         "port": 9090
