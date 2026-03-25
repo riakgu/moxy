@@ -17,11 +17,11 @@ import (
 )
 
 type BootstrapConfig struct {
-	Viper       *viper.Viper
-	Logger      *logrus.Logger
-	Validator   *validator.Validate
-	Fiber       *fiber.App
-	DashboardFS embed.FS
+	Viper     *viper.Viper
+	Logger    *logrus.Logger
+	Validator *validator.Validate
+	Fiber     *fiber.App
+	StaticFS  embed.FS
 }
 
 type BootstrapResult struct {
@@ -64,7 +64,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		SlotController:  slotCtrl,
 		StatsController: statsCtrl,
 		Log:             cfg.Logger,
-		DashboardFS:     cfg.DashboardFS,
+		StaticFS:        cfg.StaticFS,
 	}
 
 	return &BootstrapResult{

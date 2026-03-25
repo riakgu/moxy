@@ -16,7 +16,7 @@ type RouteConfig struct {
 	SlotController  *httpdelivery.SlotController
 	StatsController *httpdelivery.StatsController
 	Log             *logrus.Logger
-	DashboardFS     embed.FS
+	StaticFS        embed.FS
 }
 
 func (c *RouteConfig) Setup() {
@@ -27,8 +27,8 @@ func (c *RouteConfig) Setup() {
 	api.Get("/health", c.StatsController.Health)
 
 	c.App.Use("/", filesystem.New(filesystem.Config{
-		Root:       http.FS(c.DashboardFS),
-		PathPrefix: "dashboard",
+		Root:       http.FS(c.StaticFS),
+		PathPrefix: "static",
 		Browse:     false,
 		Index:      "index.html",
 	}))

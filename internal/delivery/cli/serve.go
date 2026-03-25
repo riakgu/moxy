@@ -24,11 +24,11 @@ func NewServeCommand(dashboardFS embed.FS) *cobra.Command {
 			app := config.NewFiber(v)
 
 			b := config.Bootstrap(&config.BootstrapConfig{
-				Viper:       v,
-				Logger:      log,
-				Validator:   validate,
-				Fiber:       app,
-				DashboardFS: dashboardFS,
+				Viper:     v,
+				Logger:    log,
+				Validator: validate,
+				Fiber:     app,
+				StaticFS:  dashboardFS,
 			})
 
 			b.RouteConfig.Setup()

@@ -16,7 +16,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(cli.NewServeCommand(web.DashboardFS))
+	rootCmd.AddCommand(cli.NewServeCommand(web.StaticFS))
 	rootCmd.AddCommand(cli.NewProvisionCommand())
 	rootCmd.AddCommand(cli.NewTeardownCommand())
 	rootCmd.AddCommand(cli.NewDialCommand())
