@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -15,16 +15,18 @@ import (
 )
 
 type Socks5Handler struct {
-	Log     *logrus.Logger
-	ProxyUC *usecase.ProxyUseCase
-	sem     chan struct{}
+	Log         *logrus.Logger
+	ProxyUC     *usecase.ProxyUseCase
+	sem         chan struct{}
+	idleTimeout time.Duration
 }
 
-func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}) *Socks5Handler {
+func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *Socks5Handler {
 	return &Socks5Handler{
-		Log:     log,
-		ProxyUC: proxyUC,
-		sem:     sem,
+		Log:         log,
+		ProxyUC:     proxyUC,
+		sem:         sem,
+		idleTimeout: idleTimeout,
 	}
 }
 
@@ -58,13 +60,15 @@ func (h *Socks5Handler) ListenAndServe(addr string) error {
 func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// Set handshake deadline — 30 seconds for the entire auth+connect phase
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+
 	// 1. Greeting: client sends version + auth methods
 	buf := make([]byte, 258)
 	n, err := conn.Read(buf)
 	if err != nil || n < 3 || buf[0] != 0x05 {
 		return
 	}
-
 	// Require username/password auth (0x02)
 	hasUserPassAuth := false
 	nmethods := int(buf[1])
@@ -171,23 +175,13 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	}
 	defer remote.Close()
 
-	// 5. Success reply
-	reply := []byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0} // success, bound addr 0.0.0.0:0
+	/// 5. Success reply
+	reply := []byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
 	conn.Write(reply)
 
-	// 6. Bridge
-	h.bridge(conn, remote)
-}
+	// 6. Clear handshake deadline before bridge
+	conn.SetDeadline(time.Time{})
 
-func (h *Socks5Handler) bridge(client net.Conn, remote io.ReadWriteCloser) {
-	errc := make(chan error, 2)
-	go func() {
-		_, err := io.Copy(remote, client)
-		errc <- err
-	}()
-	go func() {
-		_, err := io.Copy(client, remote)
-		errc <- err
-	}()
-	<-errc
+	// 7. Bridge with idle timeout
+	bridgeWithTimeout(conn, remote, h.idleTimeout)
 }
