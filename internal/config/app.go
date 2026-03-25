@@ -3,6 +3,7 @@ package config
 import (
 	"embed"
 	"os"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -63,13 +64,21 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	proxySem := make(chan struct{}, maxConns)
 	cfg.Logger.Infof("proxy connection limit: %d", maxConns)
 
+	// Idle timeout
+	idleTimeoutSec := cfg.Viper.GetInt("proxy.idle_timeout_seconds")
+	if idleTimeoutSec <= 0 {
+		idleTimeoutSec = 300
+	}
+	idleTimeout := time.Duration(idleTimeoutSec) * time.Second
+	cfg.Logger.Infof("proxy idle timeout: %s", idleTimeout)
+
 	// Controllers
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
 
 	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem)
+	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
+	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem, idleTimeout)
 
 	// Routes
 	routeConfig := &route.RouteConfig{
