@@ -8,4 +8,5 @@ var (
 	ErrSlotNotFound       = errors.New("slot not found")
 	ErrSlotUnhealthy      = errors.New("slot is unhealthy")
 	ErrSlotBusy           = errors.New("slot has active connections")
+	ErrTooManyConnections = errors.New("too many concurrent connections")
 )
