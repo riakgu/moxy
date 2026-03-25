@@ -20,12 +20,14 @@ import (
 type HttpProxyHandler struct {
 	Log     *logrus.Logger
 	ProxyUC *usecase.ProxyUseCase
+	sem     chan struct{}
 }
 
-func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase) *HttpProxyHandler {
+func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}) *HttpProxyHandler {
 	return &HttpProxyHandler{
 		Log:     log,
 		ProxyUC: proxyUC,
+		sem:     sem,
 	}
 }
 
@@ -42,7 +44,18 @@ func (h *HttpProxyHandler) ListenAndServe(addr string) error {
 			h.Log.WithError(err).Error("http proxy accept failed")
 			continue
 		}
-		go h.handleConnection(conn)
+
+		select {
+		case h.sem <- struct{}{}:
+			go func() {
+				defer func() { <-h.sem }()
+				h.handleConnection(conn)
+			}()
+		default:
+			h.Log.Warn("http proxy: connection rejected — too many concurrent connections")
+			h.sendResponse(conn, http.StatusServiceUnavailable, "", "")
+			conn.Close()
+		}
 	}
 }
 
