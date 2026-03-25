@@ -14,12 +14,16 @@ import (
 type Discovery struct {
 	Log         *logrus.Logger
 	Concurrency int
+	Provisioner *Provisioner
+	Interface   string
 }
 
-func NewDiscovery(log *logrus.Logger, concurrency int) *Discovery {
+func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string) *Discovery {
 	return &Discovery{
 		Log:         log,
 		Concurrency: concurrency,
+		Provisioner: provisioner,
+		Interface:   iface,
 	}
 }
 
@@ -94,6 +98,13 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*entity.Slot {
 			}
 
 			ipv6, _ := d.ResolveSlotIPv6(slotName)
+
+			// Add NDP proxy entry for the slot's IPv6 address
+			if ipv6 != "" && d.Provisioner != nil {
+				if err := d.Provisioner.AddNDPProxyEntry(ipv6, d.Interface); err != nil {
+					d.Log.Warnf("discovery: %s NDP proxy entry failed: %v", slotName, err)
+				}
+			}
 
 			mu.Lock()
 			results = append(results, &entity.Slot{

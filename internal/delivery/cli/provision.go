@@ -33,7 +33,7 @@ func NewProvisionCommand() *cobra.Command {
 			}
 
 			provisioner := netns.NewProvisioner(log)
-			discovery := netns.NewDiscovery(log, 20)
+			discovery := netns.NewDiscovery(log, 20, provisioner, iface)
 
 			log.Infof("enabling NDP proxy on %s", iface)
 			if err := provisioner.EnableNDPProxy(iface); err != nil {

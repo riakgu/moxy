@@ -39,9 +39,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	binaryPath, _ := os.Executable()
 
 	// Gateways
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"))
-	dialer := netns.NewDialer(cfg.Logger, binaryPath)
 	provisioner := netns.NewProvisioner(cfg.Logger)
+	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"))
+	dialer := netns.NewDialer(cfg.Logger, binaryPath)
 
 	// UseCases
 	slotUC := usecase.NewSlotUseCase(
