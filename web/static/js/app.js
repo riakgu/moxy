@@ -26,7 +26,10 @@ async function fetchStats() {
                 <td><span class="badge badge-${slot.status}">${slot.status}</span></td>
                 <td>${slot.active_connections}</td>
                 <td>${slot.last_checked_at ? new Date(slot.last_checked_at).toLocaleTimeString() : '-'}</td>
-                <td><button class="btn-changeip" onclick="changeIP('${slot.name}')" ${slot.status !== 'healthy' ? 'disabled' : ''}>Change IP</button></td>
+                <td class="actions-cell">
+                    <button class="btn-changeip" onclick="changeIP('${slot.name}')" ${slot.status !== 'healthy' ? 'disabled' : ''}>Change IP</button>
+                    <button class="btn btn-sm btn-delete" onclick="deleteSlot('${slot.name}')">Delete</button>
+                </td>
             `;
             tbody.appendChild(tr);
         }
@@ -54,6 +57,91 @@ async function fetchHealth() {
 function refresh() {
     fetchStats();
     fetchHealth();
+}
+
+function setStatus(msg, isError) {
+    const el = document.getElementById('provision-status');
+    el.textContent = msg;
+    el.style.color = isError ? '#f85149' : '#58a6ff';
+}
+
+async function provisionSlots() {
+    const iface = document.getElementById('provision-interface').value || 'usb0';
+    const slots = parseInt(document.getElementById('provision-slots').value) || 5;
+    const btn = document.getElementById('btn-provision');
+
+    btn.disabled = true;
+    btn.textContent = 'Provisioning...';
+    setStatus(`Creating ${slots} slots on ${iface}...`, false);
+
+    try {
+        const res = await fetch(`${API_BASE}/api/provision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interface: iface, slots: slots })
+        });
+        const json = await res.json();
+
+        if (!res.ok) {
+            setStatus(`Provision failed: ${json.errors || res.statusText}`, true);
+            return;
+        }
+
+        const d = json.data;
+        setStatus(`Done: ${d.created} created, ${d.failed} failed, ${d.total} total`, false);
+        refresh();
+    } catch (err) {
+        setStatus(`Provision error: ${err.message}`, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Provision';
+    }
+}
+
+async function teardownAll() {
+    if (!confirm('Destroy ALL slots? Active connections will be dropped.')) return;
+
+    const btn = document.getElementById('btn-teardown');
+    btn.disabled = true;
+    btn.textContent = 'Tearing down...';
+    setStatus('Destroying all slots...', false);
+
+    try {
+        const res = await fetch(`${API_BASE}/api/teardown`, { method: 'POST' });
+        const json = await res.json();
+
+        if (!res.ok) {
+            setStatus(`Teardown failed: ${json.errors || res.statusText}`, true);
+            return;
+        }
+
+        const d = json.data;
+        setStatus(`Teardown complete: ${d.total} destroyed, ${d.failed} failed`, false);
+        refresh();
+    } catch (err) {
+        setStatus(`Teardown error: ${err.message}`, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Teardown All';
+    }
+}
+
+async function deleteSlot(slotName) {
+    if (!confirm(`Delete ${slotName}?`)) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/api/slots/${slotName}`, { method: 'DELETE' });
+        const json = await res.json();
+
+        if (!res.ok) {
+            alert(`Delete failed: ${json.errors || res.statusText}`);
+            return;
+        }
+
+        refresh();
+    } catch (err) {
+        alert(`Delete error: ${err.message}`);
+    }
 }
 
 async function changeIP(slotName) {
