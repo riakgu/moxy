@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -19,6 +21,9 @@ type Socks5Handler struct {
 	ProxyUC     *usecase.ProxyUseCase
 	sem         chan struct{}
 	idleTimeout time.Duration
+	ln          net.Listener
+	wg          sync.WaitGroup
+	closeCh     chan struct{}
 }
 
 func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *Socks5Handler {
@@ -27,6 +32,7 @@ func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem cha
 		ProxyUC:     proxyUC,
 		sem:         sem,
 		idleTimeout: idleTimeout,
+		closeCh:     make(chan struct{}),
 	}
 }
 
@@ -35,18 +41,26 @@ func (h *Socks5Handler) ListenAndServe(addr string) error {
 	if err != nil {
 		return fmt.Errorf("socks5 listen: %w", err)
 	}
+	h.ln = ln
 	h.Log.Infof("SOCKS5 proxy listening on %s", addr)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case <-h.closeCh:
+				return nil
+			default:
+			}
 			h.Log.WithError(err).Error("socks5 accept failed")
 			continue
 		}
 
 		select {
 		case h.sem <- struct{}{}:
+			h.wg.Add(1)
 			go func() {
+				defer h.wg.Done()
 				defer func() { <-h.sem }()
 				h.handleConnection(conn)
 			}()
@@ -184,4 +198,27 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 
 	// 7. Bridge with idle timeout
 	BridgeWithTimeout(conn, remote, h.idleTimeout)
+}
+
+// Shutdown stops accepting new connections and waits for active ones to drain.
+// It blocks until all connections complete or the context is cancelled.
+func (h *Socks5Handler) Shutdown(ctx context.Context) error {
+	close(h.closeCh)
+	if h.ln != nil {
+		h.ln.Close()
+	}
+
+	// Wait for active connections to drain or context to expire
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
