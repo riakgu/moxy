@@ -280,3 +280,116 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 
 	return response, nil
 }
+
+func (c *SlotUseCase) ProvisionSlots(iface string, count int, dns64 string) (*model.ProvisionResponse, error) {
+	if iface == "" {
+		iface = c.Interface
+	}
+	if dns64 == "" {
+		dns64 = c.DNS64Server
+	}
+
+	// Enable NDP proxy on the interface
+	if err := c.Provisioner.EnableNDPProxy(iface); err != nil {
+		return nil, fmt.Errorf("enable NDP proxy: %w", err)
+	}
+
+	// Find the next available slot index
+	existing, _ := c.Provisioner.ListSlotNamespaces()
+	startIndex := len(existing)
+
+	created := 0
+	failed := 0
+
+	for i := 0; i < count; i++ {
+		idx := startIndex + i
+		if c.Log != nil {
+			c.Log.Infof("provisioning slot%d (%d/%d)", idx, i+1, count)
+		}
+		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
+			if c.Log != nil {
+				c.Log.WithError(err).Errorf("failed to provision slot%d", idx)
+			}
+			failed++
+			continue
+		}
+		created++
+	}
+
+	// Wait for SLAAC
+	time.Sleep(slaacWaitDuration)
+
+	// Discover all slots (including previously existing ones)
+	allNames, _ := c.Provisioner.ListSlotNamespaces()
+	discovered := c.Discovery.DiscoverAll(allNames)
+	c.UpdateSlots(discovered)
+
+	return &model.ProvisionResponse{
+		Created: created,
+		Failed:  failed,
+		Total:   len(allNames),
+	}, nil
+}
+
+func (c *SlotUseCase) DestroySlot(slotName string) error {
+	c.mu.Lock()
+	slot, ok := c.slots[slotName]
+	if !ok {
+		c.mu.Unlock()
+		return model.ErrSlotNotFound
+	}
+	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
+		c.mu.Unlock()
+		return model.ErrSlotBusy
+	}
+
+	// Remove NDP proxy entry before destroying
+	ipv6 := slot.IPv6Address
+	delete(c.slots, slotName)
+	c.mu.Unlock()
+
+	if ipv6 != "" {
+		if err := c.Provisioner.RemoveNDPProxyEntry(ipv6, c.Interface); err != nil {
+			if c.Log != nil {
+				c.Log.Warnf("remove NDP proxy for %s: %v", slotName, err)
+			}
+		}
+	}
+
+	if err := c.Provisioner.DestroySlot(slotName); err != nil {
+		return fmt.Errorf("destroy %s: %w", slotName, err)
+	}
+
+	if c.Log != nil {
+		c.Log.Infof("slot %s destroyed", slotName)
+	}
+	return nil
+}
+
+func (c *SlotUseCase) TeardownAll() (*model.ProvisionResponse, error) {
+	c.mu.Lock()
+	names := make([]string, 0, len(c.slots))
+	for name := range c.slots {
+		names = append(names, name)
+	}
+	c.mu.Unlock()
+
+	destroyed := 0
+	failed := 0
+	for _, name := range names {
+		if err := c.DestroySlot(name); err != nil {
+			if c.Log != nil {
+				c.Log.WithError(err).Warnf("teardown: failed to destroy %s", name)
+			}
+			failed++
+			continue
+		}
+		destroyed++
+	}
+
+	return &model.ProvisionResponse{
+		Created: 0,
+		Failed:  failed,
+		Total:   destroyed,
+	}, nil
+}
