@@ -58,6 +58,40 @@ func (p *Provisioner) EnableNDPProxy(iface string) error {
 	return nil
 }
 
+func (p *Provisioner) AddNDPProxyEntry(ipv6 string, iface string) error {
+	if ipv6 == "" {
+		return nil
+	}
+	cmd := exec.Command("ip", "-6", "neigh", "add", "proxy", ipv6, "dev", iface)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		outStr := strings.TrimSpace(string(output))
+		// Idempotent: ignore if entry already exists
+		if strings.Contains(outStr, "File exists") {
+			return nil
+		}
+		return fmt.Errorf("add NDP proxy for %s on %s: %w (output: %s)", ipv6, iface, err, outStr)
+	}
+	p.Log.Debugf("NDP proxy entry added: %s on %s", ipv6, iface)
+	return nil
+}
+
+func (p *Provisioner) RemoveNDPProxyEntry(ipv6 string, iface string) error {
+	if ipv6 == "" {
+		return nil
+	}
+	cmd := exec.Command("ip", "-6", "neigh", "del", "proxy", ipv6, "dev", iface)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		outStr := strings.TrimSpace(string(output))
+		// Idempotent: ignore if entry doesn't exist
+		if strings.Contains(outStr, "No such file or directory") {
+			return nil
+		}
+		return fmt.Errorf("remove NDP proxy for %s on %s: %w (output: %s)", ipv6, iface, err, outStr)
+	}
+	p.Log.Debugf("NDP proxy entry removed: %s on %s", ipv6, iface)
+	return nil
+}
+
 func (p *Provisioner) DestroySlot(name string) error {
 	cmd := exec.Command("ip", "netns", "del", name)
 	if output, err := cmd.CombinedOutput(); err != nil {
