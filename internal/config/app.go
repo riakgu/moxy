@@ -55,13 +55,21 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		cfg.Viper.GetString("proxy.password"),
 	)
 
+	// Shared connection semaphore
+	maxConns := cfg.Viper.GetInt("proxy.max_connections")
+	if maxConns <= 0 {
+		maxConns = 500
+	}
+	proxySem := make(chan struct{}, maxConns)
+	cfg.Logger.Infof("proxy connection limit: %d", maxConns)
+
 	// Controllers
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
 
 	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC)
+	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem)
+	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem)
 
 	// Routes
 	routeConfig := &route.RouteConfig{
