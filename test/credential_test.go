@@ -3,11 +3,11 @@ package test
 import (
 	"testing"
 
-	"github.com/riakgu/moxy/internal/model"
+	"github.com/riakgu/moxy/internal/delivery/proxy"
 )
 
 func TestParseProxyAuth_RandomMode(t *testing.T) {
-	req := model.ParseProxyAuth("admin", "changeme")
+	req := proxy.ParseProxyAuth("admin", "changeme")
 	if req.SlotName != "" {
 		t.Errorf("expected empty slot for random mode, got %q", req.SlotName)
 	}
@@ -17,7 +17,7 @@ func TestParseProxyAuth_RandomMode(t *testing.T) {
 }
 
 func TestParseProxyAuth_StickyMode(t *testing.T) {
-	req := model.ParseProxyAuth("admin-slot5", "changeme")
+	req := proxy.ParseProxyAuth("admin-slot5", "changeme")
 	if req.SlotName != "slot5" {
 		t.Errorf("expected slot 'slot5', got %q", req.SlotName)
 	}
@@ -27,7 +27,7 @@ func TestParseProxyAuth_StickyMode(t *testing.T) {
 }
 
 func TestParseProxyAuth_StickyModeHyphenatedUsername(t *testing.T) {
-	req := model.ParseProxyAuth("my-admin-slot12", "changeme")
+	req := proxy.ParseProxyAuth("my-admin-slot12", "changeme")
 	if req.SlotName != "slot12" {
 		t.Errorf("expected slot 'slot12', got %q", req.SlotName)
 	}
@@ -37,7 +37,7 @@ func TestParseProxyAuth_StickyModeHyphenatedUsername(t *testing.T) {
 }
 
 func TestParseProxyAuth_NoSlotSuffix(t *testing.T) {
-	req := model.ParseProxyAuth("admin-something", "changeme")
+	req := proxy.ParseProxyAuth("admin-something", "changeme")
 	if req.SlotName != "" {
 		t.Errorf("expected empty slot for non-slot suffix, got %q", req.SlotName)
 	}
@@ -45,3 +45,4 @@ func TestParseProxyAuth_NoSlotSuffix(t *testing.T) {
 		t.Errorf("expected username 'admin-something', got %q", req.Username)
 	}
 }
+
