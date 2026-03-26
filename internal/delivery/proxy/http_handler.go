@@ -149,7 +149,8 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := BridgeWithTimeout(conn, remote, h.idleTimeout)
+	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 }
 
 func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
@@ -183,7 +184,8 @@ func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot 
 		conn.SetDeadline(time.Now().Add(h.idleTimeout))
 	}
 
-	io.Copy(conn, remote)
+	received, _ := io.Copy(conn, remote)
+	h.ProxyUC.AddTraffic(slot.Name, 0, received)
 }
 
 func (h *HttpProxyHandler) sendResponse(conn net.Conn, status int, headerKey, headerVal string) {

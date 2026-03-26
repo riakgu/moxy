@@ -74,6 +74,10 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWrite
 	}, nil
 }
 
+func (c *ProxyUseCase) AddTraffic(slotName string, bytesSent, bytesReceived int64) {
+	c.SlotUC.AddTraffic(slotName, bytesSent, bytesReceived)
+}
+
 type trackedConn struct {
 	io.ReadWriteCloser
 	slotName string

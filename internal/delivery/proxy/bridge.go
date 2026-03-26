@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// bridgeWithTimeout copies data bidirectionally between client and remote.
+// BridgeWithTimeout copies data bidirectionally between client and remote.
 // If no data is transferred in either direction for idleTimeout duration,
 // both sides are closed to free resources.
 // An idleTimeout of 0 disables the idle timeout (bridge runs until one side closes).
-func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) {
+// Returns bytes sent (client→remote) and bytes received (remote→client).
+func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) (sent int64, received int64) {
 	var timer *time.Timer
 	var once sync.Once
 	closeAll := func() {
@@ -31,28 +32,35 @@ func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout t
 		}
 	}
 
-	errc := make(chan error, 2)
+	done := make(chan struct{}, 2)
 
-	// client → remote
+	// client → remote (sent/upload)
 	go func() {
-		_, err := copyWithCallback(remote, client, resetTimer)
-		errc <- err
+		n, _ := copyWithCallback(remote, client, resetTimer)
+		sent = n
+		done <- struct{}{}
 	}()
 
-	// remote → client
+	// remote → client (received/download)
 	go func() {
-		_, err := copyWithCallback(client, remote, resetTimer)
-		errc <- err
+		n, _ := copyWithCallback(client, remote, resetTimer)
+		received = n
+		done <- struct{}{}
 	}()
 
 	// Wait for first copy to finish
-	<-errc
+	<-done
 
 	// Stop timer and close both sides
 	if timer != nil {
 		timer.Stop()
 	}
 	once.Do(closeAll)
+
+	// Wait for second copy to finish
+	<-done
+
+	return sent, received
 }
 
 // copyWithCallback is like io.Copy but calls onData after each successful read/write.

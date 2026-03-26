@@ -1,5 +1,12 @@
 const API_BASE = '';
 
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
 async function fetchStats() {
     try {
         const res = await fetch(`${API_BASE}/api/stats`);
@@ -25,6 +32,7 @@ async function fetchStats() {
                 <td>${slot.public_ipv4 || '-'}</td>
                 <td><span class="badge badge-${slot.status}">${slot.status}</span></td>
                 <td>${slot.active_connections}</td>
+                <td>${formatBytes(slot.bytes_sent)} ↑ / ${formatBytes(slot.bytes_received)} ↓</td>
                 <td>${slot.last_checked_at ? new Date(slot.last_checked_at).toLocaleTimeString() : '-'}</td>
                 <td class="actions-cell">
                     <button class="btn-changeip" onclick="changeIP('${slot.name}')" ${slot.status !== 'healthy' ? 'disabled' : ''}>Change IP</button>

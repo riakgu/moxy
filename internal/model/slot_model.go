@@ -6,6 +6,8 @@ type SlotResponse struct {
 	PublicIPv4        string `json:"public_ipv4"`
 	Status            string `json:"status"`
 	ActiveConnections int64  `json:"active_connections"`
+	BytesSent         int64  `json:"bytes_sent"`
+	BytesReceived     int64  `json:"bytes_received"`
 	LastCheckedAt     int64  `json:"last_checked_at"`
 }
 

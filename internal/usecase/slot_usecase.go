@@ -200,6 +200,16 @@ func (c *SlotUseCase) DecrementConnections(slotName string) {
 	}
 }
 
+func (c *SlotUseCase) AddTraffic(slotName string, bytesSent, bytesReceived int64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if slot, ok := c.slots[slotName]; ok {
+		atomic.AddInt64(&slot.BytesSent, bytesSent)
+		atomic.AddInt64(&slot.BytesReceived, bytesReceived)
+	}
+}
+
 func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotResponse, error) {
 	if c.Validate != nil {
 		if err := c.Validate.Struct(request); err != nil {

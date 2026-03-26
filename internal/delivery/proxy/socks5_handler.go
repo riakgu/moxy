@@ -197,7 +197,8 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	conn.SetDeadline(time.Time{})
 
 	// 7. Bridge with idle timeout
-	BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := BridgeWithTimeout(conn, remote, h.idleTimeout)
+	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 }
 
 // Shutdown stops accepting new connections and waits for active ones to drain.

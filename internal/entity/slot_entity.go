@@ -12,5 +12,7 @@ type Slot struct {
 	PublicIPv4        string
 	Status            string
 	ActiveConnections int64
+	BytesSent         int64
+	BytesReceived     int64
 	LastCheckedAt     int64
 }
