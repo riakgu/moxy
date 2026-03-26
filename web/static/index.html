@@ -63,6 +63,45 @@
         </table>
     </section>
 
+    <section id="users-section">
+        <div class="section-header">
+            <h2>Proxy Users</h2>
+            <button class="btn btn-primary btn-sm" onclick="showAddUser()">+ Add User</button>
+        </div>
+
+        <div id="user-form" class="user-form" style="display:none;">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <label for="user-username">Username</label>
+                    <input type="text" id="user-username" placeholder="username">
+                </div>
+                <div class="toolbar-group">
+                    <label for="user-password">Password</label>
+                    <input type="password" id="user-password" placeholder="password">
+                </div>
+                <div class="toolbar-group">
+                    <label for="user-device">Device Binding</label>
+                    <input type="text" id="user-device" placeholder="(optional)">
+                </div>
+                <button class="btn btn-primary" id="btn-save-user" onclick="saveUser()">Create</button>
+                <button class="btn btn-sm" style="background:#30363d;color:#c9d1d9;" onclick="hideUserForm()">Cancel</button>
+            </div>
+            <div id="user-status" class="status-msg"></div>
+        </div>
+
+        <table id="users-table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Device Binding</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+        </table>
+    </section>
+
     <script src="js/app.js"></script>
 </body>
 

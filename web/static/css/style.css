@@ -233,3 +233,47 @@ th {
     display: flex;
     gap: 6px;
 }
+
+/* Users section */
+#users-section {
+    margin-top: 24px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.section-header h2 {
+    margin-bottom: 0;
+}
+
+.user-form {
+    margin-bottom: 12px;
+}
+
+.user-form .toolbar-group input {
+    width: 140px;
+}
+
+.badge-enabled {
+    background: #238636;
+    color: #fff;
+}
+
+.badge-disabled {
+    background: #6e7681;
+    color: #fff;
+}
+
+.btn-edit {
+    background: transparent;
+    color: #58a6ff;
+    border: 1px solid #58a6ff;
+}
+
+.btn-edit:hover:not(:disabled) {
+    background: #58a6ff22;
+}

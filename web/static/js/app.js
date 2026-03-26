@@ -57,6 +57,7 @@ async function fetchHealth() {
 function refresh() {
     fetchStats();
     fetchHealth();
+    fetchUsers();
 }
 
 function setStatus(msg, isError) {
@@ -64,6 +65,172 @@ function setStatus(msg, isError) {
     el.textContent = msg;
     el.style.color = isError ? '#f85149' : '#58a6ff';
 }
+
+function setUserStatus(msg, isError) {
+    const el = document.getElementById('user-status');
+    el.textContent = msg;
+    el.style.color = isError ? '#f85149' : '#58a6ff';
+}
+
+// ——— Users ———
+
+let editingUser = null;
+
+async function fetchUsers() {
+    try {
+        const res = await fetch(`${API_BASE}/api/users`);
+        const json = await res.json();
+        const users = json.data || [];
+
+        const tbody = document.getElementById('users-body');
+        tbody.innerHTML = '';
+
+        users.sort((a, b) => a.username.localeCompare(b.username));
+
+        for (const user of users) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${user.username}</td>
+                <td>${user.device_binding || '—'}</td>
+                <td><span class="badge badge-${user.enabled ? 'enabled' : 'disabled'}">${user.enabled ? 'enabled' : 'disabled'}</span></td>
+                <td class="actions-cell">
+                    <button class="btn btn-sm btn-edit" onclick="editUser('${user.username}')">Edit</button>
+                    <button class="btn btn-sm btn-changeip" onclick="toggleUser('${user.username}', ${!user.enabled})">${user.enabled ? 'Disable' : 'Enable'}</button>
+                    <button class="btn btn-sm btn-delete" onclick="deleteUser('${user.username}')">Delete</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+    } catch (err) {
+        console.error('Failed to fetch users:', err);
+    }
+}
+
+function showAddUser() {
+    editingUser = null;
+    document.getElementById('user-username').value = '';
+    document.getElementById('user-password').value = '';
+    document.getElementById('user-device').value = '';
+    document.getElementById('user-username').disabled = false;
+    document.getElementById('btn-save-user').textContent = 'Create';
+    document.getElementById('user-form').style.display = 'block';
+    setUserStatus('', false);
+}
+
+async function editUser(username) {
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${username}`);
+        const json = await res.json();
+        const user = json.data;
+
+        editingUser = username;
+        document.getElementById('user-username').value = user.username;
+        document.getElementById('user-username').disabled = true;
+        document.getElementById('user-password').value = '';
+        document.getElementById('user-device').value = user.device_binding || '';
+        document.getElementById('btn-save-user').textContent = 'Update';
+        document.getElementById('user-form').style.display = 'block';
+        setUserStatus('Leave password empty to keep current', false);
+    } catch (err) {
+        alert(`Failed to load user: ${err.message}`);
+    }
+}
+
+function hideUserForm() {
+    document.getElementById('user-form').style.display = 'none';
+    editingUser = null;
+}
+
+async function saveUser() {
+    const username = document.getElementById('user-username').value.trim();
+    const password = document.getElementById('user-password').value;
+    const device = document.getElementById('user-device').value.trim();
+
+    if (!username) {
+        setUserStatus('Username is required', true);
+        return;
+    }
+
+    const btn = document.getElementById('btn-save-user');
+    btn.disabled = true;
+
+    try {
+        if (editingUser) {
+            const body = { device_binding: device };
+            if (password) body.password = password;
+            const res = await fetch(`${API_BASE}/api/users/${editingUser}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+                const json = await res.json();
+                setUserStatus(`Update failed: ${json.errors || res.statusText}`, true);
+                return;
+            }
+            setUserStatus('User updated', false);
+        } else {
+            if (!password) {
+                setUserStatus('Password is required for new users', true);
+                return;
+            }
+            const res = await fetch(`${API_BASE}/api/users`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, device_binding: device, enabled: true })
+            });
+            if (!res.ok) {
+                const json = await res.json();
+                setUserStatus(`Create failed: ${json.errors || res.statusText}`, true);
+                return;
+            }
+            setUserStatus('User created', false);
+        }
+
+        hideUserForm();
+        fetchUsers();
+    } catch (err) {
+        setUserStatus(`Error: ${err.message}`, true);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function toggleUser(username, enabled) {
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${username}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        if (!res.ok) {
+            const json = await res.json();
+            alert(`Toggle failed: ${json.errors || res.statusText}`);
+            return;
+        }
+        fetchUsers();
+    } catch (err) {
+        alert(`Toggle error: ${err.message}`);
+    }
+}
+
+async function deleteUser(username) {
+    if (!confirm(`Delete user "${username}"?`)) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${username}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const json = await res.json();
+            alert(`Delete failed: ${json.errors || res.statusText}`);
+            return;
+        }
+        fetchUsers();
+    } catch (err) {
+        alert(`Delete error: ${err.message}`);
+    }
+}
+
+// ——— Slots ———
 
 async function provisionSlots() {
     const iface = document.getElementById('provision-interface').value || 'usb0';
