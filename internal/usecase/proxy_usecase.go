@@ -6,8 +6,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
+	"github.com/riakgu/moxy/internal/model/converter"
 )
 
 type ProxyUseCase struct {
@@ -28,7 +28,7 @@ func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer,
 	}
 }
 
-func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*entity.Slot, error) {
+func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResponse, error) {
 	if req.Password != c.Password {
 		return nil, model.ErrInvalidCredentials
 	}
@@ -45,28 +45,28 @@ func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*entity.Slot, e
 			}
 			return nil, fmt.Errorf("%w: %s", model.ErrSlotNotFound, req.SlotName)
 		}
-		return slot, nil
+		return converter.SlotToResponse(slot), nil
 	}
 
 	slot, err := c.SlotUC.SelectRandom()
 	if err != nil {
 		return nil, model.ErrNoSlotsAvailable
 	}
-	return slot, nil
+	return converter.SlotToResponse(slot), nil
 }
 
-func (c *ProxyUseCase) Connect(slot *entity.Slot, targetAddr string) (io.ReadWriteCloser, error) {
-	c.SlotUC.IncrementConnections(slot.Name)
+func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWriteCloser, error) {
+	c.SlotUC.IncrementConnections(slotName)
 
-	conn, err := c.Dialer.Dial(slot.Name, targetAddr)
+	conn, err := c.Dialer.Dial(slotName, targetAddr)
 	if err != nil {
-		c.SlotUC.DecrementConnections(slot.Name)
-		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slot.Name, err)
+		c.SlotUC.DecrementConnections(slotName)
+		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)
 	}
 
 	return &trackedConn{
 		ReadWriteCloser: conn,
-		slotName:        slot.Name,
+		slotName:        slotName,
 		slotUC:          c.SlotUC,
 	}, nil
 }
@@ -85,3 +85,4 @@ func (tc *trackedConn) Close() error {
 	}
 	return tc.ReadWriteCloser.Close()
 }
+

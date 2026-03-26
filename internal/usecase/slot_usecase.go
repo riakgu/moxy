@@ -124,13 +124,13 @@ func (c *SlotUseCase) SelectByName(name string) (*entity.Slot, error) {
 	return slot, nil
 }
 
-func (c *SlotUseCase) ListAll() []*entity.Slot {
+func (c *SlotUseCase) ListAll() []model.SlotResponse {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make([]*entity.Slot, 0, len(c.slots))
+	result := make([]model.SlotResponse, 0, len(c.slots))
 	for _, s := range c.slots {
-		result = append(result, s)
+		result = append(result, *converter.SlotToResponse(s))
 	}
 	return result
 }

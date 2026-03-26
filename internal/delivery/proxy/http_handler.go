@@ -15,7 +15,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -139,8 +138,8 @@ func (h *HttpProxyHandler) parseProxyAuth(req *http.Request) (string, string, bo
 	return parts[0], parts[1], true
 }
 
-func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot *entity.Slot) {
-	remote, err := h.ProxyUC.Connect(slot, req.Host)
+func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
+	remote, err := h.ProxyUC.Connect(slot.Name, req.Host)
 	if err != nil {
 		h.Log.WithError(err).Warnf("http CONNECT dial failed: %s via %s", req.Host, slot.Name)
 		h.sendResponse(conn, http.StatusBadGateway, "", "")
@@ -153,13 +152,13 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 	BridgeWithTimeout(conn, remote, h.idleTimeout)
 }
 
-func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *entity.Slot) {
+func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
 	host := req.Host
 	if !strings.Contains(host, ":") {
 		host = host + ":80"
 	}
 
-	remote, err := h.ProxyUC.Connect(slot, host)
+	remote, err := h.ProxyUC.Connect(slot.Name, host)
 	if err != nil {
 		h.Log.WithError(err).Warnf("http forward dial failed: %s via %s", host, slot.Name)
 		h.sendResponse(conn, http.StatusBadGateway, "", "")

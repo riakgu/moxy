@@ -180,7 +180,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	}
 
 	// 4. Dial target via namespace
-	remote, err := h.ProxyUC.Connect(slot, targetAddr)
+	remote, err := h.ProxyUC.Connect(slot.Name, targetAddr)
 	if err != nil {
 		h.Log.WithError(err).Warnf("socks5 dial failed: %s via %s", targetAddr, slot.Name)
 		reply := []byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0} // connection refused
