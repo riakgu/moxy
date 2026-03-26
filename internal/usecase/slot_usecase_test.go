@@ -1,4 +1,4 @@
-package test
+package usecase_test
 
 import (
 	"testing"
@@ -89,3 +89,56 @@ func TestSlotUseCase_ListAll(t *testing.T) {
 	}
 }
 
+func TestSlotUseCase_NilProvisionerForNDPProxy(t *testing.T) {
+	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
+	slotUC.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv6Address: "2001:db8::1", IPv4Address: "1.1.1.1", Healthy: true},
+	})
+
+	slot, err := slotUC.SelectByName("slot0")
+	if err != nil {
+		t.Fatalf("select should succeed: %v", err)
+	}
+	if slot.IPv6Address != "2001:db8::1" {
+		t.Fatalf("expected IPv6 2001:db8::1, got %s", slot.IPv6Address)
+	}
+}
+
+func TestDestroySlot_NotFound(t *testing.T) {
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
+
+	err := uc.DestroySlot("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent slot")
+	}
+}
+
+func TestDestroySlot_Busy(t *testing.T) {
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
+
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: true},
+	})
+
+	uc.IncrementConnections("slot0")
+
+	err := uc.DestroySlot("slot0")
+	if err == nil {
+		t.Fatal("expected error for busy slot")
+	}
+	if err != model.ErrSlotBusy {
+		t.Fatalf("expected ErrSlotBusy, got: %v", err)
+	}
+}
+
+func TestTeardownAll_EmptySlots(t *testing.T) {
+	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
+
+	resp, err := uc.TeardownAll()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Total != 0 {
+		t.Fatalf("expected 0 destroyed, got %d", resp.Total)
+	}
+}

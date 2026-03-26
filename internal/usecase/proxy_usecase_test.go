@@ -1,4 +1,4 @@
-package test
+package usecase_test
 
 import (
 	"testing"
@@ -58,4 +58,3 @@ func TestProxyUseCase_Authenticate_WrongUsername(t *testing.T) {
 		t.Fatal("expected auth error for wrong username")
 	}
 }
-

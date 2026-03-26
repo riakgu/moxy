@@ -1,4 +1,4 @@
-package test
+package proxy_test
 
 import (
 	"testing"
@@ -45,4 +45,3 @@ func TestParseProxyAuth_NoSlotSuffix(t *testing.T) {
 		t.Errorf("expected username 'admin-something', got %q", req.Username)
 	}
 }
-

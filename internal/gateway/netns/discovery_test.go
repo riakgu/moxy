@@ -1,4 +1,4 @@
-package test
+package netns_test
 
 import (
 	"testing"
@@ -32,5 +32,14 @@ func TestParseIPFromOutput(t *testing.T) {
 				t.Errorf("expected %q, got %q", tt.expected, ip)
 			}
 		})
+	}
+}
+
+func TestDiscoverAll_NilProvisionerNoCrash(t *testing.T) {
+	d := netns.NewDiscovery(nil, 5, nil, "")
+
+	results := d.DiscoverAll([]string{})
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(results))
 	}
 }
