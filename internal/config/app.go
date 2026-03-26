@@ -12,6 +12,7 @@ import (
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
 	"github.com/riakgu/moxy/internal/delivery/http/route"
 	"github.com/riakgu/moxy/internal/delivery/proxy"
+	"github.com/riakgu/moxy/internal/gateway"
 	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -37,6 +38,15 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"))
 	dialer := netns.NewSetnsDialer(cfg.Logger, cfg.Viper.GetString("provision.dns64_server"))
 
+	usersFile := cfg.Viper.GetString("proxy.users_file")
+	if usersFile == "" {
+		usersFile = "users.json"
+	}
+	userRepo, err := gateway.NewJSONUserRepository(cfg.Logger, usersFile)
+	if err != nil {
+		cfg.Logger.WithError(err).Fatal("failed to load user repository")
+	}
+
 	// UseCases
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, discovery,
@@ -44,11 +54,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		cfg.Viper.GetString("provision.interface"),
 		cfg.Viper.GetString("provision.dns64_server"),
 	)
-	proxyUC := usecase.NewProxyUseCase(
-		cfg.Logger, slotUC, dialer,
-		cfg.Viper.GetString("proxy.username"),
-		cfg.Viper.GetString("proxy.password"),
-	)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, userRepo)
+	userUC := usecase.NewUserUseCase(cfg.Logger, userRepo)
 
 	// Shared connection semaphore
 	maxConns := cfg.Viper.GetInt("proxy.max_connections")
@@ -69,6 +76,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Controllers
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
+	userCtrl := httpdelivery.NewUserController(userUC, cfg.Logger)
 
 	// Proxy handlers
 	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
@@ -79,6 +87,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		App:             cfg.Fiber,
 		SlotController:  slotCtrl,
 		StatsController: statsCtrl,
+		UserController:  userCtrl,
 		Log:             cfg.Logger,
 		StaticFS:        cfg.StaticFS,
 	}

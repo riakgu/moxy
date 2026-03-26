@@ -2,8 +2,7 @@
     "proxy": {
         "socks5_port": 1080,
         "http_port": 8080,
-        "username": "admin",
-        "password": "changeme",
+        "users_file": "users.json",
         "max_connections": 500,
         "dial_timeout_seconds": 10,
         "idle_timeout_seconds": 300

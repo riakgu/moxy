@@ -15,6 +15,7 @@ type RouteConfig struct {
 	App             *fiber.App
 	SlotController  *httpdelivery.SlotController
 	StatsController *httpdelivery.StatsController
+	UserController  *httpdelivery.UserController
 	Log             *logrus.Logger
 	StaticFS        embed.FS
 }
@@ -29,6 +30,12 @@ func (c *RouteConfig) Setup() {
 	api.Delete("/slots/:slotName", c.SlotController.Delete)
 	api.Get("/stats", c.StatsController.Stats)
 	api.Get("/health", c.StatsController.Health)
+
+	api.Get("/users", c.UserController.List)
+	api.Post("/users", c.UserController.Create)
+	api.Get("/users/:username", c.UserController.Get)
+	api.Put("/users/:username", c.UserController.Update)
+	api.Delete("/users/:username", c.UserController.Delete)
 
 	c.App.Use("/", filesystem.New(filesystem.Config{
 		Root:       http.FS(c.StaticFS),

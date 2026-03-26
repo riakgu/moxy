@@ -14,26 +14,29 @@ type ProxyUseCase struct {
 	Log      *logrus.Logger
 	SlotUC   *SlotUseCase
 	Dialer   SlotDialer
-	Username string
-	Password string
+	UserRepo UserRepository
 }
 
-func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, username, password string) *ProxyUseCase {
+func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo UserRepository) *ProxyUseCase {
 	return &ProxyUseCase{
 		Log:      log,
 		SlotUC:   slotUC,
 		Dialer:   dialer,
-		Username: username,
-		Password: password,
+		UserRepo: userRepo,
 	}
 }
 
 func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResponse, error) {
-	if req.Password != c.Password {
+	user, err := c.UserRepo.FindByUsername(req.Username)
+	if err != nil {
 		return nil, model.ErrInvalidCredentials
 	}
 
-	if req.Username != c.Username {
+	if !user.Enabled {
+		return nil, model.ErrUserDisabled
+	}
+
+	if user.Password != req.Password {
 		return nil, model.ErrInvalidCredentials
 	}
 
@@ -85,4 +88,3 @@ func (tc *trackedConn) Close() error {
 	}
 	return tc.ReadWriteCloser.Close()
 }
-
