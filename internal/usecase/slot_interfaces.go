@@ -3,7 +3,7 @@ package usecase
 import (
 	"io"
 
-	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model"
 )
 
 type SlotProvisioner interface {
@@ -16,7 +16,7 @@ type SlotProvisioner interface {
 }
 
 type SlotDiscovery interface {
-	DiscoverAll(slotNames []string) []*entity.Slot
+	DiscoverAll(slotNames []string) []*model.DiscoveredSlot
 	ResolveSlotIP(slotName string) (string, error)
 	ResolveSlotIPv6(slotName string) (string, error)
 }
@@ -24,3 +24,4 @@ type SlotDiscovery interface {
 type SlotDialer interface {
 	Dial(slotName string, addr string) (io.ReadWriteCloser, error)
 }
+

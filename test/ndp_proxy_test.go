@@ -3,8 +3,8 @@ package test
 import (
 	"testing"
 
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/gateway/netns"
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
@@ -38,8 +38,8 @@ func TestDiscoverAll_NilProvisionerNoCrash(t *testing.T) {
 func TestSlotUseCase_NilProvisionerForNDPProxy(t *testing.T) {
 	// SlotUseCase with nil provisioner/discovery should not crash during UpdateSlots
 	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	slotUC.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", IPv6Address: "2001:db8::1", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
+	slotUC.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv6Address: "2001:db8::1", IPv4Address: "1.1.1.1", Healthy: true},
 	})
 
 	slot, err := slotUC.SelectByName("slot0")
@@ -50,3 +50,4 @@ func TestSlotUseCase_NilProvisionerForNDPProxy(t *testing.T) {
 		t.Fatalf("expected IPv6 2001:db8::1, got %s", slot.IPv6Address)
 	}
 }
+

@@ -3,15 +3,14 @@ package test
 import (
 	"testing"
 
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 func TestProxyUseCase_Authenticate_ValidRandom(t *testing.T) {
 	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	slotUC.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
+	slotUC.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv4Address: "1.1.1.1", Healthy: true},
 	})
 
 	proxyUC := usecase.NewProxyUseCase(nil, slotUC, nil, "admin", "secret")
@@ -27,9 +26,9 @@ func TestProxyUseCase_Authenticate_ValidRandom(t *testing.T) {
 
 func TestProxyUseCase_Authenticate_ValidSticky(t *testing.T) {
 	slotUC := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	slotUC.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
-		{Name: "slot3", PublicIPv4: "3.3.3.3", Status: entity.SlotStatusHealthy},
+	slotUC.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv4Address: "1.1.1.1", Healthy: true},
+		{Name: "slot3", IPv4Address: "3.3.3.3", Healthy: true},
 	})
 
 	proxyUC := usecase.NewProxyUseCase(nil, slotUC, nil, "admin", "secret")
@@ -58,3 +57,4 @@ func TestProxyUseCase_Authenticate_WrongUsername(t *testing.T) {
 		t.Fatal("expected auth error for wrong username")
 	}
 }
+

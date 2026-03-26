@@ -3,7 +3,6 @@ package test
 import (
 	"testing"
 
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -21,9 +20,12 @@ func TestDestroySlot_Busy(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
 
 	// Add a slot with active connections
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", Status: entity.SlotStatusHealthy, ActiveConnections: 1},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: true},
 	})
+
+	// Simulate active connection
+	uc.IncrementConnections("slot0")
 
 	err := uc.DestroySlot("slot0")
 	if err == nil {
@@ -45,3 +47,4 @@ func TestTeardownAll_EmptySlots(t *testing.T) {
 		t.Fatalf("expected 0 destroyed, got %d", resp.Total)
 	}
 }
+

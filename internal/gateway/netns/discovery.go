@@ -8,7 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model"
 )
 
 type Discovery struct {
@@ -66,13 +66,8 @@ func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
 	return "", fmt.Errorf("no global IPv6 found for %s", slotName)
 }
 
-type SlotDiscoveryResult struct {
-	Slot *entity.Slot
-	Err  error
-}
-
-func (d *Discovery) DiscoverAll(slotNames []string) []*entity.Slot {
-	results := make([]*entity.Slot, 0, len(slotNames))
+func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
+	results := make([]*model.DiscoveredSlot, 0, len(slotNames))
 	var mu sync.Mutex
 
 	sem := make(chan struct{}, d.Concurrency)
@@ -89,9 +84,9 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*entity.Slot {
 			if err != nil {
 				d.Log.Warnf("discovery: %s IPv4 resolve failed: %v", slotName, err)
 				mu.Lock()
-				results = append(results, &entity.Slot{
-					Name:   slotName,
-					Status: entity.SlotStatusUnhealthy,
+				results = append(results, &model.DiscoveredSlot{
+					Name:    slotName,
+					Healthy: false,
 				})
 				mu.Unlock()
 				return
@@ -107,11 +102,11 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*entity.Slot {
 			}
 
 			mu.Lock()
-			results = append(results, &entity.Slot{
+			results = append(results, &model.DiscoveredSlot{
 				Name:        slotName,
 				IPv6Address: ipv6,
-				PublicIPv4:  ipv4,
-				Status:      entity.SlotStatusHealthy,
+				IPv4Address: ipv4,
+				Healthy:     true,
 			})
 			mu.Unlock()
 		}(name)
@@ -120,3 +115,4 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*entity.Slot {
 	wg.Wait()
 	return results
 }
+

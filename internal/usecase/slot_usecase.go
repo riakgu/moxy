@@ -42,21 +42,33 @@ func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery 
 	}
 }
 
-func (c *SlotUseCase) UpdateSlots(discovered []*entity.Slot) {
+func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	now := time.Now().UnixMilli()
 
 	seen := make(map[string]bool)
-	for _, s := range discovered {
-		seen[s.Name] = true
-		s.LastCheckedAt = now
+	for _, d := range discovered {
+		seen[d.Name] = true
 
-		if existing, ok := c.slots[s.Name]; ok {
+		status := entity.SlotStatusUnhealthy
+		if d.Healthy {
+			status = entity.SlotStatusHealthy
+		}
+
+		s := &entity.Slot{
+			Name:          d.Name,
+			IPv6Address:   d.IPv6Address,
+			PublicIPv4:    d.IPv4Address,
+			Status:        status,
+			LastCheckedAt: now,
+		}
+
+		if existing, ok := c.slots[d.Name]; ok {
 			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
 		}
-		c.slots[s.Name] = s
+		c.slots[d.Name] = s
 	}
 
 	for name, slot := range c.slots {

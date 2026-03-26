@@ -4,14 +4,15 @@ import (
 	"testing"
 
 	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 func TestSlotUseCase_SelectRandom_ReturnsHealthySlot(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
-		{Name: "slot1", PublicIPv4: "2.2.2.2", Status: entity.SlotStatusHealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv4Address: "1.1.1.1", Healthy: true},
+		{Name: "slot1", IPv4Address: "2.2.2.2", Healthy: true},
 	})
 
 	slot, err := uc.SelectRandom()
@@ -25,8 +26,8 @@ func TestSlotUseCase_SelectRandom_ReturnsHealthySlot(t *testing.T) {
 
 func TestSlotUseCase_SelectRandom_NoHealthySlots(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", Status: entity.SlotStatusUnhealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: false},
 	})
 
 	_, err := uc.SelectRandom()
@@ -37,9 +38,9 @@ func TestSlotUseCase_SelectRandom_NoHealthySlots(t *testing.T) {
 
 func TestSlotUseCase_SelectByName_Found(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", PublicIPv4: "1.1.1.1", Status: entity.SlotStatusHealthy},
-		{Name: "slot5", PublicIPv4: "5.5.5.5", Status: entity.SlotStatusHealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", IPv4Address: "1.1.1.1", Healthy: true},
+		{Name: "slot5", IPv4Address: "5.5.5.5", Healthy: true},
 	})
 
 	slot, err := uc.SelectByName("slot5")
@@ -53,8 +54,8 @@ func TestSlotUseCase_SelectByName_Found(t *testing.T) {
 
 func TestSlotUseCase_SelectByName_NotFound(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", Status: entity.SlotStatusHealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: true},
 	})
 
 	_, err := uc.SelectByName("slot99")
@@ -65,8 +66,8 @@ func TestSlotUseCase_SelectByName_NotFound(t *testing.T) {
 
 func TestSlotUseCase_SelectByName_Unhealthy(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", Status: entity.SlotStatusUnhealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: false},
 	})
 
 	_, err := uc.SelectByName("slot0")
@@ -77,9 +78,9 @@ func TestSlotUseCase_SelectByName_Unhealthy(t *testing.T) {
 
 func TestSlotUseCase_ListAll(t *testing.T) {
 	uc := usecase.NewSlotUseCase(nil, nil, nil, nil, "", "")
-	uc.UpdateSlots([]*entity.Slot{
-		{Name: "slot0", Status: entity.SlotStatusHealthy},
-		{Name: "slot1", Status: entity.SlotStatusUnhealthy},
+	uc.UpdateSlots([]*model.DiscoveredSlot{
+		{Name: "slot0", Healthy: true},
+		{Name: "slot1", Healthy: false},
 	})
 
 	slots := uc.ListAll()
@@ -87,3 +88,4 @@ func TestSlotUseCase_ListAll(t *testing.T) {
 		t.Errorf("expected 2 slots, got %d", len(slots))
 	}
 }
+

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/riakgu/moxy/internal/config"
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/gateway/netns"
 )
 
@@ -70,13 +69,13 @@ func NewProvisionCommand() *cobra.Command {
 			ipMap := make(map[string][]string) // IPv4 -> slot names
 			verifyFail := 0
 			for _, s := range discovered {
-				if s.Status != entity.SlotStatusHealthy || s.PublicIPv4 == "" {
+				if !s.Healthy || s.IPv4Address == "" {
 					log.Warnf("slot %s: no public IPv4 resolved", s.Name)
 					verifyFail++
 					continue
 				}
-				ipMap[s.PublicIPv4] = append(ipMap[s.PublicIPv4], s.Name)
-				log.Infof("slot %s: %s", s.Name, s.PublicIPv4)
+				ipMap[s.IPv4Address] = append(ipMap[s.IPv4Address], s.Name)
+				log.Infof("slot %s: %s", s.Name, s.IPv4Address)
 			}
 
 			// Report duplicates

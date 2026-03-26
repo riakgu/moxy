@@ -32,3 +32,10 @@ type ProvisionResponse struct {
 type DeleteSlotRequest struct {
 	SlotName string `validate:"required" json:"-"`
 }
+
+type DiscoveredSlot struct {
+	Name        string
+	IPv4Address string
+	IPv6Address string
+	Healthy     bool
+}
