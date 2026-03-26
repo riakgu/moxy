@@ -36,13 +36,11 @@ func NewServeCommand(dashboardFS embed.FS) *cobra.Command {
 
 			// Initial discovery
 			log.Info("running initial slot discovery...")
-			slotNames, err := b.Provisioner.ListSlotNamespaces()
+			count, err := b.SlotUseCase.DiscoverSlots()
 			if err != nil {
-				log.WithError(err).Warn("initial namespace scan failed")
+				log.WithError(err).Warn("initial discovery failed")
 			} else {
-				discovered := b.Discovery.DiscoverAll(slotNames)
-				b.SlotUseCase.UpdateSlots(discovered)
-				log.Infof("discovered %d slots", len(discovered))
+				log.Infof("discovered %d slots", count)
 			}
 
 			// Discovery ticker
@@ -54,14 +52,12 @@ func NewServeCommand(dashboardFS embed.FS) *cobra.Command {
 				for {
 					select {
 					case <-ticker.C:
-						names, err := b.Provisioner.ListSlotNamespaces()
+						count, err := b.SlotUseCase.DiscoverSlots()
 						if err != nil {
 							log.WithError(err).Error("discovery scan failed")
 							continue
 						}
-						discovered := b.Discovery.DiscoverAll(names)
-						b.SlotUseCase.UpdateSlots(discovered)
-						log.Debugf("discovery tick: %d slots", len(discovered))
+						log.Debugf("discovery tick: %d slots", count)
 					case <-stopDiscovery:
 						return
 					}

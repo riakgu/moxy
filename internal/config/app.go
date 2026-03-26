@@ -30,8 +30,6 @@ type BootstrapResult struct {
 	ProxyUseCase     *usecase.ProxyUseCase
 	Socks5Handler    *proxy.Socks5Handler
 	HttpProxyHandler *proxy.HttpProxyHandler
-	Discovery        *netns.Discovery
-	Provisioner      *netns.Provisioner
 	RouteConfig      *route.RouteConfig
 }
 
@@ -94,8 +92,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		ProxyUseCase:     proxyUC,
 		Socks5Handler:    socks5Handler,
 		HttpProxyHandler: httpProxyHandler,
-		Discovery:        discovery,
-		Provisioner:      provisioner,
 		RouteConfig:      routeConfig,
 	}
 }

@@ -79,6 +79,17 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 	}
 }
 
+func (c *SlotUseCase) DiscoverSlots() (int, error) {
+	names, err := c.Provisioner.ListSlotNamespaces()
+	if err != nil {
+		return 0, fmt.Errorf("list namespaces: %w", err)
+	}
+
+	discovered := c.Discovery.DiscoverAll(names)
+	c.UpdateSlots(discovered)
+	return len(discovered), nil
+}
+
 func (c *SlotUseCase) SelectRandom() (*entity.Slot, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
