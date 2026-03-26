@@ -7,19 +7,18 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
-	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 )
 
 type ProxyUseCase struct {
 	Log      *logrus.Logger
 	SlotUC   *SlotUseCase
-	Dialer   *netns.Dialer
+	Dialer   SlotDialer
 	Username string
 	Password string
 }
 
-func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer *netns.Dialer, username, password string) *ProxyUseCase {
+func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, username, password string) *ProxyUseCase {
 	return &ProxyUseCase{
 		Log:      log,
 		SlotUC:   slotUC,

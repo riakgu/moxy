@@ -13,7 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
-	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 )
@@ -23,15 +22,15 @@ const slaacWaitDuration = 5 * time.Second
 type SlotUseCase struct {
 	Log         *logrus.Logger
 	Validate    *validator.Validate
-	Discovery   *netns.Discovery
-	Provisioner *netns.Provisioner
+	Discovery   SlotDiscovery
+	Provisioner SlotProvisioner
 	Interface   string
 	DNS64Server string
 	slots       map[string]*entity.Slot
 	mu          sync.RWMutex
 }
 
-func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery *netns.Discovery, provisioner *netns.Provisioner, iface string, dns64 string) *SlotUseCase {
+func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, iface string, dns64 string) *SlotUseCase {
 	return &SlotUseCase{
 		Log:         log,
 		Validate:    validate,
