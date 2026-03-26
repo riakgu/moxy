@@ -2,7 +2,6 @@ package config
 
 import (
 	"embed"
-	"os"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -33,12 +32,10 @@ type BootstrapResult struct {
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
-	binaryPath, _ := os.Executable()
-
 	// Gateways
 	provisioner := netns.NewProvisioner(cfg.Logger)
 	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"))
-	dialer := netns.NewDialer(cfg.Logger, binaryPath)
+	dialer := netns.NewSetnsDialer(cfg.Logger, cfg.Viper.GetString("provision.dns64_server"))
 
 	// UseCases
 	slotUC := usecase.NewSlotUseCase(
