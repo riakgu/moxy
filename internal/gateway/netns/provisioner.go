@@ -1,11 +1,18 @@
+//go:build linux
+
 package netns
 
 import (
 	"fmt"
-	"os/exec"
+	"net"
+	"os"
+	"runtime"
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
+	"golang.org/x/sys/unix"
 )
 
 type Provisioner struct {
@@ -20,40 +27,118 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 	name := fmt.Sprintf("slot%d", slotIndex)
 	ipvlanName := fmt.Sprintf("ipvlan%d", slotIndex)
 
-	commands := []struct {
-		desc string
-		args []string
-	}{
-		{"create IPVLAN interface", []string{"ip", "link", "add", ipvlanName, "link", iface, "type", "ipvlan", "mode", "l2"}},
-		{"create network namespace", []string{"ip", "netns", "add", name}},
-		{"move IPVLAN to namespace", []string{"ip", "link", "set", ipvlanName, "netns", name}},
-		{"bring up loopback", []string{"ip", "netns", "exec", name, "ip", "link", "set", "lo", "up"}},
-		{"bring up IPVLAN", []string{"ip", "netns", "exec", name, "ip", "link", "set", ipvlanName, "up"}},
-		{"enable accept_ra", []string{"ip", "netns", "exec", name, "sysctl", "-w", fmt.Sprintf("net.ipv6.conf.%s.accept_ra=2", ipvlanName)}},
-		{"enable autoconf", []string{"ip", "netns", "exec", name, "sysctl", "-w", fmt.Sprintf("net.ipv6.conf.%s.autoconf=1", ipvlanName)}},
-		{"set DNS64", []string{"ip", "netns", "exec", name, "bash", "-c", fmt.Sprintf(`echo "nameserver %s" > /etc/resolv.conf`, dns64)}},
+	// 1. Get parent interface
+	parent, err := netlink.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("get parent interface %s: %w", iface, err)
 	}
 
-	for _, c := range commands {
-		p.Log.Debugf("slot %s: %s", name, c.desc)
-		cmd := exec.Command(c.args[0], c.args[1:]...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			outStr := strings.TrimSpace(string(output))
-			// Ignore "File exists" for namespace and link creation so provisioning is idempotent
-			if strings.Contains(outStr, "File exists") {
-				continue
-			}
-			return fmt.Errorf("%s failed for %s: %w (output: %s)", c.desc, name, err, outStr)
+	// 2. Create IPVLAN interface in L2 mode
+	ipvlan := &netlink.IPVlan{
+		LinkAttrs: netlink.LinkAttrs{
+			Name:        ipvlanName,
+			ParentIndex: parent.Attrs().Index,
+		},
+		Mode: netlink.IPVLAN_MODE_L2,
+	}
+	if err := netlink.LinkAdd(ipvlan); err != nil {
+		if !os.IsExist(err) {
+			return fmt.Errorf("create IPVLAN %s: %w", ipvlanName, err)
+		}
+		p.Log.Debugf("slot %s: IPVLAN %s already exists, reusing", name, ipvlanName)
+	}
+
+	// Re-fetch the link to get its index
+	ipvlanLink, err := netlink.LinkByName(ipvlanName)
+	if err != nil {
+		return fmt.Errorf("get IPVLAN link %s: %w", ipvlanName, err)
+	}
+
+	// 3. Create network namespace
+	newNs, err := netns.NewNamed(name)
+	if err != nil {
+		if !os.IsExist(err) {
+			return fmt.Errorf("create namespace %s: %w", name, err)
+		}
+		p.Log.Debugf("slot %s: namespace already exists, reusing", name)
+		newNs, err = netns.GetFromName(name)
+		if err != nil {
+			return fmt.Errorf("open existing namespace %s: %w", name, err)
+		}
+	}
+	defer newNs.Close()
+
+	// 4. Move IPVLAN into the namespace
+	if err := netlink.LinkSetNsFd(ipvlanLink, int(newNs)); err != nil {
+		return fmt.Errorf("move %s to namespace %s: %w", ipvlanName, name, err)
+	}
+
+	// 5. Configure inside the namespace (requires thread lock + setns)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hostNs, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("get host namespace: %w", err)
+	}
+	defer hostNs.Close()
+
+	if err := netns.Set(newNs); err != nil {
+		return fmt.Errorf("enter namespace %s: %w", name, err)
+	}
+
+	defer func() {
+		if err := netns.Set(hostNs); err != nil {
+			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
+		}
+	}()
+
+	// 5a. Bring up loopback
+	lo, err := netlink.LinkByName("lo")
+	if err != nil {
+		return fmt.Errorf("get loopback in %s: %w", name, err)
+	}
+	if err := netlink.LinkSetUp(lo); err != nil {
+		return fmt.Errorf("bring up loopback in %s: %w", name, err)
+	}
+
+	// 5b. Bring up IPVLAN
+	ipvlanInNs, err := netlink.LinkByName(ipvlanName)
+	if err != nil {
+		return fmt.Errorf("get %s in namespace %s: %w", ipvlanName, name, err)
+	}
+	if err := netlink.LinkSetUp(ipvlanInNs); err != nil {
+		return fmt.Errorf("bring up %s in %s: %w", ipvlanName, name, err)
+	}
+
+	// 5c. Enable accept_ra and autoconf via /proc/sys
+	sysctlBase := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", ipvlanName)
+	for _, kv := range [][2]string{
+		{"accept_ra", "2"},
+		{"autoconf", "1"},
+	} {
+		path := fmt.Sprintf("%s/%s", sysctlBase, kv[0])
+		if err := os.WriteFile(path, []byte(kv[1]), 0644); err != nil {
+			return fmt.Errorf("set %s=%s for %s: %w", kv[0], kv[1], name, err)
 		}
 	}
 
+	// 5d. Set DNS64 nameserver
+	if dns64 != "" {
+		resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
+		if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
+			return fmt.Errorf("set DNS64 for %s: %w", name, err)
+		}
+	}
+
+	p.Log.Debugf("slot %s: provisioned successfully", name)
 	return nil
 }
 
 func (p *Provisioner) EnableNDPProxy(iface string) error {
-	cmd := exec.Command("sysctl", "-w", fmt.Sprintf("net.ipv6.conf.%s.proxy_ndp=1", iface))
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("enable NDP proxy failed: %w (output: %s)", err, strings.TrimSpace(string(output)))
+	path := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface)
+	if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
+		return fmt.Errorf("enable NDP proxy on %s: %w", iface, err)
 	}
 	return nil
 }
@@ -62,14 +147,22 @@ func (p *Provisioner) AddNDPProxyEntry(ipv6 string, iface string) error {
 	if ipv6 == "" {
 		return nil
 	}
-	cmd := exec.Command("ip", "-6", "neigh", "add", "proxy", ipv6, "dev", iface)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		outStr := strings.TrimSpace(string(output))
-		// Idempotent: ignore if entry already exists
-		if strings.Contains(outStr, "File exists") {
+	link, err := netlink.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("get interface %s: %w", iface, err)
+	}
+
+	neigh := &netlink.Neigh{
+		LinkIndex: link.Attrs().Index,
+		Family:    unix.AF_INET6,
+		Flags:     netlink.NTF_PROXY,
+		IP:        net.ParseIP(ipv6),
+	}
+	if err := netlink.NeighAdd(neigh); err != nil {
+		if os.IsExist(err) {
 			return nil
 		}
-		return fmt.Errorf("add NDP proxy for %s on %s: %w (output: %s)", ipv6, iface, err, outStr)
+		return fmt.Errorf("add NDP proxy for %s on %s: %w", ipv6, iface, err)
 	}
 	p.Log.Debugf("NDP proxy entry added: %s on %s", ipv6, iface)
 	return nil
@@ -79,39 +172,45 @@ func (p *Provisioner) RemoveNDPProxyEntry(ipv6 string, iface string) error {
 	if ipv6 == "" {
 		return nil
 	}
-	cmd := exec.Command("ip", "-6", "neigh", "del", "proxy", ipv6, "dev", iface)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		outStr := strings.TrimSpace(string(output))
-		// Idempotent: ignore if entry doesn't exist
-		if strings.Contains(outStr, "No such file or directory") {
-			return nil
-		}
-		return fmt.Errorf("remove NDP proxy for %s on %s: %w (output: %s)", ipv6, iface, err, outStr)
+	link, err := netlink.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("get interface %s: %w", iface, err)
+	}
+
+	neigh := &netlink.Neigh{
+		LinkIndex: link.Attrs().Index,
+		Family:    unix.AF_INET6,
+		Flags:     netlink.NTF_PROXY,
+		IP:        net.ParseIP(ipv6),
+	}
+	if err := netlink.NeighDel(neigh); err != nil {
+		// Idempotent: ignore if not found
+		return nil
 	}
 	p.Log.Debugf("NDP proxy entry removed: %s on %s", ipv6, iface)
 	return nil
 }
 
 func (p *Provisioner) DestroySlot(name string) error {
-	cmd := exec.Command("ip", "netns", "del", name)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("delete namespace %s failed: %w (output: %s)", name, err, strings.TrimSpace(string(output)))
+	if err := netns.DeleteNamed(name); err != nil {
+		return fmt.Errorf("delete namespace %s: %w", name, err)
 	}
 	return nil
 }
 
 func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
-	cmd := exec.Command("ip", "netns", "list")
-	output, err := cmd.CombinedOutput()
+	entries, err := os.ReadDir("/var/run/netns")
 	if err != nil {
-		return nil, fmt.Errorf("list namespaces failed: %w", err)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list namespaces: %w", err)
 	}
 
 	var slots []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		name := strings.Fields(line)
-		if len(name) > 0 && strings.HasPrefix(name[0], "slot") {
-			slots = append(slots, name[0])
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "slot") {
+			slots = append(slots, entry.Name())
 		}
 	}
 	return slots, nil
