@@ -66,7 +66,7 @@ func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResp
 		return converter.SlotToResponse(slot), nil
 	}
 
-	slot, err := c.SlotUC.SelectRandom()
+	slot, err := c.SlotUC.SelectSlot(req.ClientIP)
 	if err != nil {
 		return nil, model.ErrNoSlotsAvailable
 	}

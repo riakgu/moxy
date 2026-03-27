@@ -6,6 +6,7 @@ type ProxyAuthRequest struct {
 	Username string
 	Password string
 	SlotName string
+	ClientIP string
 }
 
 var slotSuffixRegex = regexp.MustCompile(`-slot(\d+)$`)

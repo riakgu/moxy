@@ -101,6 +101,7 @@ func (h *HttpProxyHandler) handleConnection(conn net.Conn) {
 	}
 
 	authReq := model.ParseProxyAuth(username, password)
+	authReq.ClientIP, _, _ = net.SplitHostPort(conn.RemoteAddr().String())
 	slot, err := h.ProxyUC.Authenticate(authReq)
 	if err != nil {
 		h.Log.WithError(err).Warn("http proxy auth failed")

@@ -50,12 +50,14 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots")
+	strategy := cfg.Viper.GetString("proxy.source_ip_strategy")
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, discovery,
 		provisioner,
 		cfg.Viper.GetString("provision.interface"),
 		cfg.Viper.GetString("provision.dns64_server"),
 		maxSlots,
+		strategy,
 	)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, userRepo)
 	userUC := usecase.NewUserUseCase(cfg.Logger, userRepo)

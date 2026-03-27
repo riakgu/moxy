@@ -34,6 +34,13 @@ type SlotDiscovery interface {
 
 const slaacWaitDuration = 5 * time.Second
 
+const (
+	StrategyRandom           = "random"
+	StrategyRoundRobin       = "round-robin"
+	StrategyLeastConnections = "least-connections"
+	StrategyStickyIP         = "sticky-ip"
+)
+
 type SlotUseCase struct {
 	Log         *logrus.Logger
 	Validate    *validator.Validate
@@ -42,11 +49,16 @@ type SlotUseCase struct {
 	Interface   string
 	DNS64Server string
 	MaxSlots    int
+	Strategy    string
 	slots       map[string]*entity.Slot
 	mu          sync.RWMutex
+	rrIndex     uint64
 }
 
-func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, iface string, dns64 string, maxSlots int) *SlotUseCase {
+func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, iface string, dns64 string, maxSlots int, strategy string) *SlotUseCase {
+	if strategy == "" {
+		strategy = StrategyRandom
+	}
 	return &SlotUseCase{
 		Log:         log,
 		Validate:    validate,
@@ -55,6 +67,7 @@ func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery 
 		Interface:   iface,
 		DNS64Server: dns64,
 		MaxSlots:    maxSlots,
+		Strategy:    strategy,
 		slots:       make(map[string]*entity.Slot),
 	}
 }
@@ -118,7 +131,9 @@ func (c *SlotUseCase) GetSlotNames() []string {
 	return names
 }
 
-func (c *SlotUseCase) SelectRandom() (*entity.Slot, error) {
+// SelectSlot picks a healthy slot based on the configured strategy.
+// clientIP is used only for sticky-ip strategy (can be empty for others).
+func (c *SlotUseCase) SelectSlot(clientIP string) (*entity.Slot, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -133,7 +148,42 @@ func (c *SlotUseCase) SelectRandom() (*entity.Slot, error) {
 		return nil, fmt.Errorf("no healthy slots available")
 	}
 
-	return healthy[rand.Intn(len(healthy))], nil
+	switch c.Strategy {
+	case StrategyRoundRobin:
+		idx := atomic.AddUint64(&c.rrIndex, 1)
+		return healthy[idx%uint64(len(healthy))], nil
+
+	case StrategyLeastConnections:
+		best := healthy[0]
+		bestConns := atomic.LoadInt64(&best.ActiveConnections)
+		for _, s := range healthy[1:] {
+			conns := atomic.LoadInt64(&s.ActiveConnections)
+			if conns < bestConns {
+				best = s
+				bestConns = conns
+			}
+		}
+		return best, nil
+
+	case StrategyStickyIP:
+		if clientIP == "" {
+			return healthy[rand.Intn(len(healthy))], nil
+		}
+		hash := fnvHash(clientIP)
+		return healthy[hash%uint64(len(healthy))], nil
+
+	default: // random
+		return healthy[rand.Intn(len(healthy))], nil
+	}
+}
+
+func fnvHash(s string) uint64 {
+	var h uint64 = 14695981039346656037
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return h
 }
 
 func (c *SlotUseCase) SelectByName(name string) (*entity.Slot, error) {

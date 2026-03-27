@@ -6,6 +6,7 @@
         "max_connections": 500,
         "dial_timeout_seconds": 10,
         "idle_timeout_seconds": 300,
+        "source_ip_strategy": "random",
         "port_based_start": 10000,
         "port_based_end": 10250
     },

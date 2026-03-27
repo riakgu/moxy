@@ -126,6 +126,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	password := string(buf[2+ulen+1 : 2+ulen+1+plen])
 
 	authReq := model.ParseProxyAuth(username, password)
+	authReq.ClientIP, _, _ = net.SplitHostPort(conn.RemoteAddr().String())
 	slot, err := h.ProxyUC.Authenticate(authReq)
 	if err != nil {
 		h.Log.WithError(err).Warn("socks5 auth failed")
