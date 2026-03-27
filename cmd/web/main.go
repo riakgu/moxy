@@ -37,6 +37,9 @@ func main() {
 		log.Infof("discovered %d slots", count)
 	}
 
+	// Sync port-based listeners with discovered slots
+	b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
+
 	// Discovery ticker
 	discoveryInterval := time.Duration(v.GetInt("slots.discovery_interval_seconds")) * time.Second
 	stopDiscovery := make(chan struct{})
@@ -52,6 +55,7 @@ func main() {
 					continue
 				}
 				log.Debugf("discovery tick: %d slots", count)
+				b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
 			case <-stopDiscovery:
 				return
 			}
@@ -102,6 +106,11 @@ func main() {
 	log.Info("stopping HTTP proxy listener...")
 	if err := b.HttpProxyHandler.Shutdown(ctx); err != nil {
 		log.WithError(err).Warn("HTTP proxy shutdown: some connections did not drain in time")
+	}
+
+	log.Info("stopping port-based listeners...")
+	if err := b.PortHandler.Shutdown(ctx); err != nil {
+		log.WithError(err).Warn("port-based shutdown: some connections did not drain in time")
 	}
 
 	// Stop API/dashboard

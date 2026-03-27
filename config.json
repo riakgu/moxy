@@ -5,7 +5,8 @@
         "users_file": "users.json",
         "max_connections": 500,
         "dial_timeout_seconds": 10,
-        "idle_timeout_seconds": 300
+        "idle_timeout_seconds": 300,
+        "port_based_start": 10000
     },
     "api": {
         "port": 9090

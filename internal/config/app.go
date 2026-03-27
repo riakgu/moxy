@@ -29,6 +29,7 @@ type BootstrapResult struct {
 	SlotUseCase      *usecase.SlotUseCase
 	Socks5Handler    *proxy.Socks5Handler
 	HttpProxyHandler *proxy.HttpProxyHandler
+	PortHandler      *proxy.PortBasedHandler
 	RouteConfig      *route.RouteConfig
 }
 
@@ -81,6 +82,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Proxy handlers
 	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
 	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem, idleTimeout)
+	portBase := cfg.Viper.GetInt("proxy.port_based_start")
+	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, idleTimeout, portBase)
 
 	// Routes
 	routeConfig := &route.RouteConfig{
@@ -96,6 +99,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		SlotUseCase:      slotUC,
 		Socks5Handler:    socks5Handler,
 		HttpProxyHandler: httpProxyHandler,
+		PortHandler:      portHandler,
 		RouteConfig:      routeConfig,
 	}
 }

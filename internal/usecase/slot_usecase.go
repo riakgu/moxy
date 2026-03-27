@@ -105,6 +105,17 @@ func (c *SlotUseCase) DiscoverSlots() (int, error) {
 	return len(discovered), nil
 }
 
+func (c *SlotUseCase) GetSlotNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	names := make([]string, 0, len(c.slots))
+	for name := range c.slots {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (c *SlotUseCase) SelectRandom() (*entity.Slot, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
