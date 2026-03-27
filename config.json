@@ -16,7 +16,8 @@
     "slots": {
         "max_slots": 250,
         "discovery_interval_seconds": 30,
-        "discovery_concurrency": 20
+        "discovery_concurrency": 20,
+        "monitor_interval_seconds": 300
     },
     "provision": {
         "interface": "usb0",

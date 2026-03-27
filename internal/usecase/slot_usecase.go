@@ -617,6 +617,80 @@ func (c *SlotUseCase) warmupDedup(iface, dns64 string) (found, resolved int) {
 	return found, resolved
 }
 
+// MonitorIPs re-checks the actual public IPv4 of all healthy slots.
+// Detects carrier-side IP changes and updates slot data.
+func (c *SlotUseCase) MonitorIPs() {
+	c.mu.RLock()
+	var names []string
+	for _, s := range c.slots {
+		if s.Status == entity.SlotStatusHealthy {
+			names = append(names, s.Name)
+		}
+	}
+	c.mu.RUnlock()
+
+	if len(names) == 0 {
+		return
+	}
+
+	if c.Log != nil {
+		c.Log.Infof("slot-monitor: checking public IPs for %d slots", len(names))
+	}
+
+	type ipResult struct {
+		name    string
+		newIPv4 string
+	}
+
+	results := make(chan ipResult, len(names))
+	sem := make(chan struct{}, 10) // limit concurrent curl calls
+	var wg sync.WaitGroup
+
+	for _, name := range names {
+		wg.Add(1)
+		go func(slotName string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ipv4, err := c.Discovery.ResolveSlotIP(slotName)
+			if err != nil {
+				if c.Log != nil {
+					c.Log.Warnf("slot-monitor: %s IP check failed: %v", slotName, err)
+				}
+				return
+			}
+			results <- ipResult{name: slotName, newIPv4: ipv4}
+		}(name)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	changed := 0
+	for r := range results {
+		c.mu.Lock()
+		slot, ok := c.slots[r.name]
+		if ok && slot.PublicIPv4 != r.newIPv4 {
+			if c.Log != nil {
+				c.Log.Infof("slot-monitor: %s IPv4 changed %s → %s", r.name, slot.PublicIPv4, r.newIPv4)
+			}
+			slot.PublicIPv4 = r.newIPv4
+			slot.LastCheckedAt = time.Now().UnixMilli()
+			changed++
+		} else if ok {
+			slot.LastCheckedAt = time.Now().UnixMilli()
+		}
+		c.mu.Unlock()
+	}
+
+	if c.Log != nil {
+		c.Log.Infof("slot-monitor: done — %d/%d IPs changed", changed, len(names))
+	}
+}
+
 func (c *SlotUseCase) DestroySlot(slotName string) error {
 	c.mu.Lock()
 	slot, ok := c.slots[slotName]
