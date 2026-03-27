@@ -26,9 +26,12 @@ type ProvisionRequest struct {
 }
 
 type ProvisionResponse struct {
-	Created int `json:"created"`
-	Failed  int `json:"failed"`
-	Total   int `json:"total"`
+	Created            int `json:"created"`
+	Failed             int `json:"failed"`
+	Total              int `json:"total"`
+	DuplicatesFound    int `json:"duplicates_found"`
+	DuplicatesResolved int `json:"duplicates_resolved"`
+	UniqueIPs          int `json:"unique_ips"`
 }
 
 type DeleteSlotRequest struct {
