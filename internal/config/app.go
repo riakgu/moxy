@@ -36,7 +36,7 @@ type BootstrapResult struct {
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Gateways
 	provisioner := netns.NewProvisioner(cfg.Logger)
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"))
+	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"), cfg.Viper.GetString("provision.dns64_server"))
 	dialer := netns.NewSetnsDialer(cfg.Logger, cfg.Viper.GetString("provision.dns64_server"))
 
 	usersFile := cfg.Viper.GetString("proxy.users_file")

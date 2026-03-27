@@ -3,12 +3,15 @@
 package netns
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net"
-	"os/exec"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
@@ -22,33 +25,98 @@ type Discovery struct {
 	Concurrency int
 	Provisioner *Provisioner
 	Interface   string
+	DNS64Server string
 }
 
-func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string) *Discovery {
+func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string, dns64 string) *Discovery {
 	return &Discovery{
 		Log:         log,
 		Concurrency: concurrency,
 		Provisioner: provisioner,
 		Interface:   iface,
+		DNS64Server: dns64,
 	}
-}
-
-func ParseIPFromOutput(output string) (string, error) {
-	ip := strings.TrimSpace(output)
-	if ip == "" {
-		return "", fmt.Errorf("empty IP output")
-	}
-	return ip, nil
 }
 
 func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
-	cmd := exec.Command("ip", "netns", "exec", slotName, "curl", "-s", "--max-time", "10", "http://api.ipify.org")
-	output, err := cmd.CombinedOutput()
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Save host namespace
+	hostNs, err := netns.Get()
 	if err != nil {
-		return "", fmt.Errorf("resolve IP for %s failed: %w (output: %s)", slotName, err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("get host namespace: %w", err)
+	}
+	defer hostNs.Close()
+
+	defer func() {
+		netns.Set(hostNs)
+	}()
+
+	// Enter slot namespace
+	slotNs, err := netns.GetFromName(slotName)
+	if err != nil {
+		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer slotNs.Close()
+
+	if err := netns.Set(slotNs); err != nil {
+		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	return ParseIPFromOutput(string(output))
+	// Build HTTP client that forces TCP6 and uses DNS64
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	resolver := &net.Resolver{PreferGo: true}
+	if d.DNS64Server != "" {
+		resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.DialTimeout("udp6", net.JoinHostPort(d.DNS64Server, "53"), 5*time.Second)
+		}
+	}
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, _ := net.SplitHostPort(addr)
+
+			// Resolve via DNS64
+			ips, err := resolver.LookupHost(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("DNS64 resolve %s: %w", host, err)
+			}
+
+			// Try IPv6 addresses first (NAT64)
+			for _, ip := range ips {
+				if strings.Contains(ip, ":") {
+					conn, err := dialer.DialContext(ctx, "tcp6", net.JoinHostPort(ip, port))
+					if err == nil {
+						return conn, nil
+					}
+				}
+			}
+			return nil, fmt.Errorf("no reachable address for %s", host)
+		},
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second,
+	}
+
+	resp, err := client.Get("http://api.ipify.org")
+	if err != nil {
+		return "", fmt.Errorf("resolve IP for %s: %w", slotName, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read IP response for %s: %w", slotName, err)
+	}
+
+	ip := strings.TrimSpace(string(body))
+	if ip == "" {
+		return "", fmt.Errorf("empty IP response for %s", slotName)
+	}
+	return ip, nil
 }
 
 func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
