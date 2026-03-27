@@ -451,3 +451,90 @@ func (c *SlotUseCase) TeardownAll() (*model.ProvisionResponse, error) {
 		Total:   destroyed,
 	}, nil
 }
+
+// ProvisionOnDemand creates a slot on-the-fly when a proxy request targets
+// a slot that doesn't exist yet. Returns the slot entity if successful.
+func (c *SlotUseCase) ProvisionOnDemand(slotName string) (*entity.Slot, error) {
+	// Parse slot index
+	indexStr := strings.TrimPrefix(slotName, "slot")
+	slotIndex, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid slot name %s", slotName)
+	}
+
+	// Check if already exists (race: another goroutine may have created it)
+	c.mu.RLock()
+	if slot, ok := c.slots[slotName]; ok {
+		c.mu.RUnlock()
+		if slot.Status == entity.SlotStatusHealthy {
+			return slot, nil
+		}
+		return nil, fmt.Errorf("slot %s exists but is %s", slotName, slot.Status)
+	}
+	c.mu.RUnlock()
+
+	if c.Log != nil {
+		c.Log.Infof("on-demand: provisioning %s (index %d)", slotName, slotIndex)
+	}
+
+	// Create namespace
+	if err := c.Provisioner.CreateSlot(slotIndex, c.Interface, c.DNS64Server); err != nil {
+		return nil, fmt.Errorf("create slot %s: %w", slotName, err)
+	}
+
+	// Wait for SLAAC
+	time.Sleep(slaacWaitDuration)
+
+	// Resolve IPs
+	ipv4, err := c.Discovery.ResolveSlotIP(slotName)
+	if err != nil {
+		if c.Log != nil {
+			c.Log.Warnf("on-demand: %s IPv4 resolution failed: %v", slotName, err)
+		}
+	}
+
+	ipv6, _ := c.Discovery.ResolveSlotIPv6(slotName)
+
+	// NDP proxy for IPv6 reachability
+	if ipv6 != "" && c.Provisioner != nil {
+		if err := c.Provisioner.AddNDPProxyEntry(ipv6, c.Interface); err != nil {
+			if c.Log != nil {
+				c.Log.Warnf("on-demand: %s NDP proxy for %s: %v", slotName, ipv6, err)
+			}
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	status := entity.SlotStatusHealthy
+	if ipv4 == "" && ipv6 == "" {
+		status = entity.SlotStatusUnhealthy
+	}
+
+	slot := &entity.Slot{
+		Name:          slotName,
+		IPv6Address:   ipv6,
+		PublicIPv4:    ipv4,
+		Status:        status,
+		LastCheckedAt: now,
+	}
+
+	c.mu.Lock()
+	// Double-check: another goroutine may have created it while we were provisioning
+	if existing, ok := c.slots[slotName]; ok {
+		c.mu.Unlock()
+		return existing, nil
+	}
+	c.slots[slotName] = slot
+	c.mu.Unlock()
+
+	if c.Log != nil {
+		c.Log.Infof("on-demand: %s ready (IPv4=%s, IPv6=%s, status=%s)", slotName, ipv4, ipv6, status)
+	}
+
+	if status != entity.SlotStatusHealthy {
+		return nil, fmt.Errorf("slot %s provisioned but unhealthy", slotName)
+	}
+
+	return slot, nil
+}
+

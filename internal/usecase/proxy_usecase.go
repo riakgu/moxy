@@ -50,10 +50,18 @@ func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResp
 	if req.SlotName != "" {
 		slot, err := c.SlotUC.SelectByName(req.SlotName)
 		if err != nil {
+			// Slot not found — try on-demand provisioning
 			if c.Log != nil {
-				c.Log.Warnf("sticky session failed for %s: %v", req.SlotName, err)
+				c.Log.Infof("slot %s not found, attempting on-demand provisioning", req.SlotName)
 			}
-			return nil, fmt.Errorf("%w: %s", model.ErrSlotNotFound, req.SlotName)
+			onDemandSlot, provErr := c.SlotUC.ProvisionOnDemand(req.SlotName)
+			if provErr != nil {
+				if c.Log != nil {
+					c.Log.WithError(provErr).Warnf("on-demand provisioning failed for %s", req.SlotName)
+				}
+				return nil, fmt.Errorf("%w: %s", model.ErrSlotNotFound, req.SlotName)
+			}
+			return converter.SlotToResponse(onDemandSlot), nil
 		}
 		return converter.SlotToResponse(slot), nil
 	}
