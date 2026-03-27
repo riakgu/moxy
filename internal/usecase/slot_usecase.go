@@ -406,35 +406,46 @@ func (c *SlotUseCase) ProvisionSlots(iface string, count int, dns64 string) (*mo
 
 	// count = total desired slots (declarative)
 	existing, _ := c.Provisioner.ListSlotNamespaces()
-	startIndex := len(existing)
-	toCreate := count - startIndex
+	existingCount := len(existing)
 
-	if toCreate <= 0 {
+	if existingCount >= count {
 		if c.Log != nil {
-			c.Log.Infof("already have %d slots (requested %d), skipping creation", startIndex, count)
+			c.Log.Infof("already have %d slots (requested %d), skipping creation", existingCount, count)
 		}
-		// Still run discovery + dedup on existing slots
-		toCreate = 0
 	}
 
 	// Check max slots limit
-	if c.MaxSlots > 0 && count > c.MaxSlots {
+	target := count
+	if c.MaxSlots > 0 && target > c.MaxSlots {
 		if c.Log != nil {
 			c.Log.Warnf("capping target to %d slots (max %d)", c.MaxSlots, c.MaxSlots)
 		}
-		toCreate = c.MaxSlots - startIndex
-		if toCreate <= 0 {
-			toCreate = 0
+		target = c.MaxSlots
+	}
+
+	// Build set of existing slot indices for gap detection
+	existingSet := make(map[int]bool)
+	for _, name := range existing {
+		indexStr := strings.TrimPrefix(name, "slot")
+		if idx, err := strconv.Atoi(indexStr); err == nil {
+			existingSet[idx] = true
 		}
 	}
 
 	created := 0
 	failed := 0
+	toCreate := target - existingCount
+	if toCreate < 0 {
+		toCreate = 0
+	}
 
-	for i := 0; i < toCreate; i++ {
-		idx := startIndex + i
+	// Fill gaps first, then append — iterate from 0 upward
+	for idx := 0; created+failed < toCreate; idx++ {
+		if existingSet[idx] {
+			continue // slot already exists, skip
+		}
 		if c.Log != nil {
-			c.Log.Infof("provisioning slot%d (%d/%d)", idx, i+1, toCreate)
+			c.Log.Infof("provisioning slot%d (%d/%d)", idx, created+failed+1, toCreate)
 		}
 		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
 			if c.Log != nil {
