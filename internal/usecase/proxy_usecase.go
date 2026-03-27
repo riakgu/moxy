@@ -8,14 +8,19 @@ import (
 
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
+	"github.com/riakgu/moxy/internal/repository"
 )
+
+type SlotDialer interface {
+	Dial(slotName string, addr string) (io.ReadWriteCloser, error)
+}
 
 type ProxyUseCase struct {
 	Log          *logrus.Logger
 	SlotUC       *SlotUseCase
 	Dialer       SlotDialer
 	UserRepo     UserRepository
-	DestTracker  *DestinationTracker
+	DestTracker  *repository.DestinationTracker
 }
 
 func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo UserRepository) *ProxyUseCase {
@@ -24,7 +29,7 @@ func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer,
 		SlotUC:      slotUC,
 		Dialer:      dialer,
 		UserRepo:    userRepo,
-		DestTracker: NewDestinationTracker(1000),
+		DestTracker: repository.NewDestinationTracker(1000),
 	}
 }
 

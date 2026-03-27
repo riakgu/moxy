@@ -15,6 +15,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -94,7 +95,7 @@ func (h *HttpProxyHandler) handleConnection(conn net.Conn) {
 		return
 	}
 
-	authReq := ParseProxyAuth(username, password)
+	authReq := model.ParseProxyAuth(username, password)
 	slot, err := h.ProxyUC.Authenticate(authReq)
 	if err != nil {
 		h.Log.WithError(err).Warn("http proxy auth failed")
@@ -149,7 +150,7 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	sent, received := BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := netns.BridgeWithTimeout(conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 	h.ProxyUC.RecordDestination(req.Host, sent, received)
 }

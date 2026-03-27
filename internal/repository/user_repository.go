@@ -1,4 +1,4 @@
-package gateway
+package repository
 
 import (
 	"encoding/json"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -119,7 +120,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	}
 	password := string(buf[2+ulen+1 : 2+ulen+1+plen])
 
-	authReq := ParseProxyAuth(username, password)
+	authReq := model.ParseProxyAuth(username, password)
 	slot, err := h.ProxyUC.Authenticate(authReq)
 	if err != nil {
 		h.Log.WithError(err).Warn("socks5 auth failed")
@@ -197,7 +198,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	conn.SetDeadline(time.Time{})
 
 	// 7. Bridge with idle timeout
-	sent, received := BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := netns.BridgeWithTimeout(conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 	h.ProxyUC.RecordDestination(targetAddr, sent, received)
 }

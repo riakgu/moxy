@@ -1,4 +1,4 @@
-package proxy
+package netns
 
 import (
 	"io"

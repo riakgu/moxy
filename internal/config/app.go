@@ -12,8 +12,8 @@ import (
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
 	"github.com/riakgu/moxy/internal/delivery/http/route"
 	"github.com/riakgu/moxy/internal/delivery/proxy"
-	"github.com/riakgu/moxy/internal/gateway"
 	"github.com/riakgu/moxy/internal/gateway/netns"
+	"github.com/riakgu/moxy/internal/repository"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
@@ -42,7 +42,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	if usersFile == "" {
 		usersFile = "users.json"
 	}
-	userRepo, err := gateway.NewJSONUserRepository(cfg.Logger, usersFile)
+	userRepo, err := repository.NewJSONUserRepository(cfg.Logger, usersFile)
 	if err != nil {
 		cfg.Logger.WithError(err).Fatal("failed to load user repository")
 	}

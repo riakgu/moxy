@@ -17,6 +17,21 @@ import (
 	"github.com/riakgu/moxy/internal/model/converter"
 )
 
+type SlotProvisioner interface {
+	CreateSlot(slotIndex int, iface string, dns64 string) error
+	DestroySlot(name string) error
+	EnableNDPProxy(iface string) error
+	AddNDPProxyEntry(ipv6 string, iface string) error
+	RemoveNDPProxyEntry(ipv6 string, iface string) error
+	ListSlotNamespaces() ([]string, error)
+}
+
+type SlotDiscovery interface {
+	DiscoverAll(slotNames []string) []*model.DiscoveredSlot
+	ResolveSlotIP(slotName string) (string, error)
+	ResolveSlotIPv6(slotName string) (string, error)
+}
+
 const slaacWaitDuration = 5 * time.Second
 
 type SlotUseCase struct {
