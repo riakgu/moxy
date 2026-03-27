@@ -34,6 +34,8 @@ type portListener struct {
 	ln       net.Listener
 	wg       sync.WaitGroup
 	closeCh  chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 func NewPortBasedHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration, portBase int) *PortBasedHandler {
@@ -67,6 +69,7 @@ func (h *PortBasedHandler) SyncSlots(slotNames []string) {
 	for name, pl := range h.listeners {
 		if !desired[name] {
 			h.Log.Infof("port-based: stopping listener for %s on port %d", name, pl.port)
+			pl.cancel()
 			close(pl.closeCh)
 			pl.ln.Close()
 			delete(h.listeners, name)
@@ -85,10 +88,13 @@ func (h *PortBasedHandler) SyncSlots(slotNames []string) {
 		}
 
 		port := h.portBase + slotIndex
+		ctx, cancel := context.WithCancel(context.Background())
 		pl := &portListener{
 			slotName: name,
 			port:     port,
 			closeCh:  make(chan struct{}),
+			ctx:      ctx,
+			cancel:   cancel,
 		}
 
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -136,7 +142,7 @@ func (h *PortBasedHandler) acceptLoop(pl *portListener) {
 			go func() {
 				defer pl.wg.Done()
 				defer func() { <-h.sem }()
-				h.handleConnection(conn, pl.slotName)
+				h.handleConnection(conn, pl)
 			}()
 		default:
 			conn.Close()
@@ -144,9 +150,9 @@ func (h *PortBasedHandler) acceptLoop(pl *portListener) {
 	}
 }
 
-// handleConnection does a minimal SOCKS5 handshake with NO AUTH, then relays.
-func (h *PortBasedHandler) handleConnection(conn net.Conn, slotName string) {
+func (h *PortBasedHandler) handleConnection(conn net.Conn, pl *portListener) {
 	defer conn.Close()
+	slotName := pl.slotName
 
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
@@ -220,7 +226,7 @@ func (h *PortBasedHandler) handleConnection(conn net.Conn, slotName string) {
 	conn.SetDeadline(time.Time{})
 
 	// Bridge
-	sent, received := netns.BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slotName, sent, received)
 	h.ProxyUC.RecordDestination(targetAddr, sent, received)
 }
@@ -229,6 +235,7 @@ func (h *PortBasedHandler) handleConnection(conn net.Conn, slotName string) {
 func (h *PortBasedHandler) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	for _, pl := range h.listeners {
+		pl.cancel()
 		close(pl.closeCh)
 		pl.ln.Close()
 	}

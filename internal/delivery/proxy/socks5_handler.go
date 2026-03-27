@@ -25,15 +25,20 @@ type Socks5Handler struct {
 	ln          net.Listener
 	wg          sync.WaitGroup
 	closeCh     chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 func NewSocks5Handler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *Socks5Handler {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Socks5Handler{
 		Log:         log,
 		ProxyUC:     proxyUC,
 		sem:         sem,
 		idleTimeout: idleTimeout,
 		closeCh:     make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
@@ -198,7 +203,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 	conn.SetDeadline(time.Time{})
 
 	// 7. Bridge with idle timeout
-	sent, received := netns.BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := netns.BridgeWithTimeout(h.ctx, conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 	h.ProxyUC.RecordDestination(targetAddr, sent, received)
 }
@@ -206,6 +211,7 @@ func (h *Socks5Handler) handleConnection(conn net.Conn) {
 // Shutdown stops accepting new connections and waits for active ones to drain.
 // It blocks until all connections complete or the context is cancelled.
 func (h *Socks5Handler) Shutdown(ctx context.Context) error {
+	h.cancel()
 	close(h.closeCh)
 	if h.ln != nil {
 		h.ln.Close()

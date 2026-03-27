@@ -28,15 +28,20 @@ type HttpProxyHandler struct {
 	ln          net.Listener
 	wg          sync.WaitGroup
 	closeCh     chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *HttpProxyHandler {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &HttpProxyHandler{
 		Log:         log,
 		ProxyUC:     proxyUC,
 		sem:         sem,
 		idleTimeout: idleTimeout,
 		closeCh:     make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
@@ -150,7 +155,7 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	sent, received := netns.BridgeWithTimeout(conn, remote, h.idleTimeout)
+	sent, received := netns.BridgeWithTimeout(h.ctx, conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slot.Name, sent, received)
 	h.ProxyUC.RecordDestination(req.Host, sent, received)
 }
@@ -202,6 +207,7 @@ func (h *HttpProxyHandler) sendResponse(conn net.Conn, status int, headerKey, he
 }
 
 func (h *HttpProxyHandler) Shutdown(ctx context.Context) error {
+	h.cancel()
 	close(h.closeCh)
 	if h.ln != nil {
 		h.ln.Close()

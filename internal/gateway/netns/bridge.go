@@ -1,6 +1,7 @@
 package netns
 
 import (
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -8,11 +9,13 @@ import (
 )
 
 // BridgeWithTimeout copies data bidirectionally between client and remote.
-// If no data is transferred in either direction for idleTimeout duration,
-// both sides are closed to free resources.
-// An idleTimeout of 0 disables the idle timeout (bridge runs until one side closes).
+// The bridge ends when:
+//   - one side closes the connection
+//   - no data flows for idleTimeout (if > 0)
+//   - the context is cancelled (external kill: shutdown, slot teardown)
+//
 // Returns bytes sent (client→remote) and bytes received (remote→client).
-func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) (sent int64, received int64) {
+func BridgeWithTimeout(ctx context.Context, client net.Conn, remote io.ReadWriteCloser, idleTimeout time.Duration) (sent int64, received int64) {
 	var timer *time.Timer
 	var once sync.Once
 	closeAll := func() {
@@ -33,6 +36,16 @@ func BridgeWithTimeout(client net.Conn, remote io.ReadWriteCloser, idleTimeout t
 	}
 
 	done := make(chan struct{}, 2)
+
+	// Context cancellation — kill relay when ctx is cancelled
+	go func() {
+		select {
+		case <-ctx.Done():
+			once.Do(closeAll)
+		case <-done:
+			// Bridge finished naturally, exit this goroutine
+		}
+	}()
 
 	// client → remote (sent/upload)
 	go func() {
