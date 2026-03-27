@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net"
+	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -156,85 +158,68 @@ func (h *PortBasedHandler) acceptLoop(pl *portListener) {
 	}
 }
 
+// handleConnection handles HTTP proxy requests (CONNECT + plain HTTP).
+// No authentication — the port number determines the slot.
 func (h *PortBasedHandler) handleConnection(conn net.Conn, pl *portListener) {
 	defer conn.Close()
 	slotName := pl.slotName
 
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
-	// SOCKS5 greeting
-	buf := make([]byte, 258)
-	if _, err := conn.Read(buf[:2]); err != nil || buf[0] != 0x05 {
-		return
-	}
-	nmethods := int(buf[1])
-	if _, err := conn.Read(buf[:nmethods]); err != nil {
-		return
-	}
-
-	// Reply: no auth required
-	conn.Write([]byte{0x05, 0x00})
-
-	// SOCKS5 request
-	if _, err := conn.Read(buf[:4]); err != nil {
-		return
-	}
-	if buf[1] != 0x01 { // only CONNECT
-		conn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return
-	}
-
-	var targetAddr string
-	switch buf[3] {
-	case 0x01: // IPv4
-		if _, err := conn.Read(buf[:6]); err != nil {
-			return
-		}
-		ip := net.IP(buf[:4])
-		port := binary.BigEndian.Uint16(buf[4:6])
-		targetAddr = net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
-	case 0x03: // Domain
-		if _, err := conn.Read(buf[:1]); err != nil {
-			return
-		}
-		domainLen := int(buf[0])
-		if _, err := conn.Read(buf[:domainLen+2]); err != nil {
-			return
-		}
-		domain := string(buf[:domainLen])
-		port := binary.BigEndian.Uint16(buf[domainLen : domainLen+2])
-		targetAddr = net.JoinHostPort(domain, strconv.Itoa(int(port)))
-	case 0x04: // IPv6
-		if _, err := conn.Read(buf[:18]); err != nil {
-			return
-		}
-		ip := net.IP(buf[:16])
-		port := binary.BigEndian.Uint16(buf[16:18])
-		targetAddr = net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
-	default:
-		conn.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return
-	}
-
-	// Dial via the assigned slot
-	remote, err := h.ProxyUC.Connect(slotName, targetAddr)
+	reader := bufio.NewReader(conn)
+	req, err := http.ReadRequest(reader)
 	if err != nil {
-		h.Log.WithError(err).Warnf("port-based dial failed: %s via %s", targetAddr, slotName)
-		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
-	defer remote.Close()
 
-	// Success reply
-	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+	if req.Method == http.MethodConnect {
+		// HTTPS tunneling
+		targetAddr := req.Host
+		if !strings.Contains(targetAddr, ":") {
+			targetAddr = targetAddr + ":443"
+		}
 
-	// Clear deadline before bridge
-	conn.SetDeadline(time.Time{})
+		remote, err := h.ProxyUC.Connect(slotName, targetAddr)
+		if err != nil {
+			h.Log.WithError(err).Warnf("port-based CONNECT failed: %s via %s", targetAddr, slotName)
+			conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			return
+		}
+		defer remote.Close()
 
-	// Bridge
-	sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
-	h.ProxyUC.AddTraffic(slotName, sent, received)
-	h.ProxyUC.RecordDestination(targetAddr, sent, received)
+		conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+		conn.SetDeadline(time.Time{})
+
+		sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
+		h.ProxyUC.AddTraffic(slotName, sent, received)
+		h.ProxyUC.RecordDestination(targetAddr, sent, received)
+	} else {
+		// Plain HTTP forwarding
+		targetAddr := req.Host
+		if !strings.Contains(targetAddr, ":") {
+			targetAddr = targetAddr + ":80"
+		}
+
+		remote, err := h.ProxyUC.Connect(slotName, targetAddr)
+		if err != nil {
+			h.Log.WithError(err).Warnf("port-based HTTP failed: %s via %s", targetAddr, slotName)
+			conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			return
+		}
+		defer remote.Close()
+
+		// Forward the original request
+		req.Header.Del("Proxy-Connection")
+		req.RequestURI = ""
+		req.Write(remote)
+
+		conn.SetDeadline(time.Time{})
+
+		// Relay response back
+		sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
+		h.ProxyUC.AddTraffic(slotName, sent, received)
+		h.ProxyUC.RecordDestination(targetAddr, sent, received)
+	}
 }
 
 // Shutdown stops all port-based listeners and drains connections.
