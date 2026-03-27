@@ -1,12 +1,18 @@
+//go:build linux
+
 package netns
 
 import (
 	"fmt"
+	"net"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netns"
 
 	"github.com/riakgu/moxy/internal/model"
 )
@@ -46,24 +52,58 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 }
 
 func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
-	cmd := exec.Command("ip", "netns", "exec", slotName, "ip", "-6", "addr", "show", "scope", "global")
-	output, err := cmd.CombinedOutput()
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Save host namespace
+	hostNs, err := netns.Get()
 	if err != nil {
-		return "", fmt.Errorf("resolve IPv6 for %s failed: %w", slotName, err)
+		return "", fmt.Errorf("get host namespace: %w", err)
+	}
+	defer hostNs.Close()
+
+	defer func() {
+		netns.Set(hostNs)
+	}()
+
+	// Enter slot namespace
+	slotNs, err := netns.GetFromName(slotName)
+	if err != nil {
+		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer slotNs.Close()
+
+	if err := netns.Set(slotNs); err != nil {
+		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "inet6 ") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				addr := strings.Split(parts[1], "/")[0]
-				return addr, nil
+	// List all links and find global IPv6 addresses
+	links, err := netlink.LinkList()
+	if err != nil {
+		return "", fmt.Errorf("list links in %s: %w", slotName, err)
+	}
+
+	for _, link := range links {
+		if link.Attrs().Name == "lo" {
+			continue
+		}
+		addrs, err := netlink.AddrList(link, netlink.FAMILY_V6)
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if addr.Scope == int(netlink.SCOPE_UNIVERSE) && addr.IP.IsGlobalUnicast() && !addr.IP.IsLinkLocalUnicast() {
+				return addr.IP.String(), nil
 			}
 		}
 	}
 
 	return "", fmt.Errorf("no global IPv6 found for %s", slotName)
+}
+
+// isGlobalIPv6 checks if an IP is a global unicast IPv6 (not link-local, not loopback)
+func isGlobalIPv6(ip net.IP) bool {
+	return ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsLinkLocalUnicast()
 }
 
 func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
