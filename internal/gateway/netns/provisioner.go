@@ -27,6 +27,46 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 	name := fmt.Sprintf("slot%d", slotIndex)
 	ipvlanName := fmt.Sprintf("ipvlan%d", slotIndex)
 
+	// Lock thread for entire operation — setns operates on the calling thread
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Save host namespace first (before any namespace switching)
+	hostNs, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("get host namespace: %w", err)
+	}
+	defer hostNs.Close()
+
+	// Always restore host namespace on exit
+	defer func() {
+		if err := netns.Set(hostNs); err != nil {
+			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
+		}
+	}()
+
+	// --- Create namespace ---
+	// NewNamed() switches the current thread INTO the new namespace!
+	newNs, err := netns.NewNamed(name)
+	if err != nil {
+		if !os.IsExist(err) {
+			return fmt.Errorf("create namespace %s: %w", name, err)
+		}
+		p.Log.Debugf("slot %s: namespace already exists, reusing", name)
+		newNs, err = netns.GetFromName(name)
+		if err != nil {
+			return fmt.Errorf("open existing namespace %s: %w", name, err)
+		}
+	}
+	defer newNs.Close()
+
+	// Switch BACK to host namespace to create and move the IPVLAN link
+	if err := netns.Set(hostNs); err != nil {
+		return fmt.Errorf("restore host ns for link setup: %w", err)
+	}
+
+	// --- Host namespace: create IPVLAN and move it ---
+
 	// 1. Get parent interface
 	parent, err := netlink.LinkByName(iface)
 	if err != nil {
@@ -54,46 +94,17 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		return fmt.Errorf("get IPVLAN link %s: %w", ipvlanName, err)
 	}
 
-	// 3. Create network namespace
-	newNs, err := netns.NewNamed(name)
-	if err != nil {
-		if !os.IsExist(err) {
-			return fmt.Errorf("create namespace %s: %w", name, err)
-		}
-		p.Log.Debugf("slot %s: namespace already exists, reusing", name)
-		newNs, err = netns.GetFromName(name)
-		if err != nil {
-			return fmt.Errorf("open existing namespace %s: %w", name, err)
-		}
-	}
-	defer newNs.Close()
-
-	// 4. Move IPVLAN into the namespace
+	// 3. Move IPVLAN into the namespace
 	if err := netlink.LinkSetNsFd(ipvlanLink, int(newNs)); err != nil {
 		return fmt.Errorf("move %s to namespace %s: %w", ipvlanName, name, err)
 	}
 
-	// 5. Configure inside the namespace (requires thread lock + setns)
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	hostNs, err := netns.Get()
-	if err != nil {
-		return fmt.Errorf("get host namespace: %w", err)
-	}
-	defer hostNs.Close()
-
+	// --- Enter slot namespace for configuration ---
 	if err := netns.Set(newNs); err != nil {
 		return fmt.Errorf("enter namespace %s: %w", name, err)
 	}
 
-	defer func() {
-		if err := netns.Set(hostNs); err != nil {
-			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
-		}
-	}()
-
-	// 5a. Bring up loopback
+	// 4a. Bring up loopback
 	lo, err := netlink.LinkByName("lo")
 	if err != nil {
 		return fmt.Errorf("get loopback in %s: %w", name, err)
@@ -102,7 +113,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		return fmt.Errorf("bring up loopback in %s: %w", name, err)
 	}
 
-	// 5b. Bring up IPVLAN
+	// 4b. Bring up IPVLAN
 	ipvlanInNs, err := netlink.LinkByName(ipvlanName)
 	if err != nil {
 		return fmt.Errorf("get %s in namespace %s: %w", ipvlanName, name, err)
@@ -111,7 +122,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		return fmt.Errorf("bring up %s in %s: %w", ipvlanName, name, err)
 	}
 
-	// 5c. Enable accept_ra and autoconf via /proc/sys
+	// 4c. Enable accept_ra and autoconf via /proc/sys
 	sysctlBase := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", ipvlanName)
 	for _, kv := range [][2]string{
 		{"accept_ra", "2"},
@@ -123,7 +134,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		}
 	}
 
-	// 5d. Set DNS64 nameserver
+	// 4d. Set DNS64 nameserver
 	if dns64 != "" {
 		resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
 		if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
