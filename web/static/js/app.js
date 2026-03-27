@@ -66,6 +66,7 @@ function refresh() {
     fetchStats();
     fetchHealth();
     fetchUsers();
+    fetchDestinations();
 }
 
 function setStatus(msg, isError) {
@@ -78,6 +79,33 @@ function setUserStatus(msg, isError) {
     const el = document.getElementById('user-status');
     el.textContent = msg;
     el.style.color = isError ? '#f85149' : '#58a6ff';
+}
+
+// ——— Destinations ———
+
+async function fetchDestinations() {
+    try {
+        const res = await fetch(`${API_BASE}/api/destinations?limit=50`);
+        const json = await res.json();
+        const data = json.data || {};
+        const dests = data.destinations || [];
+
+        const tbody = document.getElementById('destinations-body');
+        tbody.innerHTML = '';
+
+        for (const d of dests) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${d.domain}</td>
+                <td>${d.connections}</td>
+                <td>${formatBytes(d.bytes_sent)} ↑ / ${formatBytes(d.bytes_received)} ↓</td>
+                <td>${d.last_accessed ? new Date(d.last_accessed * 1000).toLocaleTimeString() : '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+    } catch (err) {
+        console.error('Failed to fetch destinations:', err);
+    }
 }
 
 // ——— Users ———

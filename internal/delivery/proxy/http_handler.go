@@ -151,6 +151,7 @@ func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot 
 
 	sent, received := BridgeWithTimeout(conn, remote, h.idleTimeout)
 	h.ProxyUC.AddTraffic(slot.Name, sent, received)
+	h.ProxyUC.RecordDestination(req.Host, sent, received)
 }
 
 func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
@@ -186,6 +187,7 @@ func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot 
 
 	received, _ := io.Copy(conn, remote)
 	h.ProxyUC.AddTraffic(slot.Name, 0, received)
+	h.ProxyUC.RecordDestination(host, 0, received)
 }
 
 func (h *HttpProxyHandler) sendResponse(conn net.Conn, status int, headerKey, headerVal string) {

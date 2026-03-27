@@ -75,7 +75,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Controllers
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
-	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
+	statsCtrl := httpdelivery.NewStatsController(slotUC, proxyUC, cfg.Logger)
 	userCtrl := httpdelivery.NewUserController(userUC, cfg.Logger)
 
 	// Proxy handlers

@@ -11,18 +11,20 @@ import (
 )
 
 type ProxyUseCase struct {
-	Log      *logrus.Logger
-	SlotUC   *SlotUseCase
-	Dialer   SlotDialer
-	UserRepo UserRepository
+	Log          *logrus.Logger
+	SlotUC       *SlotUseCase
+	Dialer       SlotDialer
+	UserRepo     UserRepository
+	DestTracker  *DestinationTracker
 }
 
 func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo UserRepository) *ProxyUseCase {
 	return &ProxyUseCase{
-		Log:      log,
-		SlotUC:   slotUC,
-		Dialer:   dialer,
-		UserRepo: userRepo,
+		Log:         log,
+		SlotUC:      slotUC,
+		Dialer:      dialer,
+		UserRepo:    userRepo,
+		DestTracker: NewDestinationTracker(1000),
 	}
 }
 
@@ -76,6 +78,14 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWrite
 
 func (c *ProxyUseCase) AddTraffic(slotName string, bytesSent, bytesReceived int64) {
 	c.SlotUC.AddTraffic(slotName, bytesSent, bytesReceived)
+}
+
+func (c *ProxyUseCase) RecordDestination(targetAddr string, bytesSent, bytesReceived int64) {
+	c.DestTracker.Record(targetAddr, bytesSent, bytesReceived)
+}
+
+func (c *ProxyUseCase) GetDestinationStats(limit int) *model.DestinationStatsResponse {
+	return c.DestTracker.GetStats(limit)
 }
 
 type trackedConn struct {
