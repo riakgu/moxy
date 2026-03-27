@@ -404,27 +404,37 @@ func (c *SlotUseCase) ProvisionSlots(iface string, count int, dns64 string) (*mo
 		return nil, fmt.Errorf("enable NDP proxy: %w", err)
 	}
 
-	// Find the next available slot index
+	// count = total desired slots (declarative)
 	existing, _ := c.Provisioner.ListSlotNamespaces()
 	startIndex := len(existing)
+	toCreate := count - startIndex
+
+	if toCreate <= 0 {
+		if c.Log != nil {
+			c.Log.Infof("already have %d slots (requested %d), skipping creation", startIndex, count)
+		}
+		// Still run discovery + dedup on existing slots
+		toCreate = 0
+	}
 
 	// Check max slots limit
-	if c.MaxSlots > 0 && startIndex+count > c.MaxSlots {
-		allowed := c.MaxSlots - startIndex
-		if allowed <= 0 {
-			return nil, fmt.Errorf("max slots reached (%d)", c.MaxSlots)
+	if c.MaxSlots > 0 && count > c.MaxSlots {
+		if c.Log != nil {
+			c.Log.Warnf("capping target to %d slots (max %d)", c.MaxSlots, c.MaxSlots)
 		}
-		c.Log.Warnf("capping provision to %d slots (max %d)", allowed, c.MaxSlots)
-		count = allowed
+		toCreate = c.MaxSlots - startIndex
+		if toCreate <= 0 {
+			toCreate = 0
+		}
 	}
 
 	created := 0
 	failed := 0
 
-	for i := 0; i < count; i++ {
+	for i := 0; i < toCreate; i++ {
 		idx := startIndex + i
 		if c.Log != nil {
-			c.Log.Infof("provisioning slot%d (%d/%d)", idx, i+1, count)
+			c.Log.Infof("provisioning slot%d (%d/%d)", idx, i+1, toCreate)
 		}
 		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
 			if c.Log != nil {
