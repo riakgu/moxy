@@ -23,7 +23,8 @@ type PortBasedHandler struct {
 	ProxyUC     *usecase.ProxyUseCase
 	sem         chan struct{}
 	idleTimeout time.Duration
-	portBase    int
+	portStart   int
+	portEnd     int
 	mu          sync.Mutex
 	listeners   map[string]*portListener
 }
@@ -38,13 +39,14 @@ type portListener struct {
 	cancel   context.CancelFunc
 }
 
-func NewPortBasedHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration, portBase int) *PortBasedHandler {
+func NewPortBasedHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration, portStart, portEnd int) *PortBasedHandler {
 	return &PortBasedHandler{
 		Log:         log,
 		ProxyUC:     proxyUC,
 		sem:         sem,
 		idleTimeout: idleTimeout,
-		portBase:    portBase,
+		portStart:   portStart,
+		portEnd:     portEnd,
 		listeners:   make(map[string]*portListener),
 	}
 }
@@ -52,7 +54,7 @@ func NewPortBasedHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem 
 // SyncSlots starts/stops port listeners to match the current set of slots.
 // Call this after slot discovery.
 func (h *PortBasedHandler) SyncSlots(slotNames []string) {
-	if h.portBase <= 0 {
+	if h.portStart <= 0 {
 		return
 	}
 
@@ -87,7 +89,11 @@ func (h *PortBasedHandler) SyncSlots(slotNames []string) {
 			continue
 		}
 
-		port := h.portBase + slotIndex
+		port := h.portStart + slotIndex
+		if h.portEnd > 0 && port > h.portEnd {
+			h.Log.Warnf("port-based: %s skipped — port %d exceeds range end %d", name, port, h.portEnd)
+			continue
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		pl := &portListener{
 			slotName: name,

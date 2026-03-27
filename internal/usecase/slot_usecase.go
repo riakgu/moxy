@@ -41,11 +41,12 @@ type SlotUseCase struct {
 	Provisioner SlotProvisioner
 	Interface   string
 	DNS64Server string
+	MaxSlots    int
 	slots       map[string]*entity.Slot
 	mu          sync.RWMutex
 }
 
-func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, iface string, dns64 string) *SlotUseCase {
+func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, iface string, dns64 string, maxSlots int) *SlotUseCase {
 	return &SlotUseCase{
 		Log:         log,
 		Validate:    validate,
@@ -53,6 +54,7 @@ func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery 
 		Provisioner: provisioner,
 		Interface:   iface,
 		DNS64Server: dns64,
+		MaxSlots:    maxSlots,
 		slots:       make(map[string]*entity.Slot),
 	}
 }
@@ -356,6 +358,16 @@ func (c *SlotUseCase) ProvisionSlots(iface string, count int, dns64 string) (*mo
 	existing, _ := c.Provisioner.ListSlotNamespaces()
 	startIndex := len(existing)
 
+	// Check max slots limit
+	if c.MaxSlots > 0 && startIndex+count > c.MaxSlots {
+		allowed := c.MaxSlots - startIndex
+		if allowed <= 0 {
+			return nil, fmt.Errorf("max slots reached (%d)", c.MaxSlots)
+		}
+		c.Log.Warnf("capping provision to %d slots (max %d)", allowed, c.MaxSlots)
+		count = allowed
+	}
+
 	created := 0
 	failed := 0
 
@@ -462,8 +474,12 @@ func (c *SlotUseCase) ProvisionOnDemand(slotName string) (*entity.Slot, error) {
 		return nil, fmt.Errorf("invalid slot name %s", slotName)
 	}
 
-	// Check if already exists (race: another goroutine may have created it)
+	// Check max slots limit
 	c.mu.RLock()
+	if c.MaxSlots > 0 && len(c.slots) >= c.MaxSlots {
+		c.mu.RUnlock()
+		return nil, fmt.Errorf("max slots reached (%d)", c.MaxSlots)
+	}
 	if slot, ok := c.slots[slotName]; ok {
 		c.mu.RUnlock()
 		if slot.Status == entity.SlotStatusHealthy {

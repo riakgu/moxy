@@ -49,11 +49,13 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 
 	// UseCases
+	maxSlots := cfg.Viper.GetInt("slots.max_slots")
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, discovery,
 		provisioner,
 		cfg.Viper.GetString("provision.interface"),
 		cfg.Viper.GetString("provision.dns64_server"),
+		maxSlots,
 	)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, userRepo)
 	userUC := usecase.NewUserUseCase(cfg.Logger, userRepo)
@@ -82,8 +84,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Proxy handlers
 	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
 	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem, idleTimeout)
-	portBase := cfg.Viper.GetInt("proxy.port_based_start")
-	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, idleTimeout, portBase)
+	portStart := cfg.Viper.GetInt("proxy.port_based_start")
+	portEnd := cfg.Viper.GetInt("proxy.port_based_end")
+	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, idleTimeout, portStart, portEnd)
 
 	// Routes
 	routeConfig := &route.RouteConfig{

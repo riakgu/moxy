@@ -6,12 +6,14 @@
         "max_connections": 500,
         "dial_timeout_seconds": 10,
         "idle_timeout_seconds": 300,
-        "port_based_start": 10000
+        "port_based_start": 10000,
+        "port_based_end": 10250
     },
     "api": {
         "port": 9090
     },
     "slots": {
+        "max_slots": 250,
         "discovery_interval_seconds": 30,
         "discovery_concurrency": 20
     },
