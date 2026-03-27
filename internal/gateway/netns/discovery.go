@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"runtime"
 	"strings"
 	"sync"
@@ -64,8 +63,7 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// Build HTTP client that forces TCP6 and uses DNS64
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	// Resolve api.ipify.org via DNS64 — directly on this locked thread
 	resolver := &net.Resolver{PreferGo: true}
 	if d.DNS64Server != "" {
 		resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -73,46 +71,52 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 		}
 	}
 
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, _ := net.SplitHostPort(addr)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-			// Resolve via DNS64
-			ips, err := resolver.LookupHost(ctx, host)
-			if err != nil {
-				return nil, fmt.Errorf("DNS64 resolve %s: %w", host, err)
-			}
-
-			// Try IPv6 addresses first (NAT64)
-			for _, ip := range ips {
-				if strings.Contains(ip, ":") {
-					conn, err := dialer.DialContext(ctx, "tcp6", net.JoinHostPort(ip, port))
-					if err == nil {
-						return conn, nil
-					}
-				}
-			}
-			return nil, fmt.Errorf("no reachable address for %s", host)
-		},
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-	}
-
-	resp, err := client.Get("http://api.ipify.org")
+	ips, err := resolver.LookupHost(ctx, "api.ipify.org")
 	if err != nil {
-		return "", fmt.Errorf("resolve IP for %s: %w", slotName, err)
+		return "", fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Dial TCP6 directly on this locked thread (ensures correct namespace)
+	var conn net.Conn
+	for _, ip := range ips {
+		if strings.Contains(ip, ":") {
+			conn, err = net.DialTimeout("tcp6", net.JoinHostPort(ip, "80"), 10*time.Second)
+			if err == nil {
+				break
+			}
+		}
+	}
+	if conn == nil {
+		return "", fmt.Errorf("no reachable address for api.ipify.org in %s", slotName)
+	}
+	defer conn.Close()
+
+	// Restore host namespace now — the socket is already bound to the slot namespace
+	netns.Set(hostNs)
+
+	// Write raw HTTP GET on the established connection
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n"))
 	if err != nil {
-		return "", fmt.Errorf("read IP response for %s: %w", slotName, err)
+		return "", fmt.Errorf("write HTTP request for %s: %w", slotName, err)
 	}
 
-	ip := strings.TrimSpace(string(body))
+	// Read response
+	body, err := io.ReadAll(conn)
+	if err != nil {
+		return "", fmt.Errorf("read HTTP response for %s: %w", slotName, err)
+	}
+
+	// Parse body — skip HTTP headers
+	parts := strings.SplitN(string(body), "\r\n\r\n", 2)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid HTTP response for %s", slotName)
+	}
+
+	ip := strings.TrimSpace(parts[1])
 	if ip == "" {
 		return "", fmt.Errorf("empty IP response for %s", slotName)
 	}
