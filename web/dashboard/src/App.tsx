@@ -1,9 +1,23 @@
 import { Routes, Route } from 'react-router-dom'
+import MainLayout from './components/Layout/MainLayout'
+import Dashboard from './pages/Dashboard'
+import SlotMonitor from './pages/SlotMonitor'
+import ProxyUsers from './pages/ProxyUsers'
+import DestinationStats from './pages/DestinationStats'
+import Config from './pages/Config'
+import Logs from './pages/Logs'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<div className="text-white p-8">Moxy Dashboard</div>} />
-    </Routes>
+    <MainLayout>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/slots" element={<SlotMonitor />} />
+        <Route path="/users" element={<ProxyUsers />} />
+        <Route path="/destinations" element={<DestinationStats />} />
+        <Route path="/config" element={<Config />} />
+        <Route path="/logs" element={<Logs />} />
+      </Routes>
+    </MainLayout>
   )
 }
