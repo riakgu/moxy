@@ -16,7 +16,7 @@ interface DataTableProps<T> {
 
 type SortDir = 'asc' | 'desc'
 
-export default function DataTable<T extends Record<string, unknown>>({
+export default function DataTable<T extends Record<string, any>>({
   columns,
   data,
   pageSize = 20,

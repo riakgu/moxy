@@ -3,7 +3,6 @@ import { apiFetch } from '../api/client'
 import type { MoxyConfig } from '../api/types'
 
 export default function Config() {
-  const [config, setConfig] = useState<MoxyConfig | null>(null)
   const [rawText, setRawText] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -12,7 +11,6 @@ export default function Config() {
     // Note: GET /api/config is a placeholder for backend implementation
     apiFetch<Exclude<MoxyConfig, undefined>>('/config')
       .then(res => {
-        setConfig(res)
         setRawText(JSON.stringify(res, null, 2))
       })
       .catch(err => {

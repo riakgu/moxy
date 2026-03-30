@@ -11,7 +11,7 @@ interface MainLayoutProps {
 
 export default function MainLayout({ children }: MainLayoutProps) {
   const { data: health } = usePolling(() => statsApi.getHealth(), { intervalMs: 10000 })
-  const { toasts, addToast, removeToast } = useToast()
+  const { toasts, removeToast } = useToast()
 
   return (
     <div className="min-h-screen">
