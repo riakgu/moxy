@@ -1,0 +1,21 @@
+# Build artifacts
+moxy-bin
+moxy.exe
+build/
+
+# Frontend
+web/dashboard/node_modules/
+web/dashboard/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# AI agents & skills
+.agents/
+.agent/
+.claude/
+skills-lock.json
+
+# Docs
+docs/
