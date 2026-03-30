@@ -40,8 +40,12 @@ func (c *RouteConfig) Setup() {
 
 	c.App.Use("/", filesystem.New(filesystem.Config{
 		Root:       http.FS(c.StaticFS),
-		PathPrefix: "static",
+		PathPrefix: "dashboard/dist",
 		Browse:     false,
 		Index:      "index.html",
 	}))
+
+	c.App.Get("/*", func(ctx *fiber.Ctx) error {
+		return filesystem.SendFile(ctx, http.FS(c.StaticFS), "dashboard/dist/index.html")
+	})
 }
