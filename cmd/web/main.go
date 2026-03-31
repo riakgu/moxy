@@ -49,6 +49,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
+				b.DeviceUseCase.CheckHealth()
 				count, err := b.SlotUseCase.DiscoverSlots()
 				if err != nil {
 					log.WithError(err).Error("discovery scan failed")

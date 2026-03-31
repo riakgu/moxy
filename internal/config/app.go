@@ -31,6 +31,7 @@ type BootstrapConfig struct {
 
 type BootstrapResult struct {
 	SlotUseCase      *usecase.SlotUseCase
+	DeviceUseCase    *usecase.DeviceUseCase
 	Socks5Handler    *proxy.Socks5Handler
 	HttpProxyHandler *proxy.HttpProxyHandler
 	PortHandler      *proxy.PortBasedHandler
@@ -110,6 +111,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	return &BootstrapResult{
 		SlotUseCase:      slotUC,
+		DeviceUseCase:    deviceUC,
 		Socks5Handler:    socks5Handler,
 		HttpProxyHandler: httpProxyHandler,
 		PortHandler:      portHandler,

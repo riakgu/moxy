@@ -73,6 +73,34 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	return result, nil
 }
 
+// CheckHealth checks ADB connectivity for all online devices and marks
+// disconnected ones as offline.
+func (c *DeviceUseCase) CheckHealth() {
+	devices, err := c.DeviceRepo.FindAll(c.DB)
+	if err != nil {
+		return
+	}
+
+	serials, err := c.ADB.ListDevices()
+	if err != nil {
+		c.Log.WithError(err).Warn("health check: ADB list failed")
+		return
+	}
+
+	connectedSet := make(map[string]bool)
+	for _, s := range serials {
+		connectedSet[s] = true
+	}
+
+	for _, device := range devices {
+		if device.Status == entity.DeviceStatusOnline && !connectedSet[device.Serial] {
+			c.Log.Warnf("health check: device %s (%s) disconnected — marking offline", device.Alias, device.Serial)
+			device.Status = entity.DeviceStatusOffline
+			c.DeviceRepo.Update(c.DB, device)
+		}
+	}
+}
+
 func (c *DeviceUseCase) GetByID(id string) (*model.DeviceResponse, error) {
 	device, err := c.DeviceRepo.FindByID(c.DB, id)
 	if err != nil {
