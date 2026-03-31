@@ -3,9 +3,42 @@ export interface ApiResponse<T> {
   data: T
 }
 
-// Slot
+// Device
+export interface Device {
+  id: string
+  serial: string
+  alias: string
+  carrier: string
+  interface: string
+  status: 'offline' | 'setup' | 'online' | 'error'
+  max_slots: number
+  slot_count: number
+}
+
+export interface RegisterDeviceRequest {
+  serial: string
+  alias: string
+  max_slots?: number
+}
+
+export interface SetupProgress {
+  device_id: string
+  status: 'running' | 'completed' | 'failed'
+  completed_steps: string[]
+  failed_at?: string
+  error?: string
+}
+
+export interface UpdateISPOverrideRequest {
+  nameserver: string
+  nat64_prefix: string
+}
+
+// Slot — now device-aware
 export interface Slot {
   name: string
+  device_alias: string
+  interface: string
   ipv6_address: string
   public_ipv4: string
   status: 'healthy' | 'unhealthy' | 'discovering'
@@ -31,33 +64,27 @@ export interface Health {
   total_slots: number
 }
 
-// User
-export interface User {
+// ProxyUser (renamed from User)
+export interface ProxyUser {
+  id: string
   username: string
   device_binding: string
   enabled: boolean
 }
 
-export interface CreateUserRequest {
+export interface CreateProxyUserRequest {
   username: string
   password: string
   device_binding?: string
-  enabled: boolean
 }
 
-export interface UpdateUserRequest {
+export interface UpdateProxyUserRequest {
   password?: string
   device_binding?: string
   enabled?: boolean
 }
 
 // Provision
-export interface ProvisionRequest {
-  interface: string
-  slots: number
-  dns64?: string
-}
-
 export interface ProvisionResponse {
   created: number
   failed: number
@@ -81,7 +108,7 @@ export interface DestinationStatsResponse {
   destinations: DestinationStat[]
 }
 
-// Config (new endpoint)
+// Config
 export interface MoxyConfig {
   proxy: {
     socks5_port: number
@@ -94,14 +121,16 @@ export interface MoxyConfig {
     port_based_end: number
   }
   slots: {
-    max_slots: number
+    max_slots_per_device: number
     discovery_interval_seconds: number
     discovery_concurrency: number
     monitor_interval_seconds: number
   }
   provision: {
-    interface: string
     dns64_server: string
+  }
+  database: {
+    path: string
   }
   server: {
     shutdown_drain_seconds: number
@@ -112,7 +141,7 @@ export interface MoxyConfig {
   }
 }
 
-// Logs (new endpoint)
+// Logs
 export interface LogsResponse {
   lines: string[]
   file: string
