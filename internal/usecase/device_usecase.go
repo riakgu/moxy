@@ -26,16 +26,17 @@ type DeviceUseCase struct {
 	DeviceRepo  *repository.DeviceRepository
 	ADB         *adb.ADBGateway
 	Provisioner SlotProvisioner
+	SlotUC      *SlotUseCase
 	DNS64Server string
 }
 
 func NewDeviceUseCase(log *logrus.Logger, validate *validator.Validate, db *sql.DB,
 	deviceRepo *repository.DeviceRepository, adbGW *adb.ADBGateway,
-	provisioner SlotProvisioner, dns64 string) *DeviceUseCase {
+	provisioner SlotProvisioner, slotUC *SlotUseCase, dns64 string) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log: log, Validate: validate, DB: db,
 		DeviceRepo: deviceRepo, ADB: adbGW,
-		Provisioner: provisioner, DNS64Server: dns64,
+		Provisioner: provisioner, SlotUC: slotUC, DNS64Server: dns64,
 	}
 }
 
@@ -198,6 +199,12 @@ func (c *DeviceUseCase) Teardown(deviceId string) error {
 		if err := c.Provisioner.DestroySlot(ns); err != nil {
 			c.Log.WithError(err).Warnf("failed to destroy slot %s", ns)
 		}
+	}
+
+	// Remove slots from in-memory map
+	if c.SlotUC != nil {
+		removed := c.SlotUC.RemoveSlotsForDevice(device.Alias)
+		c.Log.Infof("device %s: removed %d slots from memory", device.Alias, removed)
 	}
 
 	device.Status = entity.DeviceStatusOffline

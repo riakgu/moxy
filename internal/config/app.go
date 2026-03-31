@@ -64,7 +64,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		strategy,
 	)
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
-		deviceRepo, adbGateway, provisioner, dns64)
+		deviceRepo, adbGateway, provisioner, slotUC, dns64)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, proxyUserRepo, db)
 	proxyUserUC := usecase.NewProxyUserUseCase(cfg.Logger, db, proxyUserRepo)
 

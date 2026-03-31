@@ -121,6 +121,22 @@ func (c *SlotUseCase) DiscoverSlots() (int, error) {
 	return len(discovered), nil
 }
 
+// RemoveSlotsForDevice removes all slots belonging to a device alias from the in-memory map.
+func (c *SlotUseCase) RemoveSlotsForDevice(deviceAlias string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	prefix := deviceAlias + "_slot"
+	removed := 0
+	for name := range c.slots {
+		if strings.HasPrefix(name, prefix) {
+			delete(c.slots, name)
+			removed++
+		}
+	}
+	return removed
+}
+
 func (c *SlotUseCase) GetSlotNames() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
