@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 
@@ -16,37 +17,35 @@ type SlotDialer interface {
 }
 
 type ProxyUseCase struct {
-	Log          *logrus.Logger
-	SlotUC       *SlotUseCase
-	Dialer       SlotDialer
-	UserRepo     UserRepository
-	DestTracker  *repository.DestinationTracker
+	Log         *logrus.Logger
+	SlotUC      *SlotUseCase
+	Dialer      SlotDialer
+	UserRepo    *repository.ProxyUserRepository
+	DB          *sql.DB
+	DestTracker *repository.DestinationTracker
 }
 
-func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo UserRepository) *ProxyUseCase {
+func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo *repository.ProxyUserRepository, db *sql.DB) *ProxyUseCase {
 	return &ProxyUseCase{
 		Log:         log,
 		SlotUC:      slotUC,
 		Dialer:      dialer,
 		UserRepo:    userRepo,
+		DB:          db,
 		DestTracker: repository.NewDestinationTracker(1000),
 	}
 }
 
 func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResponse, error) {
-	user, err := c.UserRepo.FindByUsername(req.Username)
-	if err != nil {
+	user, err := c.UserRepo.FindByUsername(c.DB, req.Username)
+	if err != nil || !user.Enabled {
+		return nil, model.ErrInvalidCredentials
+	}
+	if !c.UserRepo.VerifyPassword(user.PasswordHash, req.Password) {
 		return nil, model.ErrInvalidCredentials
 	}
 
-	if !user.Enabled {
-		return nil, model.ErrUserDisabled
-	}
-
-	if user.Password != req.Password {
-		return nil, model.ErrInvalidCredentials
-	}
-
+	// Slot selection (with optional device binding)
 	if req.SlotName != "" {
 		slot, err := c.SlotUC.SelectByName(req.SlotName)
 		if err != nil {
@@ -65,7 +64,13 @@ func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResp
 		}
 		return converter.SlotToResponse(slot), nil
 	}
-
+	if user.DeviceBinding != "" {
+		slot, err := c.SlotUC.SelectRandomForDevice(user.DeviceBinding)
+		if err != nil {
+			return nil, model.ErrNoSlotsAvailable
+		}
+		return converter.SlotToResponse(slot), nil
+	}
 	slot, err := c.SlotUC.SelectSlot(req.ClientIP)
 	if err != nil {
 		return nil, model.ErrNoSlotsAvailable
