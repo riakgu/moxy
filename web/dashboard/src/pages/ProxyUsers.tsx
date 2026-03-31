@@ -3,11 +3,11 @@ import DataTable, { type Column } from '../components/DataTable'
 import Modal from '../components/Modal'
 import CopyButton from '../components/CopyButton'
 import { usePolling } from '../hooks/usePolling'
-import { usersApi } from '../api/users'
-import type { User, CreateUserRequest } from '../api/types'
+import { proxyUsersApi } from '../api/proxyUsers'
+import type { ProxyUser, CreateProxyUserRequest } from '../api/types'
 
 export default function ProxyUsers() {
-  const { data: users, refresh } = usePolling(() => usersApi.list(), { intervalMs: 5000 })
+  const { data: users, refresh } = usePolling(() => proxyUsersApi.list(), { intervalMs: 5000 })
   const [openUserModal, setOpenUserModal] = useState(false)
   const [openGenModal, setOpenGenModal] = useState(false)
   
@@ -24,8 +24,8 @@ export default function ProxyUsers() {
 
   const handleCreateUser = async () => {
     try {
-      const req: CreateUserRequest = { username, password, enabled: true, device_binding: binding || undefined }
-      await usersApi.create(req)
+      const req: CreateProxyUserRequest = { username, password, device_binding: binding || undefined }
+      await proxyUsersApi.create(req)
       setOpenUserModal(false)
       refresh()
     } catch (err) {
@@ -35,16 +35,16 @@ export default function ProxyUsers() {
 
   const handleDelete = async (u: string) => {
     try {
-      await usersApi.delete(u)
+      await proxyUsersApi.delete(u)
       refresh()
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Unknown'}`)
     }
   }
 
-  const handleToggle = async (u: User) => {
+  const handleToggle = async (u: ProxyUser) => {
     try {
-      await usersApi.update(u.username, { enabled: !u.enabled })
+      await proxyUsersApi.update(u.username, { enabled: !u.enabled })
       refresh()
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Unknown'}`)
@@ -73,7 +73,7 @@ export default function ProxyUsers() {
     return results
   }, [genIps, genCount, genAuthType, genPort, users])
 
-  const columns: Column<User>[] = [
+  const columns: Column<ProxyUser>[] = [
     { key: 'username', label: 'Username', sortable: true, render: r => <span className="font-semibold">{r.username}</span> },
     { key: 'device_binding', label: 'Binding', render: r => <span className="font-mono text-xs text-text-muted">{r.device_binding || 'None'}</span> },
     { key: 'enabled', label: 'Status', sortable: true, render: r => (

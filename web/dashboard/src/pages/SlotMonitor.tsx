@@ -28,6 +28,8 @@ export default function SlotMonitor() {
 
   const columns: Column<Slot>[] = [
     { key: 'name', label: 'Name', sortable: true },
+    { key: 'device_alias', label: 'Device', sortable: true,
+      render: r => <span className="font-mono text-xs text-text-muted">{r.device_alias || '—'}</span> },
     { key: 'status', label: 'Status', sortable: true, render: row => <StatusBadge status={row.status} /> },
     { key: 'ipv6_address', label: 'IPv6 Address', render: row => (
       <div className="flex items-center gap-2">
