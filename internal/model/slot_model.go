@@ -2,6 +2,8 @@ package model
 
 type SlotResponse struct {
 	Name              string `json:"name"`
+	DeviceAlias       string `json:"device_alias"`
+	Interface         string `json:"interface"`
 	IPv6Address       string `json:"ipv6_address"`
 	PublicIPv4        string `json:"public_ipv4"`
 	Status            string `json:"status"`
