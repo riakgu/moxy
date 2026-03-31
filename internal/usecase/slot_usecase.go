@@ -493,19 +493,20 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	// Wait for SLAAC
 	time.Sleep(slaacWaitDuration)
 
-	// Discover all slots for this device
+	// Discover all slots for this device — update map first, then set device fields
 	allNames, _ := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
 	discovered := c.Discovery.DiscoverAll(allNames)
-	// Set DeviceAlias and Interface on discovered slots
+	c.UpdateSlots(discovered)
+
+	// Set DeviceAlias and Interface on discovered slots (after UpdateSlots created the entries)
+	c.mu.Lock()
 	for _, d := range discovered {
-		c.mu.Lock()
 		if s, ok := c.slots[d.Name]; ok {
 			s.DeviceAlias = deviceAlias
 			s.Interface = iface
 		}
-		c.mu.Unlock()
 	}
-	c.UpdateSlots(discovered)
+	c.mu.Unlock()
 	// Warmup: detect and re-roll duplicate public IPv4 addresses
 	dupFound, dupResolved := c.warmupDedup(deviceAlias, iface, dns64)
 
