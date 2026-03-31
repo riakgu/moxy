@@ -251,14 +251,25 @@ func (h *PortBasedHandler) Shutdown(ctx context.Context) error {
 	}
 }
 
-// extractSlotIndex parses "slot0" → 0, "slot5" → 5, etc.
+// extractSlotIndex parses "dev1_slot0" → 0, "dev2_slot5" → 5, etc.
+// Also handles legacy format "slot0" → 0.
 func extractSlotIndex(name string) int {
-	if len(name) < 5 || name[:4] != "slot" {
-		return -1
+	// Find "_slot" for device-prefixed names like "dev1_slot3"
+	idx := strings.LastIndex(name, "_slot")
+	if idx >= 0 {
+		n, err := strconv.Atoi(name[idx+5:])
+		if err != nil {
+			return -1
+		}
+		return n
 	}
-	idx, err := strconv.Atoi(name[4:])
-	if err != nil {
-		return -1
+	// Legacy format "slot0"
+	if len(name) >= 5 && name[:4] == "slot" {
+		n, err := strconv.Atoi(name[4:])
+		if err != nil {
+			return -1
+		}
+		return n
 	}
-	return idx
+	return -1
 }
