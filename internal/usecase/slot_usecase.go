@@ -94,10 +94,16 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 			LastCheckedAt: now,
 		}
 
+		// Always derive DeviceAlias from slot name (e.g. "dev1_slot4" → "dev1")
+		if da, _, err := parseSlotName(d.Name); err == nil {
+			s.DeviceAlias = da
+		}
+
 		if existing, ok := c.slots[d.Name]; ok {
 			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
-			s.DeviceAlias = existing.DeviceAlias
-			s.Interface = existing.Interface
+			if existing.Interface != "" {
+				s.Interface = existing.Interface
+			}
 		}
 		c.slots[d.Name] = s
 	}
