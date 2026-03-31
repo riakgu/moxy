@@ -9,7 +9,7 @@ type ProxyAuthRequest struct {
 	ClientIP string
 }
 
-var slotSuffixRegex = regexp.MustCompile(`-slot(\d+)$`)
+var slotSuffixRegex = regexp.MustCompile(`-([a-zA-Z0-9]+_slot\d+)$`)
 
 func ParseProxyAuth(username, password string) ProxyAuthRequest {
 	req := ProxyAuthRequest{
