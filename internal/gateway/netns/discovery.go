@@ -207,7 +207,7 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
 			ipv6, _ := d.ResolveSlotIPv6(slotName)
 
 			// Add NDP proxy entry for the slot's IPv6 address
-			if ipv6 != "" && d.Provisioner != nil {
+			if ipv6 != "" && d.Provisioner != nil && d.Interface != "" {
 				if err := d.Provisioner.AddNDPProxyEntry(ipv6, d.Interface); err != nil {
 					d.Log.Warnf("discovery: %s NDP proxy entry failed: %v", slotName, err)
 				}

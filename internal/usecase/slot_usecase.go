@@ -96,6 +96,8 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 
 		if existing, ok := c.slots[d.Name]; ok {
 			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
+			s.DeviceAlias = existing.DeviceAlias
+			s.Interface = existing.Interface
 		}
 		c.slots[d.Name] = s
 	}
