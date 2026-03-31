@@ -32,7 +32,7 @@ export default function Devices() {
   const handleScanADB = async () => {
     setLoading('scan')
     try {
-      const serials = await devicesApi.scanADB()
+      const serials = await devicesApi.scanADB() ?? []
       setAdbSerials(serials)
       if (serials.length > 0) setRegSerial(serials[0])
     } catch (err) {

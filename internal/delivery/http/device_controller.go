@@ -23,6 +23,9 @@ func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
+	if serials == nil {
+		serials = []string{}
+	}
 	return ctx.JSON(fiber.Map{"data": serials})
 }
 
@@ -42,6 +45,9 @@ func (c *DeviceController) List(ctx *fiber.Ctx) error {
 	devices, err := c.DeviceUC.List()
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if devices == nil {
+		devices = []model.DeviceResponse{}
 	}
 	return ctx.JSON(fiber.Map{"data": devices})
 }
@@ -89,3 +95,28 @@ func (c *DeviceController) UpdateOverride(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(fiber.Map{"data": resp})
 }
+
+func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
+	deviceId := ctx.Params("deviceId")
+	device, err := c.DeviceUC.GetByID(deviceId)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, err.Error())
+	}
+
+	var body struct {
+		Slots int `json:"slots"`
+	}
+	if err := ctx.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	if body.Slots <= 0 {
+		body.Slots = 5
+	}
+
+	resp, err := c.SlotUC.ProvisionSlots(device.Alias, device.Interface, body.Slots, "")
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return ctx.JSON(fiber.Map{"data": resp})
+}
+

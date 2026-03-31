@@ -33,6 +33,7 @@ func (c *RouteConfig) Setup() {
 	api.Post("/devices/:deviceId/setup", c.DeviceController.Setup)
 	api.Post("/devices/:deviceId/teardown", c.DeviceController.Teardown)
 	api.Put("/devices/:deviceId/override", c.DeviceController.UpdateOverride)
+	api.Post("/devices/:deviceId/provision", c.DeviceController.Provision)
 
 	// Slot routes
 	api.Get("/slots", c.SlotController.List)
