@@ -8,6 +8,8 @@ const (
 
 type Slot struct {
 	Name              string
+	DeviceAlias       string
+	Interface         string
 	IPv6Address       string
 	PublicIPv4        string
 	Status            string
