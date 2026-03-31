@@ -12,32 +12,47 @@ import (
 )
 
 type RouteConfig struct {
-	App             *fiber.App
-	SlotController  *httpdelivery.SlotController
-	StatsController *httpdelivery.StatsController
-	UserController  *httpdelivery.UserController
-	Log             *logrus.Logger
-	StaticFS        embed.FS
+	App                 *fiber.App
+	DeviceController    *httpdelivery.DeviceController
+	SlotController      *httpdelivery.SlotController
+	StatsController     *httpdelivery.StatsController
+	ProxyUserController *httpdelivery.ProxyUserController
+	Log                 *logrus.Logger
+	StaticFS            embed.FS
 }
 
 func (c *RouteConfig) Setup() {
 	api := c.App.Group("/api")
+
+	// Device routes
+	api.Get("/adb-devices", c.DeviceController.ListADB)
+	api.Post("/devices", c.DeviceController.Register)
+	api.Get("/devices", c.DeviceController.List)
+	api.Get("/devices/:deviceId", c.DeviceController.Get)
+	api.Delete("/devices/:deviceId", c.DeviceController.Delete)
+	api.Post("/devices/:deviceId/setup", c.DeviceController.Setup)
+	api.Post("/devices/:deviceId/teardown", c.DeviceController.Teardown)
+	api.Put("/devices/:deviceId/override", c.DeviceController.UpdateOverride)
+
+	// Slot routes
 	api.Get("/slots", c.SlotController.List)
 	api.Get("/slots/:slotName", c.SlotController.Get)
 	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)
-	api.Post("/provision", c.SlotController.Provision)
-	api.Post("/teardown", c.SlotController.Teardown)
 	api.Delete("/slots/:slotName", c.SlotController.Delete)
+
+	// ProxyUser routes
+	api.Get("/proxy-users", c.ProxyUserController.List)
+	api.Post("/proxy-users", c.ProxyUserController.Create)
+	api.Get("/proxy-users/:username", c.ProxyUserController.Get)
+	api.Put("/proxy-users/:username", c.ProxyUserController.Update)
+	api.Delete("/proxy-users/:username", c.ProxyUserController.Delete)
+
+	// Stats routes
 	api.Get("/stats", c.StatsController.Stats)
 	api.Get("/health", c.StatsController.Health)
 	api.Get("/destinations", c.StatsController.Destinations)
 
-	api.Get("/users", c.UserController.List)
-	api.Post("/users", c.UserController.Create)
-	api.Get("/users/:username", c.UserController.Get)
-	api.Put("/users/:username", c.UserController.Update)
-	api.Delete("/users/:username", c.UserController.Delete)
-
+	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{
 		Root:       http.FS(c.StaticFS),
 		PathPrefix: "dashboard/dist",

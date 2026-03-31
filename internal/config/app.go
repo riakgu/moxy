@@ -1,6 +1,9 @@
+//go:build linux
+
 package config
 
 import (
+	"database/sql"
 	"embed"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
 	"github.com/riakgu/moxy/internal/delivery/http/route"
 	"github.com/riakgu/moxy/internal/delivery/proxy"
+	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/repository"
 	"github.com/riakgu/moxy/internal/usecase"
@@ -31,36 +35,38 @@ type BootstrapResult struct {
 	HttpProxyHandler *proxy.HttpProxyHandler
 	PortHandler      *proxy.PortBasedHandler
 	RouteConfig      *route.RouteConfig
+	DB               *sql.DB
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
-	// Gateways
-	provisioner := netns.NewProvisioner(cfg.Logger)
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, cfg.Viper.GetString("provision.interface"), cfg.Viper.GetString("provision.dns64_server"))
-	dialer := netns.NewSetnsDialer(cfg.Logger, cfg.Viper.GetString("provision.dns64_server"))
+	// SQLite database
+	db := NewSQLite(cfg.Viper, cfg.Logger)
 
-	usersFile := cfg.Viper.GetString("proxy.users_file")
-	if usersFile == "" {
-		usersFile = "users.json"
-	}
-	userRepo, err := repository.NewJSONUserRepository(cfg.Logger, usersFile)
-	if err != nil {
-		cfg.Logger.WithError(err).Fatal("failed to load user repository")
-	}
+	// Repositories
+	deviceRepo := repository.NewDeviceRepository(cfg.Logger)
+	proxyUserRepo := repository.NewProxyUserRepository(cfg.Logger)
+
+	// Gateways
+	adbGateway := adb.NewADBGateway(cfg.Logger)
+	provisioner := netns.NewProvisioner(cfg.Logger)
+	dns64 := cfg.Viper.GetString("provision.dns64_server")
+	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, "", dns64)
+	dialer := netns.NewSetnsDialer(cfg.Logger, dns64)
 
 	// UseCases
-	maxSlots := cfg.Viper.GetInt("slots.max_slots")
+	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
 	strategy := cfg.Viper.GetString("proxy.source_ip_strategy")
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, discovery,
 		provisioner,
-		cfg.Viper.GetString("provision.interface"),
-		cfg.Viper.GetString("provision.dns64_server"),
+		dns64,
 		maxSlots,
 		strategy,
 	)
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, userRepo)
-	userUC := usecase.NewUserUseCase(cfg.Logger, userRepo)
+	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
+		deviceRepo, adbGateway, provisioner, dns64)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, proxyUserRepo, db)
+	proxyUserUC := usecase.NewProxyUserUseCase(cfg.Logger, db, proxyUserRepo)
 
 	// Shared connection semaphore
 	maxConns := cfg.Viper.GetInt("proxy.max_connections")
@@ -79,9 +85,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	cfg.Logger.Infof("proxy idle timeout: %s", idleTimeout)
 
 	// Controllers
+	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 	statsCtrl := httpdelivery.NewStatsController(slotUC, proxyUC, cfg.Logger)
-	userCtrl := httpdelivery.NewUserController(userUC, cfg.Logger)
+	proxyUserCtrl := httpdelivery.NewProxyUserController(proxyUserUC, cfg.Logger)
 
 	// Proxy handlers
 	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
@@ -92,12 +99,13 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Routes
 	routeConfig := &route.RouteConfig{
-		App:             cfg.Fiber,
-		SlotController:  slotCtrl,
-		StatsController: statsCtrl,
-		UserController:  userCtrl,
-		Log:             cfg.Logger,
-		StaticFS:        cfg.StaticFS,
+		App:                 cfg.Fiber,
+		DeviceController:    deviceCtrl,
+		SlotController:      slotCtrl,
+		StatsController:     statsCtrl,
+		ProxyUserController: proxyUserCtrl,
+		Log:                 cfg.Logger,
+		StaticFS:            cfg.StaticFS,
 	}
 
 	return &BootstrapResult{
@@ -106,5 +114,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		HttpProxyHandler: httpProxyHandler,
 		PortHandler:      portHandler,
 		RouteConfig:      routeConfig,
+		DB:               db,
 	}
 }
