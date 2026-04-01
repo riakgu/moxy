@@ -8,7 +8,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -45,19 +47,29 @@ func toNAT64(ipv4 net.IP) string {
 // It uses setns(2) to enter the namespace in-process, avoiding subprocess overhead.
 //
 // For raw IPv4 addresses, NAT64 conversion is applied automatically.
-// For domain names, DNS resolution uses the configured DNS64 server.
+// For domain names, DNS resolution uses a subprocess (`ip netns exec`) to safely
+// resolve inside the namespace without goroutine/thread-safety issues.
 func (d *SetnsDialer) Dial(slotName string, addr string) (io.ReadWriteCloser, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
 	}
 
-	// NAT64 conversion for raw IPv4 addresses
+	// Resolve the target address to a NAT64 IPv6 address BEFORE entering the namespace.
 	ip := net.ParseIP(host)
 	if ip != nil && ip.To4() != nil {
+		// Raw IPv4 → NAT64
 		host = toNAT64(ip)
-		addr = net.JoinHostPort(host, port)
+	} else if ip == nil {
+		// Domain name — resolve DNS64 inside namespace via subprocess
+		resolved, err := d.resolveInNamespace(slotName, host)
+		if err != nil {
+			return nil, fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
+		}
+		host = resolved
 	}
+	// At this point, host is always an IPv6 address (global or NAT64)
+	target := net.JoinHostPort(host, port)
 
 	// Pin goroutine to OS thread — required because setns operates on the calling thread
 	runtime.LockOSThread()
@@ -82,23 +94,9 @@ func (d *SetnsDialer) Dial(slotName string, addr string) (io.ReadWriteCloser, er
 		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
 	}
 
-	// Build dialer with DNS64 resolver for domain name resolution inside the namespace.
-	// PreferGo ensures DNS resolution runs synchronously on this locked thread.
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
-	}
-
-	if d.DNS64Server != "" {
-		dialer.Resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return net.DialTimeout("udp6", net.JoinHostPort(d.DNS64Server, "53"), 5*time.Second)
-			},
-		}
-	}
-
-	// Dial inside the slot namespace
-	conn, dialErr := dialer.DialContext(context.Background(), "tcp6", addr)
+	// Pure TCP connect — no DNS resolution needed, host is already an IPv6 address
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, dialErr := dialer.DialContext(context.Background(), "tcp6", target)
 
 	// Always restore host namespace, even if dial failed
 	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
@@ -113,4 +111,35 @@ func (d *SetnsDialer) Dial(slotName string, addr string) (io.ReadWriteCloser, er
 	}
 
 	return conn, nil
+}
+
+// resolveInNamespace resolves a hostname to an IPv6 address inside a network namespace
+// using a subprocess. This avoids goroutine/thread-safety issues with setns+DNS.
+func (d *SetnsDialer) resolveInNamespace(slotName string, hostname string) (string, error) {
+	dnsServer := d.DNS64Server
+	if dnsServer == "" {
+		dnsServer = "2001:4860:4860::6464"
+	}
+
+	// Use dig inside the namespace to get AAAA record via DNS64
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ip", "netns", "exec", slotName,
+		"dig", "+short", "+time=4", "+tries=1", "AAAA", hostname,
+		"@"+dnsServer)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("lookup %s: %w", hostname, err)
+	}
+
+	// Parse first valid IPv6 from output
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if ip := net.ParseIP(line); ip != nil && ip.To4() == nil {
+			return ip.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("no AAAA record for %s via DNS64", hostname)
 }
