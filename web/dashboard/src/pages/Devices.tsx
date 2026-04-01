@@ -10,7 +10,7 @@ import type { Device, SetupProgress } from '../api/types'
 const SETUP_STEPS = [
   'screen_unlocked', 'enabled_tethering', 'interface_detected',
   'enabled_data', 'dismissed_dialog', 'disabled_wifi',
-  'dhcp_configured', 'ipv6_configured', 'isp_detected',
+  'dhcp_configured', 'ipv6_configured', 'ipv6_verified', 'isp_detected',
 ]
 
 export default function Devices() {

@@ -5,6 +5,7 @@ package usecase
 import (
 	"database/sql"
 	"fmt"
+	"net"
 	"os/exec"
 	"time"
 
@@ -176,8 +177,30 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 					return fmt.Errorf("%s: %w", cmd[0], err)
 				}
 			}
-			time.Sleep(3 * time.Second) // Wait for SLAAC
+			time.Sleep(5 * time.Second) // Wait for SLAAC
 			return nil
+		}},
+		{"ipv6_verified", func() error {
+			iface, err := net.InterfaceByName(device.Interface)
+			if err != nil {
+				return fmt.Errorf("interface %s not found: %w", device.Interface, err)
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				return fmt.Errorf("list addrs on %s: %w", device.Interface, err)
+			}
+			for _, addr := range addrs {
+				ipNet, ok := addr.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				ip := ipNet.IP
+				if ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsLinkLocalUnicast() {
+					c.Log.Infof("device %s: global IPv6 found: %s", device.Alias, ip)
+					return nil
+				}
+			}
+			return fmt.Errorf("no global IPv6 address on %s — check phone APN is set to IPv4/IPv6", device.Interface)
 		}},
 		{"isp_detected", func() error {
 			carrier, err := c.ADB.GetCarrier(device.Serial)
