@@ -93,7 +93,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Proxy handlers
 	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem, idleTimeout)
+	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem)
 	portStart := cfg.Viper.GetInt("proxy.port_based_start")
 	portEnd := cfg.Viper.GetInt("proxy.port_based_end")
 	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, idleTimeout, portStart, portEnd)

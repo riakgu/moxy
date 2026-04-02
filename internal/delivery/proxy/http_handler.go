@@ -1,225 +1,102 @@
+//go:build linux
+
 package proxy
 
 import (
-	"bufio"
 	"context"
-	"encoding/base64"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"strings"
-	"sync"
-	"time"
 
+	"github.com/elazarl/goproxy"
 	"github.com/sirupsen/logrus"
 
-	"github.com/riakgu/moxy/internal/gateway/netns"
-	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
+// HttpProxyHandler wraps elazarl/goproxy with Moxy's namespace dialer,
+// concurrency control, and graceful shutdown.
 type HttpProxyHandler struct {
-	Log         *logrus.Logger
-	ProxyUC     *usecase.ProxyUseCase
-	sem         chan struct{}
-	idleTimeout time.Duration
-	ln          net.Listener
-	wg          sync.WaitGroup
-	closeCh     chan struct{}
-	ctx         context.Context
-	cancel      context.CancelFunc
+	Log    *logrus.Logger
+	server *http.Server
 }
 
-func NewHttpProxyHandler(log *logrus.Logger, proxyUC *usecase.ProxyUseCase, sem chan struct{}, idleTimeout time.Duration) *HttpProxyHandler {
-	ctx, cancel := context.WithCancel(context.Background())
+// NewHttpProxyHandler creates a new HTTP proxy handler.
+// It uses elazarl/goproxy for protocol handling and ProxyUseCase for connection management.
+func NewHttpProxyHandler(
+	log *logrus.Logger,
+	proxyUC *usecase.ProxyUseCase,
+	sem chan struct{},
+) *HttpProxyHandler {
+	proxy := goproxy.NewProxyHttpServer()
+	proxy.Verbose = false
+
+	// Custom dialer for CONNECT tunnels (HTTPS)
+	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
+		slotName, err := proxyUC.SelectSlot("")
+		if err != nil {
+			return nil, err
+		}
+		return proxyUC.Connect(slotName, addr)
+	}
+
+	// Custom dialer for plain HTTP forwarding
+	proxy.Tr = &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			slotName, err := proxyUC.SelectSlot("")
+			if err != nil {
+				return nil, err
+			}
+			return proxyUC.Connect(slotName, addr)
+		},
+	}
+
+	// Concurrency gate — reject with 503 when at capacity
+	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		select {
+		case sem <- struct{}{}:
+			ctx.UserData = sem
+			return req, nil
+		default:
+			log.Warn("http proxy: connection rejected — too many concurrent connections")
+			return req, goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusServiceUnavailable, "Service Unavailable")
+		}
+	})
+
+	// Release semaphore after response
+	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		if ctx.UserData != nil {
+			<-sem
+		}
+		return resp
+	})
+
 	return &HttpProxyHandler{
-		Log:         log,
-		ProxyUC:     proxyUC,
-		sem:         sem,
-		idleTimeout: idleTimeout,
-		closeCh:     make(chan struct{}),
-		ctx:         ctx,
-		cancel:      cancel,
+		Log: log,
+		server: &http.Server{
+			Handler: proxy,
+		},
 	}
 }
 
-func (h *HttpProxyHandler) ListenAndServe(addr string) error {
+// ListenAndServe starts the HTTP proxy on the given address.
+func (c *HttpProxyHandler) ListenAndServe(addr string) error {
+	c.server.Addr = addr
+	c.Log.Infof("HTTP proxy listening on %s", addr)
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("http proxy listen: %w", err)
 	}
-	h.ln = ln
-	h.Log.Infof("HTTP proxy listening on %s", addr)
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			select {
-			case <-h.closeCh:
-				return nil
-			default:
-			}
-			h.Log.WithError(err).Error("http proxy accept failed")
-			continue
-		}
-
-		select {
-		case h.sem <- struct{}{}:
-			h.wg.Add(1)
-			go func() {
-				defer h.wg.Done()
-				defer func() { <-h.sem }()
-				h.handleConnection(conn)
-			}()
-		default:
-			h.Log.Warn("http proxy: connection rejected — too many concurrent connections")
-			h.sendResponse(conn, http.StatusServiceUnavailable, "", "")
-			conn.Close()
-		}
-	}
-}
-
-func (h *HttpProxyHandler) handleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	// Set handshake deadline
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
-
-	reader := bufio.NewReader(conn)
-	req, err := http.ReadRequest(reader)
-	if err != nil {
-		return
-	}
-
-	// Extract Proxy-Authorization
-	username, password, ok := h.parseProxyAuth(req)
-	if !ok {
-		h.sendResponse(conn, http.StatusProxyAuthRequired, "Proxy-Authenticate", "Basic realm=\"moxy\"")
-		return
-	}
-
-	authReq := model.ParseProxyAuth(username, password)
-	authReq.ClientIP, _, _ = net.SplitHostPort(conn.RemoteAddr().String())
-	slot, err := h.ProxyUC.Authenticate(authReq)
-	if err != nil {
-		h.Log.WithError(err).Warn("http proxy auth failed")
-		if errors.Is(err, model.ErrNoSlotsAvailable) {
-			h.sendResponse(conn, http.StatusServiceUnavailable, "", "")
-		} else {
-			h.sendResponse(conn, http.StatusProxyAuthRequired, "Proxy-Authenticate", "Basic realm=\"moxy\"")
-		}
-		return
-	}
-
-	conn.SetDeadline(time.Time{})
-
-	if req.Method == http.MethodConnect {
-		h.handleConnect(conn, req, slot)
-	} else {
-		h.handleForward(conn, req, slot)
-	}
-}
-
-func (h *HttpProxyHandler) parseProxyAuth(req *http.Request) (string, string, bool) {
-	auth := req.Header.Get("Proxy-Authorization")
-	if auth == "" {
-		return "", "", false
-	}
-
-	if !strings.HasPrefix(auth, "Basic ") {
-		return "", "", false
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(auth[6:])
-	if err != nil {
-		return "", "", false
-	}
-
-	parts := strings.SplitN(string(decoded), ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-
-	return parts[0], parts[1], true
-}
-
-func (h *HttpProxyHandler) handleConnect(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
-	remote, err := h.ProxyUC.Connect(slot.Name, req.Host)
-	if err != nil {
-		h.Log.WithError(err).Warnf("http CONNECT dial failed: %s via %s", req.Host, slot.Name)
-		h.sendResponse(conn, http.StatusBadGateway, "", "")
-		return
-	}
-	defer remote.Close()
-
-	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-
-	netns.BridgeWithTimeout(h.ctx, conn, remote, h.idleTimeout)
-}
-
-func (h *HttpProxyHandler) handleForward(conn net.Conn, req *http.Request, slot *model.SlotResponse) {
-	host := req.Host
-	if !strings.Contains(host, ":") {
-		host = host + ":80"
-	}
-
-	remote, err := h.ProxyUC.Connect(slot.Name, host)
-	if err != nil {
-		h.Log.WithError(err).Warnf("http forward dial failed: %s via %s", host, slot.Name)
-		h.sendResponse(conn, http.StatusBadGateway, "", "")
-		return
-	}
-	defer remote.Close()
-
-	req.Header.Del("Proxy-Authorization")
-	req.Header.Del("Proxy-Connection")
-	req.RequestURI = req.URL.Path
-	if req.URL.RawQuery != "" {
-		req.RequestURI += "?" + req.URL.RawQuery
-	}
-
-	if err := req.Write(remote); err != nil {
-		h.sendResponse(conn, http.StatusBadGateway, "", "")
-		return
-	}
-
-	// Set read deadline on client for the response relay
-	if h.idleTimeout > 0 {
-		conn.SetDeadline(time.Now().Add(h.idleTimeout))
-	}
-
-	io.Copy(conn, remote)
-}
-
-func (h *HttpProxyHandler) sendResponse(conn net.Conn, status int, headerKey, headerVal string) {
-	statusText := http.StatusText(status)
-	resp := fmt.Sprintf("HTTP/1.1 %d %s\r\n", status, statusText)
-	if headerKey != "" {
-		resp += fmt.Sprintf("%s: %s\r\n", headerKey, headerVal)
-	}
-	resp += "\r\n"
-	conn.Write([]byte(resp))
-}
-
-func (h *HttpProxyHandler) Shutdown(ctx context.Context) error {
-	h.cancel()
-	close(h.closeCh)
-	if h.ln != nil {
-		h.ln.Close()
-	}
-
-	done := make(chan struct{})
-	go func() {
-		h.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
+	err = c.server.Serve(ln)
+	if err == http.ErrServerClosed {
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
+	return err
+}
+
+// Shutdown stops accepting new connections and waits for active ones to drain.
+func (c *HttpProxyHandler) Shutdown(ctx context.Context) error {
+	return c.server.Shutdown(ctx)
 }

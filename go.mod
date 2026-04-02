@@ -3,6 +3,7 @@ module github.com/riakgu/moxy
 go 1.26.1
 
 require (
+	github.com/elazarl/goproxy v1.8.3
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/google/uuid v1.6.0
@@ -43,6 +44,7 @@ require (
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
