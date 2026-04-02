@@ -247,9 +247,7 @@ func (h *PortBasedHandler) handleSocks5(conn net.Conn, reader *bufio.Reader, pl 
 	conn.SetDeadline(time.Time{})
 
 	// 5. Bridge
-	sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
-	h.ProxyUC.AddTraffic(slotName, sent, received)
-	h.ProxyUC.RecordDestination(targetAddr, sent, received)
+	netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
 }
 
 // handleHTTP handles HTTP proxy requests (CONNECT + plain HTTP).
@@ -278,9 +276,7 @@ func (h *PortBasedHandler) handleHTTP(conn net.Conn, reader *bufio.Reader, pl *p
 		conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 		conn.SetDeadline(time.Time{})
 
-		sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
-		h.ProxyUC.AddTraffic(slotName, sent, received)
-		h.ProxyUC.RecordDestination(targetAddr, sent, received)
+		netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
 	} else {
 		targetAddr := req.Host
 		if !strings.Contains(targetAddr, ":") {
@@ -301,9 +297,7 @@ func (h *PortBasedHandler) handleHTTP(conn net.Conn, reader *bufio.Reader, pl *p
 
 		conn.SetDeadline(time.Time{})
 
-		sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
-		h.ProxyUC.AddTraffic(slotName, sent, received)
-		h.ProxyUC.RecordDestination(targetAddr, sent, received)
+		netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
 	}
 }
 
