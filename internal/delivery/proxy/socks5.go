@@ -5,8 +5,6 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"io"
-	stdlog "log"
 	"net"
 	"sync"
 
@@ -60,9 +58,6 @@ func NewSocks5Handler(
 		socks5.WithAuthMethods([]socks5.Authenticator{
 			socks5.NoAuthAuthenticator{},
 		}),
-
-		// Disable go-socks5 internal logging — we log connection errors in our accept loop
-		socks5.WithLogger(socks5.NewLogger(stdlog.New(io.Discard, "", 0))),
 	)
 
 	return &Socks5Handler{
