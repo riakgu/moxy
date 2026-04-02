@@ -3,7 +3,7 @@ package usecase
 import (
 	"database/sql"
 	"fmt"
-	"io"
+	"net"
 
 	"github.com/sirupsen/logrus"
 
@@ -13,7 +13,7 @@ import (
 )
 
 type SlotDialer interface {
-	Dial(slotName string, addr string) (io.ReadWriteCloser, error)
+	Dial(slotName string, addr string) (net.Conn, error)
 }
 
 type ProxyUseCase struct {
@@ -76,7 +76,7 @@ func (c *ProxyUseCase) Authenticate(req model.ProxyAuthRequest) (*model.SlotResp
 	return converter.SlotToResponse(slot), nil
 }
 
-func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWriteCloser, error) {
+func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, error) {
 	c.SlotUC.IncrementConnections(slotName)
 
 	conn, err := c.Dialer.Dial(slotName, targetAddr)
@@ -86,14 +86,14 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWrite
 	}
 
 	return &trackedConn{
-		ReadWriteCloser: conn,
-		slotName:        slotName,
-		slotUC:          c.SlotUC,
+		Conn:     conn,
+		slotName: slotName,
+		slotUC:   c.SlotUC,
 	}, nil
 }
 
 type trackedConn struct {
-	io.ReadWriteCloser
+	net.Conn
 	slotName string
 	slotUC   *SlotUseCase
 	closed   bool
@@ -104,5 +104,5 @@ func (tc *trackedConn) Close() error {
 		tc.closed = true
 		tc.slotUC.DecrementConnections(tc.slotName)
 	}
-	return tc.ReadWriteCloser.Close()
+	return tc.Conn.Close()
 }
