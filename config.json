@@ -6,8 +6,8 @@
         "dial_timeout_seconds": 10,
         "idle_timeout_seconds": 300,
         "source_ip_strategy": "random",
-        "port_based_start": 10000,
-        "port_based_end": 10250
+        "port_based_socks5_start": 10000,
+        "port_based_http_start": 20000
     },
     "api": {
         "port": 9090
