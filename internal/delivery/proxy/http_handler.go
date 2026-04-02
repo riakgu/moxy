@@ -42,6 +42,7 @@ func NewHttpProxyHandler(
 
 	// Custom dialer for plain HTTP forwarding
 	proxy.Tr = &http.Transport{
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			slotName, err := proxyUC.SelectSlot("")
 			if err != nil {
