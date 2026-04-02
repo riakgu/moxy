@@ -14,8 +14,6 @@ func SlotToResponse(slot *entity.Slot) *model.SlotResponse {
 		PublicIPv4:        slot.PublicIPv4,
 		Status:            slot.Status,
 		ActiveConnections: slot.ActiveConnections,
-		BytesSent:         slot.BytesSent,
-		BytesReceived:     slot.BytesReceived,
 		LastCheckedAt:     slot.LastCheckedAt,
 	}
 }
