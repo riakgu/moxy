@@ -92,6 +92,16 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	}, nil
 }
 
+// SelectSlot picks a slot using the configured load balancing strategy.
+// Used by proxy handlers that don't require auth (e.g., SOCKS5 no-auth mode).
+func (c *ProxyUseCase) SelectSlot(clientIP string) (string, error) {
+	slot, err := c.SlotUC.SelectSlot(clientIP)
+	if err != nil {
+		return "", model.ErrNoSlotsAvailable
+	}
+	return slot.Name, nil
+}
+
 type trackedConn struct {
 	net.Conn
 	slotName string

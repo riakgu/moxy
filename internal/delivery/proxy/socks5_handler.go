@@ -31,21 +31,18 @@ type Socks5Handler struct {
 func NewSocks5Handler(
 	log *logrus.Logger,
 	proxyUC *usecase.ProxyUseCase,
-	router SlotRouter,
 	sem chan struct{},
 ) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	server := socks5.NewServer(
-		// Custom dialer: route through namespace via SlotRouter → ProxyUseCase
+		// Custom dialer: select slot via ProxyUseCase, then connect through namespace
 		socks5.WithDial(func(dialCtx context.Context, network, addr string) (net.Conn, error) {
-			// Select a slot using the router
-			slotName, err := router.Route(dialCtx, "")
+			slotName, err := proxyUC.SelectSlot("")
 			if err != nil {
 				return nil, err
 			}
 
-			// Delegate to ProxyUseCase — handles connection tracking internally
 			conn, err := proxyUC.Connect(slotName, addr)
 			if err != nil {
 				return nil, fmt.Errorf("connect %s via %s: %w", addr, slotName, err)
@@ -97,7 +94,6 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 			go func() {
 				defer c.wg.Done()
 				defer func() { <-c.sem }()
-				// go-socks5 handles entire SOCKS5 protocol: greeting, auth, connect, relay
 				if err := c.server.ServeConn(conn); err != nil {
 					c.Log.WithError(err).Debug("socks5 connection ended with error")
 				}
