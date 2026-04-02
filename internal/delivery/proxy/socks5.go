@@ -5,6 +5,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	stdlog "log"
 	"net"
 	"sync"
@@ -16,11 +17,11 @@ import (
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// Socks5Server wraps things-go/go-socks5 with Moxy's namespace dialer,
+// Socks5Handler wraps things-go/go-socks5 with Moxy's namespace dialer,
 // slot routing, concurrency control, and graceful shutdown.
-type Socks5Server struct {
+type Socks5Handler struct {
 	server      *socks5.Server
-	log         *logrus.Logger
+	Log         *logrus.Logger
 	sem         chan struct{}
 	idleTimeout time.Duration
 	ln          net.Listener
@@ -29,20 +30,19 @@ type Socks5Server struct {
 	cancel      context.CancelFunc
 }
 
-// NewSocks5Server creates a new SOCKS5 proxy server.
-// It uses go-socks5 for protocol handling and our namespace dialer for connections.
-func NewSocks5Server(
+// NewSocks5Handler creates a new SOCKS5 proxy handler.
+// It uses go-socks5 for protocol handling and ProxyUseCase for connection management.
+func NewSocks5Handler(
 	log *logrus.Logger,
-	slotUC *usecase.SlotUseCase,
-	dialer usecase.SlotDialer,
+	proxyUC *usecase.ProxyUseCase,
 	router SlotRouter,
 	sem chan struct{},
 	idleTimeout time.Duration,
-) *Socks5Server {
+) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	server := socks5.NewServer(
-		// Custom dialer: route through namespace via SlotRouter
+		// Custom dialer: route through namespace via SlotRouter → ProxyUseCase
 		socks5.WithDial(func(dialCtx context.Context, network, addr string) (net.Conn, error) {
 			// Select a slot using the router
 			slotName, err := router.Route(dialCtx, "")
@@ -50,22 +50,14 @@ func NewSocks5Server(
 				return nil, err
 			}
 
-			// Track connections
-			slotUC.IncrementConnections(slotName)
-
-			conn, err := dialer.Dial(slotName, addr)
+			// Delegate to ProxyUseCase — handles connection tracking internally
+			conn, err := proxyUC.Connect(slotName, addr)
 			if err != nil {
-				slotUC.DecrementConnections(slotName)
-				return nil, fmt.Errorf("dial %s via %s: %w", addr, slotName, err)
+				return nil, fmt.Errorf("connect %s via %s: %w", addr, slotName, err)
 			}
 
-			// Wrap with connection tracking and idle timeout
-			tracked := &trackedConnSocks5{
-				Conn:     newIdleTimeoutConn(conn, idleTimeout),
-				slotName: slotName,
-				slotUC:   slotUC,
-			}
-			return tracked, nil
+			// Wrap with idle timeout for go-socks5's internal relay
+			return newIdleTimeoutConn(conn, idleTimeout), nil
 		}),
 
 		// No auth — single user, localhost access
@@ -73,13 +65,13 @@ func NewSocks5Server(
 			socks5.NoAuthAuthenticator{},
 		}),
 
-		// Use logrus for go-socks5 logging
-		socks5.WithLogger(socks5.NewLogger(stdlog.New(log.WithField("component", "socks5").Writer(), "", 0))),
+		// Disable go-socks5 internal logging — we log connection errors in our accept loop
+		socks5.WithLogger(socks5.NewLogger(stdlog.New(io.Discard, "", 0))),
 	)
 
-	return &Socks5Server{
+	return &Socks5Handler{
 		server:      server,
-		log:         log,
+		Log:         log,
 		sem:         sem,
 		idleTimeout: idleTimeout,
 		ctx:         ctx,
@@ -88,55 +80,55 @@ func NewSocks5Server(
 }
 
 // ListenAndServe starts the SOCKS5 proxy on the given address.
-func (s *Socks5Server) ListenAndServe(addr string) error {
+func (c *Socks5Handler) ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("socks5 listen: %w", err)
 	}
-	s.ln = ln
-	s.log.Infof("SOCKS5 proxy listening on %s", addr)
+	c.ln = ln
+	c.Log.Infof("SOCKS5 proxy listening on %s", addr)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			select {
-			case <-s.ctx.Done():
+			case <-c.ctx.Done():
 				return nil
 			default:
 			}
-			s.log.WithError(err).Error("socks5 accept failed")
+			c.Log.WithError(err).Error("socks5 accept failed")
 			continue
 		}
 
 		// Concurrency gate
 		select {
-		case s.sem <- struct{}{}:
-			s.wg.Add(1)
+		case c.sem <- struct{}{}:
+			c.wg.Add(1)
 			go func() {
-				defer s.wg.Done()
-				defer func() { <-s.sem }()
+				defer c.wg.Done()
+				defer func() { <-c.sem }()
 				// go-socks5 handles entire SOCKS5 protocol: greeting, auth, connect, relay
-				if err := s.server.ServeConn(conn); err != nil {
-					s.log.WithError(err).Debug("socks5 connection ended with error")
+				if err := c.server.ServeConn(conn); err != nil {
+					c.Log.WithError(err).Debug("socks5 connection ended with error")
 				}
 			}()
 		default:
-			s.log.Warn("socks5: connection rejected — too many concurrent connections")
+			c.Log.Warn("socks5: connection rejected — too many concurrent connections")
 			conn.Close()
 		}
 	}
 }
 
 // Shutdown stops accepting new connections and waits for active ones to drain.
-func (s *Socks5Server) Shutdown(ctx context.Context) error {
-	s.cancel()
-	if s.ln != nil {
-		s.ln.Close()
+func (c *Socks5Handler) Shutdown(ctx context.Context) error {
+	c.cancel()
+	if c.ln != nil {
+		c.ln.Close()
 	}
 
 	done := make(chan struct{})
 	go func() {
-		s.wg.Wait()
+		c.wg.Wait()
 		close(done)
 	}()
 
@@ -146,20 +138,4 @@ func (s *Socks5Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-// trackedConnSocks5 wraps a connection to decrement active connections on close.
-type trackedConnSocks5 struct {
-	net.Conn
-	slotName string
-	slotUC   *usecase.SlotUseCase
-	closed   bool
-}
-
-func (tc *trackedConnSocks5) Close() error {
-	if !tc.closed {
-		tc.closed = true
-		tc.slotUC.DecrementConnections(tc.slotName)
-	}
-	return tc.Conn.Close()
 }

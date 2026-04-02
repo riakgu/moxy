@@ -4,10 +4,8 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/riakgu/moxy/internal/model"
-	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
@@ -48,13 +46,4 @@ func NewFixedSlotRouter(slotName string) SlotRouter {
 
 func (r *fixedSlotRouter) Route(ctx context.Context, clientIP string) (string, error) {
 	return r.slotName, nil
-}
-
-// convertSlot is a helper to convert an entity slot to a response (used when auth is needed).
-func convertSlot(slotUC *usecase.SlotUseCase, slotName string) (*model.SlotResponse, error) {
-	slot, err := slotUC.SelectByName(slotName)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", model.ErrSlotNotFound, slotName)
-	}
-	return converter.SlotToResponse(slot), nil
 }
