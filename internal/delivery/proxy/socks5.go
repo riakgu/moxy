@@ -9,7 +9,6 @@ import (
 	stdlog "log"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/things-go/go-socks5"
@@ -20,14 +19,13 @@ import (
 // Socks5Handler wraps things-go/go-socks5 with Moxy's namespace dialer,
 // slot routing, concurrency control, and graceful shutdown.
 type Socks5Handler struct {
-	server      *socks5.Server
-	Log         *logrus.Logger
-	sem         chan struct{}
-	idleTimeout time.Duration
-	ln          net.Listener
-	wg          sync.WaitGroup
-	ctx         context.Context
-	cancel      context.CancelFunc
+	server *socks5.Server
+	Log    *logrus.Logger
+	sem    chan struct{}
+	ln     net.Listener
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewSocks5Handler creates a new SOCKS5 proxy handler.
@@ -37,7 +35,6 @@ func NewSocks5Handler(
 	proxyUC *usecase.ProxyUseCase,
 	router SlotRouter,
 	sem chan struct{},
-	idleTimeout time.Duration,
 ) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -56,8 +53,7 @@ func NewSocks5Handler(
 				return nil, fmt.Errorf("connect %s via %s: %w", addr, slotName, err)
 			}
 
-			// Wrap with idle timeout for go-socks5's internal relay
-			return newIdleTimeoutConn(conn, idleTimeout), nil
+			return conn, nil
 		}),
 
 		// No auth — single user, localhost access
@@ -70,12 +66,11 @@ func NewSocks5Handler(
 	)
 
 	return &Socks5Handler{
-		server:      server,
-		Log:         log,
-		sem:         sem,
-		idleTimeout: idleTimeout,
-		ctx:         ctx,
-		cancel:      cancel,
+		server: server,
+		Log:    log,
+		sem:    sem,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
