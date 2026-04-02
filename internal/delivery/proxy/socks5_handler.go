@@ -55,6 +55,9 @@ func NewSocks5Handler(
 		socks5.WithAuthMethods([]socks5.Authenticator{
 			socks5.NoAuthAuthenticator{},
 		}),
+
+		// Silence go-socks5 internal logging — we log errors in our accept loop
+		socks5.WithLogger(nopLogger{}),
 	)
 
 	return &Socks5Handler{
@@ -125,3 +128,8 @@ func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+// nopLogger implements socks5.Logger with no output.
+type nopLogger struct{}
+
+func (nopLogger) Errorf(string, ...interface{}) {}
