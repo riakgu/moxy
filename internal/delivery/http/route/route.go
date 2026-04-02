@@ -51,7 +51,6 @@ func (c *RouteConfig) Setup() {
 	// Stats routes
 	api.Get("/stats", c.StatsController.Stats)
 	api.Get("/health", c.StatsController.Health)
-	api.Get("/destinations", c.StatsController.Destinations)
 
 	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{
