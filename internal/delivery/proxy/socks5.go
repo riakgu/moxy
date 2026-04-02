@@ -5,6 +5,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	stdlog "log"
 	"net"
 	"sync"
 	"time"
@@ -73,7 +74,7 @@ func NewSocks5Server(
 		}),
 
 		// Use logrus for go-socks5 logging
-		socks5.WithLogger(socks5.NewLogger(log.WithField("component", "socks5").Writer())),
+		socks5.WithLogger(socks5.NewLogger(stdlog.New(log.WithField("component", "socks5").Writer(), "", 0))),
 	)
 
 	return &Socks5Server{

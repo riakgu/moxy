@@ -88,7 +88,7 @@ func main() {
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 
 	go func() {
-		if err := b.Socks5Handler.ListenAndServe(socks5Addr); err != nil {
+		if err := b.Socks5Server.ListenAndServe(socks5Addr); err != nil {
 			log.WithError(err).Fatal("SOCKS5 listener failed")
 		}
 	}()
@@ -120,7 +120,7 @@ func main() {
 
 	// Stop accepting new proxy connections
 	log.Info("stopping SOCKS5 listener...")
-	if err := b.Socks5Handler.Shutdown(ctx); err != nil {
+	if err := b.Socks5Server.Shutdown(ctx); err != nil {
 		log.WithError(err).Warn("SOCKS5 shutdown: some connections did not drain in time")
 	}
 

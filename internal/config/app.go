@@ -32,7 +32,7 @@ type BootstrapConfig struct {
 type BootstrapResult struct {
 	SlotUseCase      *usecase.SlotUseCase
 	DeviceUseCase    *usecase.DeviceUseCase
-	Socks5Handler    *proxy.Socks5Handler
+	Socks5Server     *proxy.Socks5Server
 	HttpProxyHandler *proxy.HttpProxyHandler
 	PortHandler      *proxy.PortBasedHandler
 	RouteConfig      *route.RouteConfig
@@ -85,6 +85,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	idleTimeout := time.Duration(idleTimeoutSec) * time.Second
 	cfg.Logger.Infof("proxy idle timeout: %s", idleTimeout)
 
+	// Slot router (strategy-based for main proxy)
+	router := proxy.NewStrategyRouter(slotUC)
+
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
@@ -92,7 +95,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	proxyUserCtrl := httpdelivery.NewProxyUserController(proxyUserUC, cfg.Logger)
 
 	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem, idleTimeout)
+	socks5Server := proxy.NewSocks5Server(cfg.Logger, slotUC, dialer, router, proxySem, idleTimeout)
 	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem, idleTimeout)
 	portStart := cfg.Viper.GetInt("proxy.port_based_start")
 	portEnd := cfg.Viper.GetInt("proxy.port_based_end")
@@ -112,7 +115,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	return &BootstrapResult{
 		SlotUseCase:      slotUC,
 		DeviceUseCase:    deviceUC,
-		Socks5Handler:    socks5Handler,
+		Socks5Server:     socks5Server,
 		HttpProxyHandler: httpProxyHandler,
 		PortHandler:      portHandler,
 		RouteConfig:      routeConfig,
