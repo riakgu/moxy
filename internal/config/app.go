@@ -88,7 +88,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
-	statsCtrl := httpdelivery.NewStatsController(slotUC, proxyUC, cfg.Logger)
+	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
 	proxyUserCtrl := httpdelivery.NewProxyUserController(proxyUserUC, cfg.Logger)
 
 	// Proxy handlers
