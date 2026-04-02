@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"net/http"
@@ -158,22 +159,109 @@ func (h *PortBasedHandler) acceptLoop(pl *portListener) {
 	}
 }
 
-// handleConnection handles HTTP proxy requests (CONNECT + plain HTTP).
+// handleConnection detects the protocol (SOCKS5 or HTTP) and dispatches.
 // No authentication — the port number determines the slot.
 func (h *PortBasedHandler) handleConnection(conn net.Conn, pl *portListener) {
 	defer conn.Close()
-	slotName := pl.slotName
 
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
+	// Peek first byte to detect protocol
 	reader := bufio.NewReader(conn)
+	firstByte, err := reader.Peek(1)
+	if err != nil {
+		return
+	}
+
+	if firstByte[0] == 0x05 {
+		h.handleSocks5(conn, reader, pl)
+	} else {
+		h.handleHTTP(conn, reader, pl)
+	}
+}
+
+// handleSocks5 handles SOCKS5 connections with no authentication.
+func (h *PortBasedHandler) handleSocks5(conn net.Conn, reader *bufio.Reader, pl *portListener) {
+	slotName := pl.slotName
+	buf := make([]byte, 258)
+
+	// 1. Greeting: version + auth methods
+	n, err := reader.Read(buf)
+	if err != nil || n < 3 || buf[0] != 0x05 {
+		return
+	}
+
+	// Accept no-auth (0x00)
+	conn.Write([]byte{0x05, 0x00})
+
+	// 2. CONNECT request
+	n, err = reader.Read(buf)
+	if err != nil || n < 7 || buf[0] != 0x05 || buf[1] != 0x01 {
+		if n >= 4 {
+			conn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+		}
+		return
+	}
+
+	// Parse target address
+	var targetAddr string
+	switch buf[3] {
+	case 0x01: // IPv4
+		if n < 10 {
+			return
+		}
+		ip := net.IP(buf[4:8])
+		port := binary.BigEndian.Uint16(buf[8:10])
+		targetAddr = net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
+	case 0x03: // Domain
+		domainLen := int(buf[4])
+		if 5+domainLen+2 > n {
+			return
+		}
+		domain := string(buf[5 : 5+domainLen])
+		port := binary.BigEndian.Uint16(buf[5+domainLen : 5+domainLen+2])
+		targetAddr = net.JoinHostPort(domain, strconv.Itoa(int(port)))
+	case 0x04: // IPv6
+		if n < 22 {
+			return
+		}
+		ip := net.IP(buf[4:20])
+		port := binary.BigEndian.Uint16(buf[20:22])
+		targetAddr = net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
+	default:
+		conn.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+		return
+	}
+
+	// 3. Dial target via namespace
+	remote, err := h.ProxyUC.Connect(slotName, targetAddr)
+	if err != nil {
+		h.Log.WithError(err).Warnf("port-based socks5 dial failed: %s via %s", targetAddr, slotName)
+		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+		return
+	}
+	defer remote.Close()
+
+	// 4. Success reply
+	conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+	conn.SetDeadline(time.Time{})
+
+	// 5. Bridge
+	sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
+	h.ProxyUC.AddTraffic(slotName, sent, received)
+	h.ProxyUC.RecordDestination(targetAddr, sent, received)
+}
+
+// handleHTTP handles HTTP proxy requests (CONNECT + plain HTTP).
+func (h *PortBasedHandler) handleHTTP(conn net.Conn, reader *bufio.Reader, pl *portListener) {
+	slotName := pl.slotName
+
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		return
 	}
 
 	if req.Method == http.MethodConnect {
-		// HTTPS tunneling
 		targetAddr := req.Host
 		if !strings.Contains(targetAddr, ":") {
 			targetAddr = targetAddr + ":443"
@@ -194,7 +282,6 @@ func (h *PortBasedHandler) handleConnection(conn net.Conn, pl *portListener) {
 		h.ProxyUC.AddTraffic(slotName, sent, received)
 		h.ProxyUC.RecordDestination(targetAddr, sent, received)
 	} else {
-		// Plain HTTP forwarding
 		targetAddr := req.Host
 		if !strings.Contains(targetAddr, ":") {
 			targetAddr = targetAddr + ":80"
@@ -208,14 +295,12 @@ func (h *PortBasedHandler) handleConnection(conn net.Conn, pl *portListener) {
 		}
 		defer remote.Close()
 
-		// Forward the original request
 		req.Header.Del("Proxy-Connection")
 		req.RequestURI = ""
 		req.Write(remote)
 
 		conn.SetDeadline(time.Time{})
 
-		// Relay response back
 		sent, received := netns.BridgeWithTimeout(pl.ctx, conn, remote, h.idleTimeout)
 		h.ProxyUC.AddTraffic(slotName, sent, received)
 		h.ProxyUC.RecordDestination(targetAddr, sent, received)
