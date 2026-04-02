@@ -6,20 +6,17 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/elazarl/goproxy"
 	"github.com/sirupsen/logrus"
-	"github.com/things-go/go-socks5"
 
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 // PortBasedHandler manages per-slot proxy listeners on sequential ports.
-// Each slot gets two ports: one SOCKS5 (via go-socks5) and one HTTP (via goproxy).
+// Each slot gets two ports: one SOCKS5 (via Socks5Handler) and one HTTP (via HttpProxyHandler).
 // No authentication required — the port number determines the slot.
 type PortBasedHandler struct {
 	Log         *logrus.Logger
@@ -31,18 +28,11 @@ type PortBasedHandler struct {
 	slots       map[string]*portSlot
 }
 
-// portSlot holds the per-slot SOCKS5 and HTTP servers.
+// portSlot holds the per-slot handler instances.
 type portSlot struct {
-	slotName     string
-	socks5Port   int
-	httpPort     int
-	socks5Server *socks5.Server
-	socks5Ln     net.Listener
-	socks5Wg     sync.WaitGroup
-	socks5Ctx    context.Context
-	socks5Cancel context.CancelFunc
-	httpServer   *http.Server
-	httpLn       net.Listener
+	slotName string
+	socks5   *Socks5Handler
+	http     *HttpProxyHandler
 }
 
 // NewPortBasedHandler creates a new port-based handler.
@@ -72,7 +62,6 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Build set of desired slots
 	desired := make(map[string]bool)
 	for _, name := range slotNames {
 		desired[name] = true
@@ -105,136 +94,64 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	}
 }
 
-// startSlot creates and starts SOCKS5 + HTTP servers for a single slot.
+// startSlot creates and starts SOCKS5 + HTTP handlers for a single slot.
 func (c *PortBasedHandler) startSlot(slotName string, slotIndex int) *portSlot {
+	// Fixed-slot connect function — always routes through this specific slot
+	connect := func(ctx context.Context, addr string) (net.Conn, error) {
+		return c.proxyUC.Connect(slotName, addr)
+	}
+
 	ps := &portSlot{slotName: slotName}
+	started := false
 
-	// SOCKS5 server
+	// SOCKS5 handler
 	if c.socks5Start > 0 {
-		ps.socks5Port = c.socks5Start + slotIndex
-		socks5Ctx, socks5Cancel := context.WithCancel(context.Background())
-		ps.socks5Ctx = socks5Ctx
-		ps.socks5Cancel = socks5Cancel
+		port := c.socks5Start + slotIndex
+		addr := fmt.Sprintf(":%d", port)
 
-		ps.socks5Server = socks5.NewServer(
-			socks5.WithDial(func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return c.proxyUC.Connect(slotName, addr)
-			}),
-			socks5.WithAuthMethods([]socks5.Authenticator{
-				socks5.NoAuthAuthenticator{},
-			}),
-			socks5.WithLogger(nopLogger{}),
-		)
+		handler := NewSocks5Handler(c.Log, connect, c.sem)
+		go func() {
+			if err := handler.ListenAndServe(addr); err != nil {
+				c.Log.WithError(err).Warnf("port-based: SOCKS5 failed on port %d for %s", port, slotName)
+			}
+		}()
 
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ps.socks5Port))
-		if err != nil {
-			c.Log.WithError(err).Warnf("port-based: failed to listen SOCKS5 on port %d for %s", ps.socks5Port, slotName)
-		} else {
-			ps.socks5Ln = ln
-			c.Log.Infof("port-based: %s → SOCKS5 port %d", slotName, ps.socks5Port)
-			go c.socks5AcceptLoop(ps)
-		}
+		ps.socks5 = handler
+		c.Log.Infof("port-based: %s → SOCKS5 port %d", slotName, port)
+		started = true
 	}
 
-	// HTTP server (goproxy)
+	// HTTP handler
 	if c.httpStart > 0 {
-		ps.httpPort = c.httpStart + slotIndex
+		port := c.httpStart + slotIndex
+		addr := fmt.Sprintf(":%d", port)
 
-		proxy := goproxy.NewProxyHttpServer()
-		proxy.Verbose = false
-
-		proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
-			return c.proxyUC.Connect(slotName, addr)
-		}
-		proxy.Tr = &http.Transport{
-			DisableKeepAlives: true,
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return c.proxyUC.Connect(slotName, addr)
-			},
-		}
-
-		// Concurrency gate
-		proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			select {
-			case c.sem <- struct{}{}:
-				ctx.UserData = c.sem
-				return req, nil
-			default:
-				return req, goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusServiceUnavailable, "Service Unavailable")
+		handler := NewHttpProxyHandler(c.Log, connect, c.sem)
+		go func() {
+			if err := handler.ListenAndServe(addr); err != nil {
+				c.Log.WithError(err).Warnf("port-based: HTTP failed on port %d for %s", port, slotName)
 			}
-		})
-		proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-			if ctx.UserData != nil {
-				<-c.sem
-			}
-			return resp
-		})
+		}()
 
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ps.httpPort))
-		if err != nil {
-			c.Log.WithError(err).Warnf("port-based: failed to listen HTTP on port %d for %s", ps.httpPort, slotName)
-		} else {
-			ps.httpLn = ln
-			ps.httpServer = &http.Server{Handler: proxy}
-			c.Log.Infof("port-based: %s → HTTP port %d", slotName, ps.httpPort)
-			go func() {
-				if err := ps.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
-					c.Log.WithError(err).Debugf("port-based: HTTP server ended for %s", slotName)
-				}
-			}()
-		}
+		ps.http = handler
+		c.Log.Infof("port-based: %s → HTTP port %d", slotName, port)
+		started = true
 	}
 
-	// At least one listener must have started
-	if ps.socks5Ln == nil && ps.httpLn == nil {
+	if !started {
 		return nil
 	}
 	return ps
 }
 
-// socks5AcceptLoop runs the accept loop for a SOCKS5 port with concurrency control.
-func (c *PortBasedHandler) socks5AcceptLoop(ps *portSlot) {
-	for {
-		conn, err := ps.socks5Ln.Accept()
-		if err != nil {
-			select {
-			case <-ps.socks5Ctx.Done():
-				return
-			default:
-			}
-			continue
-		}
-
-		select {
-		case c.sem <- struct{}{}:
-			ps.socks5Wg.Add(1)
-			go func() {
-				defer ps.socks5Wg.Done()
-				defer func() { <-c.sem }()
-				if err := ps.socks5Server.ServeConn(conn); err != nil {
-					c.Log.WithError(err).Debug("port-based: SOCKS5 connection ended with error")
-				}
-			}()
-		default:
-			conn.Close()
-		}
-	}
-}
-
-// stopSlot shuts down both servers for a slot.
+// stopSlot shuts down both handlers for a slot.
 func (c *PortBasedHandler) stopSlot(ps *portSlot) {
-	// Stop SOCKS5
-	if ps.socks5Cancel != nil {
-		ps.socks5Cancel()
+	ctx := context.Background()
+	if ps.socks5 != nil {
+		ps.socks5.Shutdown(ctx)
 	}
-	if ps.socks5Ln != nil {
-		ps.socks5Ln.Close()
-		ps.socks5Wg.Wait()
-	}
-
-	// Stop HTTP
-	if ps.httpServer != nil {
-		ps.httpServer.Close()
+	if ps.http != nil {
+		ps.http.Shutdown(ctx)
 	}
 }
 
@@ -244,13 +161,17 @@ func (c *PortBasedHandler) GetPortMappings() map[string]map[string]int {
 	defer c.mu.Unlock()
 
 	mappings := make(map[string]map[string]int, len(c.slots))
-	for name, ps := range c.slots {
-		m := make(map[string]int)
-		if ps.socks5Ln != nil {
-			m["socks5"] = ps.socks5Port
+	for name := range c.slots {
+		slotIndex := extractSlotIndex(name)
+		if slotIndex < 0 {
+			continue
 		}
-		if ps.httpLn != nil {
-			m["http"] = ps.httpPort
+		m := make(map[string]int)
+		if c.socks5Start > 0 {
+			m["socks5"] = c.socks5Start + slotIndex
+		}
+		if c.httpStart > 0 {
+			m["http"] = c.httpStart + slotIndex
 		}
 		mappings[name] = m
 	}

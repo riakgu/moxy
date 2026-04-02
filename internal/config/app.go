@@ -3,8 +3,10 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"embed"
+	"net"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -82,9 +84,18 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
 	proxyUserCtrl := httpdelivery.NewProxyUserController(proxyUserUC, cfg.Logger)
 
+	// Main proxy ConnectFunc — selects slot via strategy, then connects
+	mainConnect := proxy.ConnectFunc(func(ctx context.Context, addr string) (net.Conn, error) {
+		slotName, err := proxyUC.SelectSlot("")
+		if err != nil {
+			return nil, err
+		}
+		return proxyUC.Connect(slotName, addr)
+	})
+
 	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, proxyUC, proxySem)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, proxyUC, proxySem)
+	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, mainConnect, proxySem)
+	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, mainConnect, proxySem)
 	socks5PortStart := cfg.Viper.GetInt("proxy.port_based_socks5_start")
 	httpPortStart := cfg.Viper.GetInt("proxy.port_based_http_start")
 	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, socks5PortStart, httpPortStart)

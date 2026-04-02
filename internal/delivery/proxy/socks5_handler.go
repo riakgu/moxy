@@ -10,12 +10,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/things-go/go-socks5"
-
-	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// Socks5Handler wraps things-go/go-socks5 with Moxy's namespace dialer,
-// slot routing, concurrency control, and graceful shutdown.
+// ConnectFunc dials a target address through a slot's network namespace.
+// The implementation handles slot selection and connection tracking.
+type ConnectFunc func(ctx context.Context, addr string) (net.Conn, error)
+
+// Socks5Handler wraps things-go/go-socks5 with concurrency control and graceful shutdown.
 type Socks5Handler struct {
 	server *socks5.Server
 	Log    *logrus.Logger
@@ -27,36 +28,20 @@ type Socks5Handler struct {
 }
 
 // NewSocks5Handler creates a new SOCKS5 proxy handler.
-// It uses go-socks5 for protocol handling and ProxyUseCase for connection management.
 func NewSocks5Handler(
 	log *logrus.Logger,
-	proxyUC *usecase.ProxyUseCase,
+	connect ConnectFunc,
 	sem chan struct{},
 ) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	server := socks5.NewServer(
-		// Custom dialer: select slot via ProxyUseCase, then connect through namespace
 		socks5.WithDial(func(dialCtx context.Context, network, addr string) (net.Conn, error) {
-			slotName, err := proxyUC.SelectSlot("")
-			if err != nil {
-				return nil, err
-			}
-
-			conn, err := proxyUC.Connect(slotName, addr)
-			if err != nil {
-				return nil, fmt.Errorf("connect %s via %s: %w", addr, slotName, err)
-			}
-
-			return conn, nil
+			return connect(dialCtx, addr)
 		}),
-
-		// No auth — single user, localhost access
 		socks5.WithAuthMethods([]socks5.Authenticator{
 			socks5.NoAuthAuthenticator{},
 		}),
-
-		// Silence go-socks5 internal logging — we log errors in our accept loop
 		socks5.WithLogger(nopLogger{}),
 	)
 
@@ -90,7 +75,6 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 			continue
 		}
 
-		// Concurrency gate
 		select {
 		case c.sem <- struct{}{}:
 			c.wg.Add(1)

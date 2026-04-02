@@ -10,49 +10,35 @@ import (
 
 	"github.com/elazarl/goproxy"
 	"github.com/sirupsen/logrus"
-
-	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// HttpProxyHandler wraps elazarl/goproxy with Moxy's namespace dialer,
-// concurrency control, and graceful shutdown.
+// HttpProxyHandler wraps elazarl/goproxy with concurrency control and graceful shutdown.
 type HttpProxyHandler struct {
 	Log    *logrus.Logger
 	server *http.Server
 }
 
 // NewHttpProxyHandler creates a new HTTP proxy handler.
-// It uses elazarl/goproxy for protocol handling and ProxyUseCase for connection management.
 func NewHttpProxyHandler(
 	log *logrus.Logger,
-	proxyUC *usecase.ProxyUseCase,
+	connect ConnectFunc,
 	sem chan struct{},
 ) *HttpProxyHandler {
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Verbose = false
 
-	// Custom dialer for CONNECT tunnels (HTTPS)
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
-		slotName, err := proxyUC.SelectSlot("")
-		if err != nil {
-			return nil, err
-		}
-		return proxyUC.Connect(slotName, addr)
+		return connect(context.Background(), addr)
 	}
 
-	// Custom dialer for plain HTTP forwarding
 	proxy.Tr = &http.Transport{
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			slotName, err := proxyUC.SelectSlot("")
-			if err != nil {
-				return nil, err
-			}
-			return proxyUC.Connect(slotName, addr)
+			return connect(ctx, addr)
 		},
 	}
 
-	// Concurrency gate — reject with 503 when at capacity
+	// Concurrency gate
 	proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		select {
 		case sem <- struct{}{}:
@@ -64,7 +50,6 @@ func NewHttpProxyHandler(
 		}
 	})
 
-	// Release semaphore after response
 	proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 		if ctx.UserData != nil {
 			<-sem
