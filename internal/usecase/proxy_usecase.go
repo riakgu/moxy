@@ -17,22 +17,20 @@ type SlotDialer interface {
 }
 
 type ProxyUseCase struct {
-	Log         *logrus.Logger
-	SlotUC      *SlotUseCase
-	Dialer      SlotDialer
-	UserRepo    *repository.ProxyUserRepository
-	DB          *sql.DB
-	DestTracker *repository.DestinationTracker
+	Log      *logrus.Logger
+	SlotUC   *SlotUseCase
+	Dialer   SlotDialer
+	UserRepo *repository.ProxyUserRepository
+	DB       *sql.DB
 }
 
 func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer, userRepo *repository.ProxyUserRepository, db *sql.DB) *ProxyUseCase {
 	return &ProxyUseCase{
-		Log:         log,
-		SlotUC:      slotUC,
-		Dialer:      dialer,
-		UserRepo:    userRepo,
-		DB:          db,
-		DestTracker: repository.NewDestinationTracker(1000),
+		Log:      log,
+		SlotUC:   slotUC,
+		Dialer:   dialer,
+		UserRepo: userRepo,
+		DB:       db,
 	}
 }
 
@@ -92,18 +90,6 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (io.ReadWrite
 		slotName:        slotName,
 		slotUC:          c.SlotUC,
 	}, nil
-}
-
-func (c *ProxyUseCase) AddTraffic(slotName string, bytesSent, bytesReceived int64) {
-	c.SlotUC.AddTraffic(slotName, bytesSent, bytesReceived)
-}
-
-func (c *ProxyUseCase) RecordDestination(targetAddr string, bytesSent, bytesReceived int64) {
-	c.DestTracker.Record(targetAddr, bytesSent, bytesReceived)
-}
-
-func (c *ProxyUseCase) GetDestinationStats(limit int) *model.DestinationStatsResponse {
-	return c.DestTracker.GetStats(limit)
 }
 
 type trackedConn struct {
