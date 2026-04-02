@@ -301,15 +301,7 @@ func (c *SlotUseCase) DecrementConnections(slotName string) {
 	}
 }
 
-func (c *SlotUseCase) AddTraffic(slotName string, bytesSent, bytesReceived int64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 
-	if slot, ok := c.slots[slotName]; ok {
-		atomic.AddInt64(&slot.BytesSent, bytesSent)
-		atomic.AddInt64(&slot.BytesReceived, bytesReceived)
-	}
-}
 
 // parseSlotName extracts device alias and slot index from names like "dev1_slot3"
 func parseSlotName(slotName string) (deviceAlias string, slotIndex int, err error) {
