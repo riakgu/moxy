@@ -5,7 +5,6 @@ package netns
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -49,7 +48,7 @@ func toNAT64(ipv4 net.IP) string {
 // For raw IPv4 addresses, NAT64 conversion is applied automatically.
 // For domain names, DNS resolution uses a subprocess (`ip netns exec`) to safely
 // resolve inside the namespace without goroutine/thread-safety issues.
-func (d *SetnsDialer) Dial(slotName string, addr string) (io.ReadWriteCloser, error) {
+func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
