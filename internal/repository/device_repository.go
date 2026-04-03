@@ -1,95 +1,77 @@
 package repository
 
 import (
-	"database/sql"
 	"fmt"
-	"time"
+	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
 )
 
+// DeviceRepository is a thread-safe in-memory store for devices, keyed by serial.
 type DeviceRepository struct {
-	Log *logrus.Logger
+	mu       sync.RWMutex
+	devices  map[string]*entity.Device // keyed by serial
+	log      *logrus.Logger
+	aliasSeq uint64
 }
 
 func NewDeviceRepository(log *logrus.Logger) *DeviceRepository {
-	return &DeviceRepository{Log: log}
-}
-
-func (r *DeviceRepository) Create(db *sql.DB, device *entity.Device) error {
-	now := time.Now().UnixMilli()
-	device.CreatedAt = now
-	device.UpdatedAt = now
-	_, err := db.Exec(
-		`INSERT INTO devices (id, serial, alias, carrier, interface, nameserver, nat64_prefix, status, max_slots, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		device.ID, device.Serial, device.Alias, device.Carrier, device.Interface,
-		device.Nameserver, device.NAT64Prefix, device.Status, device.MaxSlots,
-		device.CreatedAt, device.UpdatedAt,
-	)
-	return err
-}
-
-func (r *DeviceRepository) FindAll(db *sql.DB) ([]*entity.Device, error) {
-	rows, err := db.Query("SELECT id, serial, alias, carrier, interface, nameserver, nat64_prefix, status, max_slots, created_at, updated_at FROM devices ORDER BY created_at")
-	if err != nil {
-		return nil, err
+	return &DeviceRepository{
+		devices: make(map[string]*entity.Device),
+		log:     log,
 	}
-	defer rows.Close()
+}
 
-	var devices []*entity.Device
-	for rows.Next() {
-		d := &entity.Device{}
-		if err := rows.Scan(&d.ID, &d.Serial, &d.Alias, &d.Carrier, &d.Interface,
-			&d.Nameserver, &d.NAT64Prefix, &d.Status, &d.MaxSlots,
-			&d.CreatedAt, &d.UpdatedAt); err != nil {
-			return nil, err
+// Put stores or updates a device.
+func (r *DeviceRepository) Put(device *entity.Device) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.devices[device.Serial] = device
+}
+
+// GetBySerial returns a device by its ADB serial.
+func (r *DeviceRepository) GetBySerial(serial string) (*entity.Device, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	d, ok := r.devices[serial]
+	return d, ok
+}
+
+// GetByAlias returns a device by its alias (e.g., "dev1").
+func (r *DeviceRepository) GetByAlias(alias string) (*entity.Device, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, d := range r.devices {
+		if d.Alias == alias {
+			return d, true
 		}
-		devices = append(devices, d)
 	}
-	return devices, rows.Err()
+	return nil, false
 }
 
-func (r *DeviceRepository) FindByID(db *sql.DB, id string) (*entity.Device, error) {
-	d := &entity.Device{}
-	err := db.QueryRow(
-		"SELECT id, serial, alias, carrier, interface, nameserver, nat64_prefix, status, max_slots, created_at, updated_at FROM devices WHERE id = ?", id,
-	).Scan(&d.ID, &d.Serial, &d.Alias, &d.Carrier, &d.Interface,
-		&d.Nameserver, &d.NAT64Prefix, &d.Status, &d.MaxSlots,
-		&d.CreatedAt, &d.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("device not found: %s", id)
+// Delete removes a device by serial.
+func (r *DeviceRepository) Delete(serial string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.devices, serial)
+}
+
+// ListAll returns all devices.
+func (r *DeviceRepository) ListAll() []*entity.Device {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]*entity.Device, 0, len(r.devices))
+	for _, d := range r.devices {
+		result = append(result, d)
 	}
-	return d, err
+	return result
 }
 
-func (r *DeviceRepository) FindBySerial(db *sql.DB, serial string) (*entity.Device, error) {
-	d := &entity.Device{}
-	err := db.QueryRow(
-		"SELECT id, serial, alias, carrier, interface, nameserver, nat64_prefix, status, max_slots, created_at, updated_at FROM devices WHERE serial = ?", serial,
-	).Scan(&d.ID, &d.Serial, &d.Alias, &d.Carrier, &d.Interface,
-		&d.Nameserver, &d.NAT64Prefix, &d.Status, &d.MaxSlots,
-		&d.CreatedAt, &d.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("device not found by serial: %s", serial)
-	}
-	return d, err
-}
-
-func (r *DeviceRepository) Update(db *sql.DB, device *entity.Device) error {
-	device.UpdatedAt = time.Now().UnixMilli()
-	_, err := db.Exec(
-		`UPDATE devices SET serial=?, alias=?, carrier=?, interface=?, nameserver=?, nat64_prefix=?, status=?, max_slots=?, updated_at=? WHERE id=?`,
-		device.Serial, device.Alias, device.Carrier, device.Interface,
-		device.Nameserver, device.NAT64Prefix, device.Status, device.MaxSlots,
-		device.UpdatedAt, device.ID,
-	)
-	return err
-}
-
-func (r *DeviceRepository) Delete(db *sql.DB, id string) error {
-	_, err := db.Exec("DELETE FROM devices WHERE id = ?", id)
-	return err
+// NextAlias generates the next device alias (dev1, dev2, ...).
+func (r *DeviceRepository) NextAlias() string {
+	n := atomic.AddUint64(&r.aliasSeq, 1)
+	return fmt.Sprintf("dev%d", n)
 }

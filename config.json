@@ -2,27 +2,19 @@
     "proxy": {
         "socks5_port": 1080,
         "http_port": 8080,
-        "source_ip_strategy": "random",
-        "port_based_socks5_start": 10000,
-        "port_based_http_start": 20000
+        "source_ip_strategy": "round-robin",
+        "port_based_socks5_start": 0,
+        "port_based_http_start": 0
     },
     "api": {
-        "port": 9090
+        "port": 3000
     },
     "slots": {
-        "max_slots_per_device": 250,
+        "max_slots_per_device": 20,
         "discovery_interval_seconds": 30,
         "discovery_concurrency": 20,
         "ip_check_host": "api.ipify.org"
     },
-    "database": {
-        "path": "moxy.db"
-    },
-    "server": {
-        "shutdown_drain_seconds": 30
-    },
-    "log": {
-        "level": "info",
-        "format": "json"
-    }
+    "server": { "shutdown_drain_seconds": 30 },
+    "log": { "level": "info", "format": "json" }
 }

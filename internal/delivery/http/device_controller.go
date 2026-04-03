@@ -28,16 +28,12 @@ func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
 	return ctx.JSON(model.WebResponse[[]string]{Data: serials})
 }
 
-func (c *DeviceController) Register(ctx *fiber.Ctx) error {
-	req := new(model.RegisterDeviceRequest)
-	if err := ctx.BodyParser(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	resp, err := c.DeviceUC.Register(req)
+func (c *DeviceController) Scan(ctx *fiber.Ctx) error {
+	resp, err := c.DeviceUC.Scan()
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.Status(fiber.StatusCreated).JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
+	return ctx.JSON(model.WebResponse[*model.ScanResponse]{Data: resp})
 }
 
 func (c *DeviceController) List(ctx *fiber.Ctx) error {
@@ -52,47 +48,18 @@ func (c *DeviceController) List(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Get(ctx *fiber.Ctx) error {
-	resp, err := c.DeviceUC.GetByID(ctx.Params("deviceId"))
+	resp, err := c.DeviceUC.GetByAlias(ctx.Params("alias"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
 	return ctx.JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
 }
 
-func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
-	req := &model.SetupDeviceRequest{DeviceId: ctx.Params("deviceId")}
-	progress, err := c.DeviceUC.Setup(req)
-	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(model.WebResponse[*model.SetupProgressResponse]{Data: progress})
-	}
-	return ctx.JSON(model.WebResponse[*model.SetupProgressResponse]{Data: progress})
-}
-
-func (c *DeviceController) Teardown(ctx *fiber.Ctx) error {
-	if err := c.DeviceUC.Teardown(ctx.Params("deviceId")); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	return ctx.JSON(model.WebResponse[bool]{Data: true})
-}
-
 func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
-	if err := c.DeviceUC.Delete(ctx.Params("deviceId")); err != nil {
+	if err := c.DeviceUC.Delete(ctx.Params("alias")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return ctx.JSON(model.WebResponse[bool]{Data: true})
-}
-
-func (c *DeviceController) UpdateOverride(ctx *fiber.Ctx) error {
-	req := new(model.UpdateISPOverrideRequest)
-	if err := ctx.BodyParser(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	req.DeviceId = ctx.Params("deviceId")
-	resp, err := c.DeviceUC.UpdateISPOverride(req)
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	return ctx.JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
 }
 
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
@@ -100,7 +67,7 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 	if err := ctx.BodyParser(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-	req.DeviceId = ctx.Params("deviceId")
+	req.Alias = ctx.Params("alias")
 
 	resp, err := c.DeviceUC.Provision(req)
 	if err != nil {
@@ -108,5 +75,3 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 	}
 	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{Data: resp})
 }
-
-

@@ -22,16 +22,13 @@ type RouteConfig struct {
 func (c *RouteConfig) Setup() {
 	api := c.App.Group("/api")
 
-	// Device routes
-	api.Get("/adb-devices", c.DeviceController.ListADB)
-	api.Post("/devices", c.DeviceController.Register)
+	// Device routes — static routes BEFORE :alias wildcard
+	api.Get("/devices/adb", c.DeviceController.ListADB)
+	api.Post("/devices/scan", c.DeviceController.Scan)
 	api.Get("/devices", c.DeviceController.List)
-	api.Get("/devices/:deviceId", c.DeviceController.Get)
-	api.Delete("/devices/:deviceId", c.DeviceController.Delete)
-	api.Post("/devices/:deviceId/setup", c.DeviceController.Setup)
-	api.Post("/devices/:deviceId/teardown", c.DeviceController.Teardown)
-	api.Put("/devices/:deviceId/override", c.DeviceController.UpdateOverride)
-	api.Post("/devices/:deviceId/provision", c.DeviceController.Provision)
+	api.Get("/devices/:alias", c.DeviceController.Get)
+	api.Delete("/devices/:alias", c.DeviceController.Delete)
+	api.Post("/devices/:alias/provision", c.DeviceController.Provision)
 
 	// Slot routes
 	api.Get("/slots", c.SlotController.List)

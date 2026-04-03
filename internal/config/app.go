@@ -4,7 +4,6 @@ package config
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"net"
 
@@ -37,15 +36,12 @@ type BootstrapResult struct {
 	HttpProxyHandler *proxy.HttpProxyHandler
 	PortHandler      *proxy.PortBasedHandler
 	RouteConfig      *route.RouteConfig
-	DB               *sql.DB
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
-	// SQLite database
-	db := NewSQLite(cfg.Viper, cfg.Logger)
-
-	// Repositories
+	// Repositories (all in-memory)
 	deviceRepo := repository.NewDeviceRepository(cfg.Logger)
+	slotRepo := repository.NewSlotRepository(cfg.Logger)
 
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
@@ -59,14 +55,13 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	if strategy == "" {
 		strategy = usecase.StrategyRandom
 	}
-	slotRepo := repository.NewSlotRepository(cfg.Logger)
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, slotRepo, discovery,
 		provisioner,
 		maxSlots,
 	)
 	ispProbe := netns.NewISPProbe(cfg.Logger)
-	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
+	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 
@@ -106,6 +101,5 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		HttpProxyHandler: httpProxyHandler,
 		PortHandler:      portHandler,
 		RouteConfig:      routeConfig,
-		DB:               db,
 	}
 }

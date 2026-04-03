@@ -8,15 +8,11 @@ const (
 )
 
 type Device struct {
-	ID          string
-	Serial      string
 	Alias       string
+	Serial      string
 	Carrier     string
 	Interface   string
 	Nameserver  string
 	NAT64Prefix string
 	Status      string
-	MaxSlots    int
-	CreatedAt   int64
-	UpdatedAt   int64
 }

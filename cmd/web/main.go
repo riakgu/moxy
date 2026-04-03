@@ -28,7 +28,17 @@ func main() {
 
 	b.RouteConfig.Setup()
 
-	// Initial discovery
+	// Auto-scan: discover ADB devices, setup, provision 1 slot each
+	log.Info("running initial device scan...")
+	scanResult, err := b.DeviceUseCase.Scan()
+	if err != nil {
+		log.WithError(err).Warn("initial scan failed")
+	} else {
+		log.Infof("scan complete: %d discovered, %d ok, %d failed",
+			scanResult.Discovered, scanResult.SetupOk, scanResult.Failed)
+	}
+
+	// Discover slots (picks up just-provisioned + any pre-existing namespaces)
 	log.Info("running initial slot discovery...")
 	count, err := b.SlotUseCase.DiscoverSlots()
 	if err != nil {
@@ -37,7 +47,7 @@ func main() {
 		log.Infof("discovered %d slots", count)
 	}
 
-	// Sync port-based listeners with discovered slots
+	// Sync port-based listeners
 	b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
 
 	// Discovery ticker

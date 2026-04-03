@@ -3,13 +3,10 @@
 package usecase
 
 import (
-	"database/sql"
 	"fmt"
 	"net"
 	"time"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
@@ -29,8 +26,6 @@ type SlotProvisionService interface {
 
 type DeviceUseCase struct {
 	Log           *logrus.Logger
-	Validate      *validator.Validate
-	DB            *sql.DB
 	DeviceRepo    *repository.DeviceRepository
 	ADB           *adb.ADBGateway
 	Provisioner   SlotProvisioner
@@ -39,45 +34,102 @@ type DeviceUseCase struct {
 	ISPProber     ISPProber
 }
 
-func NewDeviceUseCase(log *logrus.Logger, validate *validator.Validate, db *sql.DB,
-	deviceRepo *repository.DeviceRepository, adbGW *adb.ADBGateway,
-	provisioner SlotProvisioner, slotRepo *repository.SlotRepository,
-	slotProvision SlotProvisionService, ispProber ISPProber) *DeviceUseCase {
+func NewDeviceUseCase(
+	log *logrus.Logger,
+	deviceRepo *repository.DeviceRepository,
+	adbGW *adb.ADBGateway,
+	provisioner SlotProvisioner,
+	slotRepo *repository.SlotRepository,
+	slotProvision SlotProvisionService,
+	ispProber ISPProber,
+) *DeviceUseCase {
 	return &DeviceUseCase{
-		Log: log, Validate: validate, DB: db,
-		DeviceRepo: deviceRepo, ADB: adbGW,
-		Provisioner: provisioner, SlotRepo: slotRepo,
-		SlotProvision: slotProvision, ISPProber: ispProber,
+		Log:           log,
+		DeviceRepo:    deviceRepo,
+		ADB:           adbGW,
+		Provisioner:   provisioner,
+		SlotRepo:      slotRepo,
+		SlotProvision: slotProvision,
+		ISPProber:     ispProber,
 	}
 }
 
+// Scan discovers ADB devices, sets up new ones, and tears down missing ones.
+// New devices get 1 slot auto-provisioned.
+func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
+	serials, err := c.ADB.ListDevices()
+	if err != nil {
+		return nil, fmt.Errorf("ADB scan failed: %w", err)
+	}
+
+	resp := &model.ScanResponse{}
+	serialSet := make(map[string]bool, len(serials))
+
+	// Setup new phones
+	for _, serial := range serials {
+		serialSet[serial] = true
+
+		if _, exists := c.DeviceRepo.GetBySerial(serial); exists {
+			continue // already registered
+		}
+
+		resp.Discovered++
+		device := &entity.Device{
+			Alias:  c.DeviceRepo.NextAlias(),
+			Serial: serial,
+			Status: entity.DeviceStatusSetup,
+		}
+		c.DeviceRepo.Put(device)
+
+		if err := c.setup(device); err != nil {
+			c.Log.WithError(err).Warnf("scan: setup failed for %s (%s)", device.Alias, serial)
+			device.Status = entity.DeviceStatusError
+			c.DeviceRepo.Put(device)
+			resp.Failed++
+			continue
+		}
+
+		// Auto-provision 1 slot
+		_, provErr := c.SlotProvision.ProvisionSlots(
+			device.Alias, device.Interface, 1,
+			device.Nameserver, device.NAT64Prefix,
+		)
+		if provErr != nil {
+			c.Log.WithError(provErr).Warnf("scan: provision failed for %s", device.Alias)
+		}
+
+		resp.SetupOk++
+	}
+
+	// Teardown disconnected phones
+	for _, device := range c.DeviceRepo.ListAll() {
+		if device.Status != entity.DeviceStatusOffline && !serialSet[device.Serial] {
+			c.Log.Warnf("scan: device %s (%s) disconnected — tearing down", device.Alias, device.Serial)
+			c.teardownDevice(device)
+		}
+	}
+
+	// Build response
+	for _, device := range c.DeviceRepo.ListAll() {
+		slotCount := c.SlotRepo.CountByDevice(device.Alias)
+		resp.Devices = append(resp.Devices, *converter.DeviceToResponse(device, slotCount))
+	}
+	if resp.Devices == nil {
+		resp.Devices = []model.DeviceResponse{}
+	}
+
+	return resp, nil
+}
+
+// ListADBDevices returns raw ADB serial numbers.
 func (c *DeviceUseCase) ListADBDevices() ([]string, error) {
 	return c.ADB.ListDevices()
 }
 
-func (c *DeviceUseCase) Register(req *model.RegisterDeviceRequest) (*model.DeviceResponse, error) {
-	if err := c.Validate.Struct(req); err != nil {
-		return nil, err
-	}
-	device := &entity.Device{
-		ID:       uuid.NewString(),
-		Serial:   req.Serial,
-		Alias:    req.Alias,
-		Status:   entity.DeviceStatusOffline,
-		MaxSlots: req.MaxSlots,
-	}
-	if err := c.DeviceRepo.Create(c.DB, device); err != nil {
-		return nil, err
-	}
-	return converter.DeviceToResponse(device, 0), nil
-}
-
+// List returns all registered devices with slot counts.
 func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
-	devices, err := c.DeviceRepo.FindAll(c.DB)
-	if err != nil {
-		return nil, err
-	}
-	var result []model.DeviceResponse
+	devices := c.DeviceRepo.ListAll()
+	result := make([]model.DeviceResponse, 0, len(devices))
 	for _, d := range devices {
 		slotCount := c.SlotRepo.CountByDevice(d.Alias)
 		result = append(result, *converter.DeviceToResponse(d, slotCount))
@@ -85,57 +137,69 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	return result, nil
 }
 
-// CheckHealth checks ADB connectivity for all online devices and marks
-// disconnected ones as offline.
-func (c *DeviceUseCase) CheckHealth() {
-	devices, err := c.DeviceRepo.FindAll(c.DB)
-	if err != nil {
-		return
+// GetByAlias returns a single device by alias.
+func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) {
+	device, ok := c.DeviceRepo.GetByAlias(alias)
+	if !ok {
+		return nil, fmt.Errorf("device %s not found", alias)
+	}
+	slotCount := c.SlotRepo.CountByDevice(device.Alias)
+	return converter.DeviceToResponse(device, slotCount), nil
+}
+
+// Delete tears down a device and removes it from memory.
+func (c *DeviceUseCase) Delete(alias string) error {
+	device, ok := c.DeviceRepo.GetByAlias(alias)
+	if !ok {
+		return fmt.Errorf("device %s not found", alias)
+	}
+	c.teardownDevice(device)
+	c.DeviceRepo.Delete(device.Serial)
+	return nil
+}
+
+// Provision adds more slots to a device.
+func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.ProvisionResponse, error) {
+	device, ok := c.DeviceRepo.GetByAlias(req.Alias)
+	if !ok {
+		return nil, fmt.Errorf("device %s not found", req.Alias)
 	}
 
+	slots := req.Slots
+	if slots <= 0 {
+		slots = 5
+	}
+
+	return c.SlotProvision.ProvisionSlots(
+		device.Alias, device.Interface, slots,
+		device.Nameserver, device.NAT64Prefix,
+	)
+}
+
+// CheckHealth checks ADB connectivity and marks disconnected devices offline.
+func (c *DeviceUseCase) CheckHealth() {
 	serials, err := c.ADB.ListDevices()
 	if err != nil {
 		c.Log.WithError(err).Warn("health check: ADB list failed")
 		return
 	}
 
-	connectedSet := make(map[string]bool)
+	connectedSet := make(map[string]bool, len(serials))
 	for _, s := range serials {
 		connectedSet[s] = true
 	}
 
-	for _, device := range devices {
+	for _, device := range c.DeviceRepo.ListAll() {
 		if device.Status == entity.DeviceStatusOnline && !connectedSet[device.Serial] {
 			c.Log.Warnf("health check: device %s (%s) disconnected — marking offline", device.Alias, device.Serial)
 			device.Status = entity.DeviceStatusOffline
-			c.DeviceRepo.Update(c.DB, device)
+			c.DeviceRepo.Put(device)
 		}
 	}
 }
 
-func (c *DeviceUseCase) GetByID(id string) (*model.DeviceResponse, error) {
-	device, err := c.DeviceRepo.FindByID(c.DB, id)
-	if err != nil {
-		return nil, err
-	}
-	slotCount := c.SlotRepo.CountByDevice(device.Alias)
-	return converter.DeviceToResponse(device, slotCount), nil
-}
-
-func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgressResponse, error) {
-	device, err := c.DeviceRepo.FindByID(c.DB, req.DeviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	device.Status = entity.DeviceStatusSetup
-	c.DeviceRepo.Update(c.DB, device)
-
-	progress := &model.SetupProgressResponse{
-		DeviceId: device.ID,
-		Status:   "running",
-	}
-
+// setup runs the device setup steps (private — called by Scan).
+func (c *DeviceUseCase) setup(device *entity.Device) error {
 	type setupStep struct {
 		Name string
 		Fn   func() error
@@ -161,10 +225,7 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 			if len(ifaces) == 0 {
 				return fmt.Errorf("no tethering interface detected")
 			}
-			// Use first available if not already assigned
-			if device.Interface == "" {
-				device.Interface = ifaces[0]
-			}
+			device.Interface = ifaces[0]
 			return nil
 		}},
 		{"enabled_data", func() error { return c.ADB.EnableData(device.Serial) }},
@@ -200,35 +261,25 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 					return nil
 				}
 			}
-			return fmt.Errorf("no global IPv6 address on %s — check phone APN is set to IPv4/IPv6", device.Interface)
+			return fmt.Errorf("no global IPv6 address on %s", device.Interface)
 		}},
 		{"isp_probed", func() error {
-			// Skip if manual override is already set
-			if device.Nameserver != "" && device.NAT64Prefix != "" {
-				c.Log.Infof("device %s: using manual ISP override (ns=%s, prefix=%s)",
-					device.Alias, device.Nameserver, device.NAT64Prefix)
-				return nil
-			}
-
 			if c.ISPProber == nil {
-				c.Log.Warnf("device %s: ISP prober not available — using global DNS64 config", device.Alias)
+				c.Log.Warnf("device %s: ISP prober not available", device.Alias)
 				return nil
 			}
-
 			result, err := c.ISPProber.Probe(device.Interface)
 			if err != nil {
-				c.Log.Warnf("device %s: ISP probe failed on %s: %v — will use defaults. Set manual override if connections fail.",
-					device.Alias, device.Interface, err)
+				c.Log.Warnf("device %s: ISP probe failed: %v — using defaults", device.Alias, err)
 				return nil
 			}
-
 			device.Nameserver = result.Nameserver
 			device.NAT64Prefix = result.NAT64Prefix
-			c.Log.Infof("device %s: ISP probe discovered ns=%s prefix=%s",
+			c.Log.Infof("device %s: ISP probe ns=%s prefix=%s",
 				device.Alias, result.Nameserver, result.NAT64Prefix)
 			return nil
 		}},
-		{"isp_detected", func() error {
+		{"carrier_detected", func() error {
 			carrier, err := c.ADB.GetCarrier(device.Serial)
 			if err != nil {
 				return err
@@ -241,86 +292,32 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 	for _, step := range steps {
 		c.Log.Infof("device %s: running step %s", device.Alias, step.Name)
 		if err := step.Fn(); err != nil {
-			progress.FailedAt = step.Name
-			progress.Error = err.Error()
-			progress.Status = "failed"
-			device.Status = entity.DeviceStatusError
-			c.DeviceRepo.Update(c.DB, device)
-			return progress, err
+			return fmt.Errorf("step %s: %w", step.Name, err)
 		}
-		progress.CompletedSteps = append(progress.CompletedSteps, step.Name)
 	}
 
 	// Enable NDP proxy on the interface
 	c.Provisioner.EnableNDPProxy(device.Interface)
 
 	device.Status = entity.DeviceStatusOnline
-	c.DeviceRepo.Update(c.DB, device)
-
-	progress.Status = "completed"
-	return progress, nil
+	c.DeviceRepo.Put(device)
+	return nil
 }
 
-func (c *DeviceUseCase) Teardown(deviceId string) error {
-	device, err := c.DeviceRepo.FindByID(c.DB, deviceId)
-	if err != nil {
-		return err
-	}
-
-	// Destroy all namespaces for this device
+// teardownDevice destroys namespaces and removes slots for a device.
+func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	namespaces, err := c.Provisioner.ListSlotNamespacesForDevice(device.Alias)
 	if err != nil {
-		return err
+		c.Log.WithError(err).Warnf("teardown %s: list namespaces failed", device.Alias)
+		return
 	}
 	for _, ns := range namespaces {
 		if err := c.Provisioner.DestroySlot(ns); err != nil {
-			c.Log.WithError(err).Warnf("failed to destroy slot %s", ns)
+			c.Log.WithError(err).Warnf("teardown %s: failed to destroy %s", device.Alias, ns)
 		}
 	}
-
-	// Remove slots from in-memory map
 	removed := c.SlotRepo.DeleteByDevice(device.Alias)
-	c.Log.Infof("device %s: removed %d slots from memory", device.Alias, removed)
-
+	c.Log.Infof("device %s: teardown complete — removed %d slots", device.Alias, removed)
 	device.Status = entity.DeviceStatusOffline
-	return c.DeviceRepo.Update(c.DB, device)
-}
-
-func (c *DeviceUseCase) Delete(deviceId string) error {
-	if err := c.Teardown(deviceId); err != nil {
-		c.Log.WithError(err).Warn("teardown failed during delete")
-	}
-	return c.DeviceRepo.Delete(c.DB, deviceId)
-}
-
-func (c *DeviceUseCase) UpdateISPOverride(req *model.UpdateISPOverrideRequest) (*model.DeviceResponse, error) {
-	device, err := c.DeviceRepo.FindByID(c.DB, req.DeviceId)
-	if err != nil {
-		return nil, err
-	}
-	device.Nameserver = req.Nameserver
-	device.NAT64Prefix = req.NAT64Prefix
-	if err := c.DeviceRepo.Update(c.DB, device); err != nil {
-		return nil, err
-	}
-	slotCount := c.SlotRepo.CountByDevice(device.Alias)
-	return converter.DeviceToResponse(device, slotCount), nil
-}
-
-func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.ProvisionResponse, error) {
-	if err := c.Validate.Struct(req); err != nil {
-		return nil, err
-	}
-
-	device, err := c.DeviceRepo.FindByID(c.DB, req.DeviceId)
-	if err != nil {
-		return nil, fmt.Errorf("device not found: %w", err)
-	}
-
-	slots := req.Slots
-	if slots <= 0 {
-		slots = 5
-	}
-
-	return c.SlotProvision.ProvisionSlots(device.Alias, device.Interface, slots, device.Nameserver, device.NAT64Prefix)
+	c.DeviceRepo.Put(device)
 }
