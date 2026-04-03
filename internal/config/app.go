@@ -57,8 +57,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
 	strategy := cfg.Viper.GetString("proxy.source_ip_strategy")
+	slotRepo := repository.NewSlotRepository(cfg.Logger)
 	slotUC := usecase.NewSlotUseCase(
-		cfg.Logger, cfg.Validator, discovery,
+		cfg.Logger, cfg.Validator, slotRepo, discovery,
 		provisioner,
 		dns64,
 		maxSlots,

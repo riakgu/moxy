@@ -15,6 +15,7 @@ import (
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
+	"github.com/riakgu/moxy/internal/repository"
 )
 
 type SlotProvisioner interface {
@@ -45,36 +46,41 @@ const (
 type SlotUseCase struct {
 	Log         *logrus.Logger
 	Validate    *validator.Validate
+	SlotRepo    *repository.SlotRepository
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
 	DNS64Server string
 	MaxSlots    int
 	Strategy    string
-	slots       map[string]*entity.Slot
-	mu          sync.RWMutex
 	rrIndex     uint64
 }
 
-func NewSlotUseCase(log *logrus.Logger, validate *validator.Validate, discovery SlotDiscovery, provisioner SlotProvisioner, dns64 string, maxSlots int, strategy string) *SlotUseCase {
+func NewSlotUseCase(
+	log *logrus.Logger,
+	validate *validator.Validate,
+	slotRepo *repository.SlotRepository,
+	discovery SlotDiscovery,
+	provisioner SlotProvisioner,
+	dns64 string,
+	maxSlots int,
+	strategy string,
+) *SlotUseCase {
 	if strategy == "" {
 		strategy = StrategyRandom
 	}
 	return &SlotUseCase{
 		Log:         log,
 		Validate:    validate,
+		SlotRepo:    slotRepo,
 		Discovery:   discovery,
 		Provisioner: provisioner,
 		DNS64Server: dns64,
 		MaxSlots:    maxSlots,
 		Strategy:    strategy,
-		slots:       make(map[string]*entity.Slot),
 	}
 }
 
 func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	now := time.Now().UnixMilli()
 
 	seen := make(map[string]bool)
@@ -94,22 +100,22 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 			LastCheckedAt: now,
 		}
 
-		// Always derive DeviceAlias from slot name (e.g. "dev1_slot4" → "dev1")
 		if da, _, err := parseSlotName(d.Name); err == nil {
 			s.DeviceAlias = da
 		}
 
-		if existing, ok := c.slots[d.Name]; ok {
+		if existing, ok := c.SlotRepo.Get(d.Name); ok {
 			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
 			if existing.Interface != "" {
 				s.Interface = existing.Interface
 			}
 		}
-		c.slots[d.Name] = s
+		c.SlotRepo.Put(s)
 	}
 
-	for name, slot := range c.slots {
-		if !seen[name] {
+	// Mark unseen slots as unhealthy
+	for _, slot := range c.SlotRepo.ListAll() {
+		if !seen[slot.Name] {
 			slot.Status = entity.SlotStatusUnhealthy
 			slot.LastCheckedAt = now
 		}
@@ -127,46 +133,16 @@ func (c *SlotUseCase) DiscoverSlots() (int, error) {
 	return len(discovered), nil
 }
 
-// RemoveSlotsForDevice removes all slots belonging to a device alias from the in-memory map.
 func (c *SlotUseCase) RemoveSlotsForDevice(deviceAlias string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	prefix := deviceAlias + "_slot"
-	removed := 0
-	for name := range c.slots {
-		if strings.HasPrefix(name, prefix) {
-			delete(c.slots, name)
-			removed++
-		}
-	}
-	return removed
+	return c.SlotRepo.DeleteByDevice(deviceAlias)
 }
 
 func (c *SlotUseCase) GetSlotNames() []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	names := make([]string, 0, len(c.slots))
-	for name := range c.slots {
-		names = append(names, name)
-	}
-	return names
+	return c.SlotRepo.ListNames()
 }
 
-// SelectSlot picks a healthy slot based on the configured strategy.
-// clientIP is used only for sticky-ip strategy (can be empty for others).
 func (c *SlotUseCase) SelectSlot(clientIP string) (*entity.Slot, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	healthy := make([]*entity.Slot, 0)
-	for _, s := range c.slots {
-		if s.Status == entity.SlotStatusHealthy {
-			healthy = append(healthy, s)
-		}
-	}
-
+	healthy := c.SlotRepo.ListHealthy()
 	if len(healthy) == 0 {
 		return nil, fmt.Errorf("no healthy slots available")
 	}
@@ -210,53 +186,39 @@ func fnvHash(s string) uint64 {
 }
 
 func (c *SlotUseCase) SelectByName(name string) (*entity.Slot, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	slot, ok := c.slots[name]
+	slot, ok := c.SlotRepo.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("slot %s not found", name)
 	}
-
 	if slot.Status != entity.SlotStatusHealthy {
 		return nil, fmt.Errorf("slot %s is %s", name, slot.Status)
 	}
-
 	return slot, nil
 }
 
 func (c *SlotUseCase) ListAll() []model.SlotResponse {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	result := make([]model.SlotResponse, 0, len(c.slots))
-	for _, s := range c.slots {
+	slots := c.SlotRepo.ListAll()
+	result := make([]model.SlotResponse, 0, len(slots))
+	for _, s := range slots {
 		result = append(result, *converter.SlotToResponse(s))
 	}
 	return result
 }
 
 func (c *SlotUseCase) GetByName(request *model.GetSlotRequest) (*model.SlotResponse, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	slot, ok := c.slots[request.SlotName]
+	slot, ok := c.SlotRepo.Get(request.SlotName)
 	if !ok {
 		return nil, fmt.Errorf("slot %s not found", request.SlotName)
 	}
-
 	return converter.SlotToResponse(slot), nil
 }
 
 func (c *SlotUseCase) GetStats() *model.StatsResponse {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
+	slots := c.SlotRepo.ListAll()
 	stats := &model.StatsResponse{
-		SlotStats: make([]model.SlotResponse, 0, len(c.slots)),
+		SlotStats: make([]model.SlotResponse, 0, len(slots)),
 	}
-
-	for _, s := range c.slots {
+	for _, s := range slots {
 		stats.TotalSlots++
 		if s.Status == entity.SlotStatusHealthy {
 			stats.HealthySlots++
@@ -266,7 +228,6 @@ func (c *SlotUseCase) GetStats() *model.StatsResponse {
 		stats.ActiveConnections += atomic.LoadInt64(&s.ActiveConnections)
 		stats.SlotStats = append(stats.SlotStats, *converter.SlotToResponse(s))
 	}
-
 	return stats
 }
 
@@ -284,24 +245,12 @@ func (c *SlotUseCase) GetHealth() *model.HealthResponse {
 }
 
 func (c *SlotUseCase) IncrementConnections(slotName string) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if slot, ok := c.slots[slotName]; ok {
-		atomic.AddInt64(&slot.ActiveConnections, 1)
-	}
+	c.SlotRepo.IncrementConnections(slotName)
 }
 
 func (c *SlotUseCase) DecrementConnections(slotName string) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if slot, ok := c.slots[slotName]; ok {
-		atomic.AddInt64(&slot.ActiveConnections, -1)
-	}
+	c.SlotRepo.DecrementConnections(slotName)
 }
-
-
 
 // parseSlotName extracts device alias and slot index from names like "dev1_slot3"
 func parseSlotName(slotName string) (deviceAlias string, slotIndex int, err error) {
@@ -330,23 +279,22 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		return nil, err
 	}
 
-	// Lock: check slot exists, no active connections, mark as discovering
-	c.mu.Lock()
-	slot, ok := c.slots[request.SlotName]
+	// Check slot exists and has no active connections
+	slot, ok := c.SlotRepo.Get(request.SlotName)
 	if !ok {
-		c.mu.Unlock()
 		return nil, model.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		c.mu.Unlock()
 		return nil, model.ErrSlotBusy
 	}
+
 	iface := slot.Interface
 	oldIPv6 := slot.IPv6Address
+
+	// Mark as discovering
 	slot.Status = entity.SlotStatusDiscovering
 	slot.PublicIPv4 = ""
 	slot.IPv6Address = ""
-	c.mu.Unlock()
 
 	if c.Log != nil {
 		c.Log.Infof("recycling slot %s (index %d)", request.SlotName, slotIndex)
@@ -363,11 +311,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 
 	// Destroy old namespace
 	if err := c.Provisioner.DestroySlot(request.SlotName); err != nil {
-		c.mu.Lock()
-		if s, ok := c.slots[request.SlotName]; ok {
-			s.Status = entity.SlotStatusUnhealthy
-		}
-		c.mu.Unlock()
+		slot.Status = entity.SlotStatusUnhealthy
 		return nil, fmt.Errorf("destroy slot %s: %w", request.SlotName, err)
 	}
 
@@ -375,11 +319,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 
 	// Recreate namespace with same index
 	if err := c.Provisioner.CreateSlot(deviceAlias, slotIndex, iface, dns64); err != nil {
-		c.mu.Lock()
-		if s, ok := c.slots[request.SlotName]; ok {
-			s.Status = entity.SlotStatusUnhealthy
-		}
-		c.mu.Unlock()
+		slot.Status = entity.SlotStatusUnhealthy
 		return nil, fmt.Errorf("recreate slot %s: %w", request.SlotName, err)
 	}
 
@@ -389,9 +329,6 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	// Resolve new IPs
 	ipv4, ipv4Err := c.Discovery.ResolveSlotIP(request.SlotName)
 
-	// Lock: update slot with new IP data
-	c.mu.Lock()
-	slot = c.slots[request.SlotName]
 	if ipv4Err != nil {
 		if c.Log != nil {
 			c.Log.Warnf("slot %s: IPv4 resolution failed after recycle: %v", request.SlotName, ipv4Err)
@@ -414,7 +351,6 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	}
 	slot.LastCheckedAt = time.Now().UnixMilli()
 	response := converter.SlotToResponse(slot)
-	c.mu.Unlock()
 
 	if c.Log != nil {
 		c.Log.Infof("slot %s recycled: IPv4=%s status=%s", request.SlotName, response.PublicIPv4, response.Status)
@@ -491,32 +427,29 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	// Wait for SLAAC
 	time.Sleep(slaacWaitDuration)
 
-	// Discover all slots for this device — update map first, then set device fields
+	// Discover all slots for this device
 	allNames, _ := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
 	discovered := c.Discovery.DiscoverAll(allNames)
 	c.UpdateSlots(discovered)
 
-	// Set DeviceAlias and Interface on discovered slots (after UpdateSlots created the entries)
-	c.mu.Lock()
+	// Set DeviceAlias and Interface on discovered slots
 	for _, d := range discovered {
-		if s, ok := c.slots[d.Name]; ok {
+		if s, ok := c.SlotRepo.Get(d.Name); ok {
 			s.DeviceAlias = deviceAlias
 			s.Interface = iface
 		}
 	}
-	c.mu.Unlock()
+
 	// Warmup: detect and re-roll duplicate public IPv4 addresses
 	dupFound, dupResolved := c.warmupDedup(deviceAlias, iface, dns64)
 
 	// Count unique IPs
-	c.mu.RLock()
 	ipSet := make(map[string]bool)
-	for _, s := range c.slots {
+	for _, s := range c.SlotRepo.ListAll() {
 		if s.PublicIPv4 != "" && s.Status == entity.SlotStatusHealthy {
 			ipSet[s.PublicIPv4] = true
 		}
 	}
-	c.mu.RUnlock()
 
 	return &model.ProvisionResponse{
 		Created:            created,
@@ -532,15 +465,13 @@ const warmupMaxRetries = 3
 
 // warmupDedup finds slots sharing the same public IPv4 and re-rolls them.
 func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, resolved int) {
-	c.mu.RLock()
 	// Build IP → slot names mapping
 	ipToSlots := make(map[string][]string)
-	for _, s := range c.slots {
+	for _, s := range c.SlotRepo.ListAll() {
 		if s.PublicIPv4 != "" && s.Status == entity.SlotStatusHealthy {
 			ipToSlots[s.PublicIPv4] = append(ipToSlots[s.PublicIPv4], s.Name)
 		}
 	}
-	c.mu.RUnlock()
 
 	// Find duplicates (keep first, re-roll rest)
 	var toReroll []string
@@ -569,21 +500,18 @@ func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, reso
 				c.Log.Infof("warmup: re-rolling %s (attempt %d/%d)", slotName, retry+1, warmupMaxRetries)
 			}
 
-			// Parse device alias and index
 			da, slotIndex, _ := parseSlotName(slotName)
 
-			// Remove old NDP proxy
-			c.mu.RLock()
-			s := c.slots[slotName]
+			// Get current slot state
+			s, ok := c.SlotRepo.Get(slotName)
 			oldIPv6 := ""
 			slotIface := iface
-			if s != nil {
+			if ok {
 				oldIPv6 = s.IPv6Address
 				if s.Interface != "" {
 					slotIface = s.Interface
 				}
 			}
-			c.mu.RUnlock()
 
 			if oldIPv6 != "" {
 				c.Provisioner.RemoveNDPProxyEntry(oldIPv6, slotIface)
@@ -615,25 +543,21 @@ func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, reso
 			}
 
 			// Check if new IP is still duplicate
-			c.mu.RLock()
 			stillDup := false
-			for _, other := range c.slots {
+			for _, other := range c.SlotRepo.ListAll() {
 				if other.Name != slotName && other.PublicIPv4 == newIPv4 && other.Status == entity.SlotStatusHealthy {
 					stillDup = true
 					break
 				}
 			}
-			c.mu.RUnlock()
 
-			// Update slot
-			c.mu.Lock()
-			if slot, ok := c.slots[slotName]; ok {
+			// Update slot in repository
+			if slot, ok := c.SlotRepo.Get(slotName); ok {
 				slot.PublicIPv4 = newIPv4
 				slot.IPv6Address = newIPv6
 				slot.Status = entity.SlotStatusHealthy
 				slot.LastCheckedAt = time.Now().UnixMilli()
 			}
-			c.mu.Unlock()
 
 			if !stillDup {
 				rerolled = true
@@ -662,19 +586,15 @@ func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, reso
 }
 
 // MonitorIPs re-checks the actual public IPv4 of all healthy slots.
-// Detects carrier-side IP changes and updates slot data.
 func (c *SlotUseCase) MonitorIPs() {
-	c.mu.RLock()
-	var names []string
-	for _, s := range c.slots {
-		if s.Status == entity.SlotStatusHealthy {
-			names = append(names, s.Name)
-		}
-	}
-	c.mu.RUnlock()
-
-	if len(names) == 0 {
+	healthy := c.SlotRepo.ListHealthy()
+	if len(healthy) == 0 {
 		return
+	}
+
+	names := make([]string, len(healthy))
+	for i, s := range healthy {
+		names[i] = s.Name
 	}
 
 	if c.Log != nil {
@@ -687,7 +607,7 @@ func (c *SlotUseCase) MonitorIPs() {
 	}
 
 	results := make(chan ipResult, len(names))
-	sem := make(chan struct{}, 10) // limit concurrent curl calls
+	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 
 	for _, name := range names {
@@ -715,19 +635,18 @@ func (c *SlotUseCase) MonitorIPs() {
 
 	changed := 0
 	for r := range results {
-		c.mu.Lock()
-		slot, ok := c.slots[r.name]
-		if ok && slot.PublicIPv4 != r.newIPv4 {
-			if c.Log != nil {
-				c.Log.Infof("slot-monitor: %s IPv4 changed %s → %s", r.name, slot.PublicIPv4, r.newIPv4)
+		if slot, ok := c.SlotRepo.Get(r.name); ok {
+			if slot.PublicIPv4 != r.newIPv4 {
+				if c.Log != nil {
+					c.Log.Infof("slot-monitor: %s IPv4 changed %s → %s", r.name, slot.PublicIPv4, r.newIPv4)
+				}
+				slot.PublicIPv4 = r.newIPv4
+				slot.LastCheckedAt = time.Now().UnixMilli()
+				changed++
+			} else {
+				slot.LastCheckedAt = time.Now().UnixMilli()
 			}
-			slot.PublicIPv4 = r.newIPv4
-			slot.LastCheckedAt = time.Now().UnixMilli()
-			changed++
-		} else if ok {
-			slot.LastCheckedAt = time.Now().UnixMilli()
 		}
-		c.mu.Unlock()
 	}
 
 	if c.Log != nil {
@@ -736,22 +655,18 @@ func (c *SlotUseCase) MonitorIPs() {
 }
 
 func (c *SlotUseCase) DestroySlot(slotName string) error {
-	c.mu.Lock()
-	slot, ok := c.slots[slotName]
+	slot, ok := c.SlotRepo.Get(slotName)
 	if !ok {
-		c.mu.Unlock()
 		return model.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		c.mu.Unlock()
 		return model.ErrSlotBusy
 	}
 
-	// Remove NDP proxy entry before destroying
+	// Capture before deleting from repo
 	ipv6 := slot.IPv6Address
 	iface := slot.Interface
-	delete(c.slots, slotName)
-	c.mu.Unlock()
+	c.SlotRepo.Delete(slotName)
 
 	if ipv6 != "" && iface != "" {
 		if err := c.Provisioner.RemoveNDPProxyEntry(ipv6, iface); err != nil {
@@ -772,12 +687,7 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 }
 
 func (c *SlotUseCase) TeardownAll() (*model.ProvisionResponse, error) {
-	c.mu.Lock()
-	names := make([]string, 0, len(c.slots))
-	for name := range c.slots {
-		names = append(names, name)
-	}
-	c.mu.Unlock()
+	names := c.SlotRepo.ListNames()
 
 	destroyed := 0
 	failed := 0
@@ -809,14 +719,11 @@ func (c *SlotUseCase) DiscoverSlotsForDevice(deviceAlias string, iface string) (
 	discovered := c.Discovery.DiscoverAll(names)
 	// Set DeviceAlias and Interface on discovered slots
 	for _, d := range discovered {
-		c.mu.Lock()
-		if s, ok := c.slots[d.Name]; ok {
+		if s, ok := c.SlotRepo.Get(d.Name); ok {
 			s.DeviceAlias = deviceAlias
 			s.Interface = iface
 		}
-		c.mu.Unlock()
 	}
 	c.UpdateSlots(discovered)
 	return len(discovered), nil
 }
-
