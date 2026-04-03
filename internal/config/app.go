@@ -64,12 +64,11 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		cfg.Logger, cfg.Validator, slotRepo, discovery,
 		provisioner,
 		maxSlots,
-		strategy,
 	)
 	ispProbe := netns.NewISPProbe(cfg.Logger)
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
-		deviceRepo, adbGateway, provisioner, slotUC, ispProbe)
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer)
+		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger)

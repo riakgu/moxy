@@ -23,25 +23,31 @@ type ISPProber interface {
 	Probe(ifaceName string) (*model.ISPProbeResult, error)
 }
 
+type SlotProvisionService interface {
+	ProvisionSlots(deviceAlias, iface string, count int, nameserver, nat64Prefix string) (*model.ProvisionResponse, error)
+}
+
 type DeviceUseCase struct {
-	Log         *logrus.Logger
-	Validate    *validator.Validate
-	DB          *sql.DB
-	DeviceRepo  *repository.DeviceRepository
-	ADB         *adb.ADBGateway
-	Provisioner SlotProvisioner
-	SlotUC      *SlotUseCase
-	ISPProber   ISPProber
+	Log           *logrus.Logger
+	Validate      *validator.Validate
+	DB            *sql.DB
+	DeviceRepo    *repository.DeviceRepository
+	ADB           *adb.ADBGateway
+	Provisioner   SlotProvisioner
+	SlotRepo      *repository.SlotRepository
+	SlotProvision SlotProvisionService
+	ISPProber     ISPProber
 }
 
 func NewDeviceUseCase(log *logrus.Logger, validate *validator.Validate, db *sql.DB,
 	deviceRepo *repository.DeviceRepository, adbGW *adb.ADBGateway,
-	provisioner SlotProvisioner, slotUC *SlotUseCase, ispProber ISPProber) *DeviceUseCase {
+	provisioner SlotProvisioner, slotRepo *repository.SlotRepository,
+	slotProvision SlotProvisionService, ispProber ISPProber) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log: log, Validate: validate, DB: db,
 		DeviceRepo: deviceRepo, ADB: adbGW,
-		Provisioner: provisioner, SlotUC: slotUC,
-		ISPProber: ispProber,
+		Provisioner: provisioner, SlotRepo: slotRepo,
+		SlotProvision: slotProvision, ISPProber: ispProber,
 	}
 }
 
@@ -73,7 +79,7 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	}
 	var result []model.DeviceResponse
 	for _, d := range devices {
-		slotCount := c.SlotUC.CountSlotsForDevice(d.Alias)
+		slotCount := c.SlotRepo.CountByDevice(d.Alias)
 		result = append(result, *converter.DeviceToResponse(d, slotCount))
 	}
 	return result, nil
@@ -112,7 +118,7 @@ func (c *DeviceUseCase) GetByID(id string) (*model.DeviceResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	slotCount := c.SlotUC.CountSlotsForDevice(device.Alias)
+	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	return converter.DeviceToResponse(device, slotCount), nil
 }
 
@@ -273,10 +279,8 @@ func (c *DeviceUseCase) Teardown(deviceId string) error {
 	}
 
 	// Remove slots from in-memory map
-	if c.SlotUC != nil {
-		removed := c.SlotUC.RemoveSlotsForDevice(device.Alias)
-		c.Log.Infof("device %s: removed %d slots from memory", device.Alias, removed)
-	}
+	removed := c.SlotRepo.DeleteByDevice(device.Alias)
+	c.Log.Infof("device %s: removed %d slots from memory", device.Alias, removed)
 
 	device.Status = entity.DeviceStatusOffline
 	return c.DeviceRepo.Update(c.DB, device)
@@ -299,7 +303,7 @@ func (c *DeviceUseCase) UpdateISPOverride(req *model.UpdateISPOverrideRequest) (
 	if err := c.DeviceRepo.Update(c.DB, device); err != nil {
 		return nil, err
 	}
-	slotCount := c.SlotUC.CountSlotsForDevice(device.Alias)
+	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	return converter.DeviceToResponse(device, slotCount), nil
 }
 
@@ -318,5 +322,5 @@ func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.Pro
 		slots = 5
 	}
 
-	return c.SlotUC.ProvisionSlots(device.Alias, device.Interface, slots, device.Nameserver, device.NAT64Prefix)
+	return c.SlotProvision.ProvisionSlots(device.Alias, device.Interface, slots, device.Nameserver, device.NAT64Prefix)
 }

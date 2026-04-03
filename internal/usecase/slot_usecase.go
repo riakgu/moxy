@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"fmt"
-	"math/rand"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -37,13 +36,6 @@ type SlotDiscovery interface {
 
 const slaacWaitDuration = 5 * time.Second
 
-const (
-	StrategyRandom           = "random"
-	StrategyRoundRobin       = "round-robin"
-	StrategyLeastConnections = "least-connections"
-	StrategyStickyIP         = "sticky-ip"
-)
-
 type SlotUseCase struct {
 	Log         *logrus.Logger
 	Validate    *validator.Validate
@@ -51,8 +43,6 @@ type SlotUseCase struct {
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
 	MaxSlots    int
-	Strategy    string
-	rrIndex     uint64
 }
 
 func NewSlotUseCase(
@@ -62,7 +52,6 @@ func NewSlotUseCase(
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
 	maxSlots int,
-	strategy string,
 ) *SlotUseCase {
 	return &SlotUseCase{
 		Log:         log,
@@ -71,7 +60,6 @@ func NewSlotUseCase(
 		Discovery:   discovery,
 		Provisioner: provisioner,
 		MaxSlots:    maxSlots,
-		Strategy:    strategy,
 	}
 }
 
@@ -158,59 +146,9 @@ func (c *SlotUseCase) DiscoverSlots() (int, error) {
 	return len(discovered), nil
 }
 
-func (c *SlotUseCase) RemoveSlotsForDevice(deviceAlias string) int {
-	return c.SlotRepo.DeleteByDevice(deviceAlias)
-}
-
 func (c *SlotUseCase) GetSlotNames() []string {
 	return c.SlotRepo.ListNames()
 }
-
-func (c *SlotUseCase) SelectSlot(clientIP string) (*entity.Slot, error) {
-	healthy := c.SlotRepo.ListHealthy()
-	if len(healthy) == 0 {
-		return nil, fmt.Errorf("no healthy slots available")
-	}
-
-	switch c.Strategy {
-	case StrategyRoundRobin:
-		idx := atomic.AddUint64(&c.rrIndex, 1)
-		return healthy[idx%uint64(len(healthy))], nil
-
-	case StrategyLeastConnections:
-		best := healthy[0]
-		bestConns := atomic.LoadInt64(&best.ActiveConnections)
-		for _, s := range healthy[1:] {
-			conns := atomic.LoadInt64(&s.ActiveConnections)
-			if conns < bestConns {
-				best = s
-				bestConns = conns
-			}
-		}
-		return best, nil
-
-	case StrategyStickyIP:
-		if clientIP == "" {
-			return healthy[rand.Intn(len(healthy))], nil
-		}
-		hash := fnvHash(clientIP)
-		return healthy[hash%uint64(len(healthy))], nil
-
-	default: // random
-		return healthy[rand.Intn(len(healthy))], nil
-	}
-}
-
-func fnvHash(s string) uint64 {
-	var h uint64 = 14695981039346656037
-	for i := 0; i < len(s); i++ {
-		h ^= uint64(s[i])
-		h *= 1099511628211
-	}
-	return h
-}
-
-
 
 func (c *SlotUseCase) ListAll() []model.SlotResponse {
 	slots := c.SlotRepo.ListAll()
@@ -227,28 +165,6 @@ func (c *SlotUseCase) GetByName(request *model.GetSlotRequest) (*model.SlotRespo
 		return nil, fmt.Errorf("slot %s not found", request.SlotName)
 	}
 	return converter.SlotToResponse(slot), nil
-}
-
-func (c *SlotUseCase) IncrementConnections(slotName string) {
-	c.SlotRepo.IncrementConnections(slotName)
-}
-
-func (c *SlotUseCase) DecrementConnections(slotName string) {
-	c.SlotRepo.DecrementConnections(slotName)
-}
-
-// GetSlotConfig returns the ISP config for a slot.
-// Returns empty strings if the slot is not found.
-func (c *SlotUseCase) GetSlotConfig(name string) (nameserver, nat64Prefix string) {
-	if slot, ok := c.SlotRepo.Get(name); ok {
-		return slot.Nameserver, slot.NAT64Prefix
-	}
-	return "", ""
-}
-
-// CountSlotsForDevice returns how many slots belong to a device.
-func (c *SlotUseCase) CountSlotsForDevice(deviceAlias string) int {
-	return c.SlotRepo.CountByDevice(deviceAlias)
 }
 
 // parseSlotName extracts device alias and slot index from names like "dev1_slot3"
