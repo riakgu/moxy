@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
-	"os/exec"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -166,17 +165,11 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 		{"dismissed_dialog", func() error { return c.ADB.DismissDataDialog(device.Serial) }},
 		{"disabled_wifi", func() error { return c.ADB.DisableWifi(device.Serial) }},
 		{"dhcp_configured", func() error {
-			return exec.Command("dhcpcd", device.Interface).Run()
+			return c.Provisioner.ConfigureDHCP(device.Interface)
 		}},
 		{"ipv6_configured", func() error {
-			cmds := [][]string{
-				{"sysctl", "-w", fmt.Sprintf("net.ipv6.conf.%s.accept_ra=2", device.Interface)},
-				{"sysctl", "-w", fmt.Sprintf("net.ipv6.conf.%s.autoconf=1", device.Interface)},
-			}
-			for _, cmd := range cmds {
-				if err := exec.Command(cmd[0], cmd[1:]...).Run(); err != nil {
-					return fmt.Errorf("%s: %w", cmd[0], err)
-				}
+			if err := c.Provisioner.ConfigureIPv6SLAAC(device.Interface); err != nil {
+				return err
 			}
 			time.Sleep(5 * time.Second) // Wait for SLAAC
 			return nil

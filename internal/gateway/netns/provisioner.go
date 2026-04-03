@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 
@@ -141,6 +142,30 @@ func (p *Provisioner) CreateSlot(deviceAlias string, slotIndex int, iface string
 	}
 
 	p.Log.Debugf("slot %s: provisioned successfully", name)
+	return nil
+}
+
+// ConfigureDHCP runs dhcpcd on the given interface to obtain an IPv4 address.
+func (p *Provisioner) ConfigureDHCP(iface string) error {
+	if err := exec.Command("dhcpcd", iface).Run(); err != nil {
+		return fmt.Errorf("dhcpcd on %s: %w", iface, err)
+	}
+	return nil
+}
+
+// ConfigureIPv6SLAAC enables IPv6 Router Advertisement acceptance and
+// auto-configuration on the given host interface via /proc/sys writes.
+func (p *Provisioner) ConfigureIPv6SLAAC(iface string) error {
+	base := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", iface)
+	for _, kv := range [][2]string{
+		{"accept_ra", "2"},
+		{"autoconf", "1"},
+	} {
+		path := fmt.Sprintf("%s/%s", base, kv[0])
+		if err := os.WriteFile(path, []byte(kv[1]), 0644); err != nil {
+			return fmt.Errorf("set %s=%s for %s: %w", kv[0], kv[1], iface, err)
+		}
+	}
 	return nil
 }
 

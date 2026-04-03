@@ -25,6 +25,8 @@ type SlotProvisioner interface {
 	RemoveNDPProxyEntry(ipv6 string, iface string) error
 	ListSlotNamespaces() ([]string, error)
 	ListSlotNamespacesForDevice(deviceAlias string) ([]string, error)
+	ConfigureDHCP(iface string) error
+	ConfigureIPv6SLAAC(iface string) error
 }
 
 type SlotDiscovery interface {
