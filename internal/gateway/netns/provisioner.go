@@ -135,11 +135,9 @@ func (p *Provisioner) CreateSlot(deviceAlias string, slotIndex int, iface string
 	}
 
 	// 4d. Set DNS64 nameserver
-	if dns64 != "" {
-		resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
-		if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
-			return fmt.Errorf("set DNS64 for %s: %w", name, err)
-		}
+	resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
+	if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
+		return fmt.Errorf("set DNS64 for %s: %w", name, err)
 	}
 
 	p.Log.Debugf("slot %s: provisioned successfully", name)

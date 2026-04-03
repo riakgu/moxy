@@ -50,8 +50,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
 	provisioner := netns.NewProvisioner(cfg.Logger)
-	dns64 := cfg.Viper.GetString("provision.dns64_server")
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, "", dns64)
+	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, "", "")
 	dialer := netns.NewSetnsDialer(cfg.Logger)
 
 	// UseCases
@@ -61,13 +60,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	slotUC := usecase.NewSlotUseCase(
 		cfg.Logger, cfg.Validator, slotRepo, discovery,
 		provisioner,
-		dns64,
 		maxSlots,
 		strategy,
 	)
 	ispProbe := netns.NewISPProbe(cfg.Logger)
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
-		deviceRepo, adbGateway, provisioner, slotUC, dns64, ispProbe)
+		deviceRepo, adbGateway, provisioner, slotUC, ispProbe)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer)
 
 	// Controllers

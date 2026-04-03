@@ -15,9 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const defaultNAT64Prefix = "64:ff9b::"
-const defaultDNS64Server = "2001:4860:4860::6464"
-
 // SetnsDialer dials targets through network namespaces using the setns(2) syscall.
 // Stateless — all ISP config (nameserver, NAT64 prefix) is provided per call.
 type SetnsDialer struct {
@@ -29,12 +26,8 @@ func NewSetnsDialer(log *logrus.Logger) *SetnsDialer {
 	return &SetnsDialer{Log: log}
 }
 
-// toNAT64 converts an IPv4 address to its NAT64 representation
-// using the provided prefix. Falls back to well-known 64:ff9b:: if empty.
+// toNAT64 converts an IPv4 address to its NAT64 representation using the provided prefix.
 func toNAT64(ipv4 net.IP, prefix string) string {
-	if prefix == "" {
-		prefix = defaultNAT64Prefix
-	}
 	v4 := ipv4.To4()
 	return fmt.Sprintf("%s%02x%02x:%02x%02x", prefix, v4[0], v4[1], v4[2], v4[3])
 }
@@ -51,13 +44,6 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
 	}
 
-	// Apply fallbacks
-	if nameserver == "" {
-		nameserver = defaultDNS64Server
-	}
-	if nat64Prefix == "" {
-		nat64Prefix = defaultNAT64Prefix
-	}
 
 	// Check if host is a raw IPv4 — convert to NAT64 before entering namespace
 	ip := net.ParseIP(host)

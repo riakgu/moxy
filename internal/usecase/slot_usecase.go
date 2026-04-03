@@ -49,7 +49,6 @@ type SlotUseCase struct {
 	SlotRepo    *repository.SlotRepository
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
-	DNS64Server string
 	MaxSlots    int
 	Strategy    string
 	rrIndex     uint64
@@ -61,7 +60,6 @@ func NewSlotUseCase(
 	slotRepo *repository.SlotRepository,
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
-	dns64 string,
 	maxSlots int,
 	strategy string,
 ) *SlotUseCase {
@@ -74,7 +72,6 @@ func NewSlotUseCase(
 		SlotRepo:    slotRepo,
 		Discovery:   discovery,
 		Provisioner: provisioner,
-		DNS64Server: dns64,
 		MaxSlots:    maxSlots,
 		Strategy:    strategy,
 	}
@@ -299,7 +296,8 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		return nil, fmt.Errorf("destroy slot %s: %w", request.SlotName, err)
 	}
 
-	dns64 := c.DNS64Server
+	// Use the slot's own nameserver for resolv.conf
+	dns64 := slot.Nameserver
 
 	// Recreate namespace with same index
 	if err := c.Provisioner.CreateSlot(deviceAlias, slotIndex, iface, dns64); err != nil {
@@ -343,10 +341,9 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	return response, nil
 }
 
-func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int, dns64 string, nameserver string, nat64Prefix string) (*model.ProvisionResponse, error) {
-	if dns64 == "" {
-		dns64 = c.DNS64Server
-	}
+func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int, nameserver string, nat64Prefix string) (*model.ProvisionResponse, error) {
+	// Use auto-detected nameserver for resolv.conf inside namespaces
+	dns64 := nameserver
 
 	// Enable NDP proxy on the interface
 	if err := c.Provisioner.EnableNDPProxy(iface); err != nil {

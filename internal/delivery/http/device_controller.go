@@ -113,7 +113,7 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 		body.Slots = 5
 	}
 
-	resp, err := c.SlotUC.ProvisionSlots(device.Alias, device.Interface, body.Slots, "", device.Nameserver, device.NAT64Prefix)
+	resp, err := c.SlotUC.ProvisionSlots(device.Alias, device.Interface, body.Slots, device.Nameserver, device.NAT64Prefix)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}

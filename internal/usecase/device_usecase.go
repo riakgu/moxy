@@ -32,17 +32,16 @@ type DeviceUseCase struct {
 	ADB         *adb.ADBGateway
 	Provisioner SlotProvisioner
 	SlotUC      *SlotUseCase
-	DNS64Server string
 	ISPProber   ISPProber
 }
 
 func NewDeviceUseCase(log *logrus.Logger, validate *validator.Validate, db *sql.DB,
 	deviceRepo *repository.DeviceRepository, adbGW *adb.ADBGateway,
-	provisioner SlotProvisioner, slotUC *SlotUseCase, dns64 string, ispProber ISPProber) *DeviceUseCase {
+	provisioner SlotProvisioner, slotUC *SlotUseCase, ispProber ISPProber) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log: log, Validate: validate, DB: db,
 		DeviceRepo: deviceRepo, ADB: adbGW,
-		Provisioner: provisioner, SlotUC: slotUC, DNS64Server: dns64,
+		Provisioner: provisioner, SlotUC: slotUC,
 		ISPProber: ispProber,
 	}
 }
@@ -217,15 +216,8 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 
 			result, err := c.ISPProber.Probe(device.Interface)
 			if err != nil {
-				c.Log.Warnf("device %s: ISP probe failed on %s: %v — using global DNS64 config. Set manual override if connections fail.",
+				c.Log.Warnf("device %s: ISP probe failed on %s: %v — will use defaults. Set manual override if connections fail.",
 					device.Alias, device.Interface, err)
-				// Fall back to global config
-				if device.Nameserver == "" {
-					device.Nameserver = c.DNS64Server
-				}
-				if device.NAT64Prefix == "" {
-					device.NAT64Prefix = "64:ff9b::"
-				}
 				return nil
 			}
 

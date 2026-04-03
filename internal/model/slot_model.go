@@ -24,7 +24,6 @@ type ChangeIPRequest struct {
 type ProvisionRequest struct {
 	Interface string `json:"interface" validate:"required"`
 	Slots     int    `json:"slots" validate:"required,min=1,max=500"`
-	DNS64     string `json:"dns64"`
 }
 
 type ProvisionResponse struct {

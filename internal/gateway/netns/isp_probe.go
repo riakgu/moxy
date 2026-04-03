@@ -21,11 +21,17 @@ const (
 	rfc7050Host       = "ipv4only.arpa"
 	rfc7050WellKnown1 = "192.0.0.170"
 	rfc7050WellKnown2 = "192.0.0.171"
+
+	// Default DNS64 and NAT64 values — used as fallback when discovery fails.
+	// These are the single source of truth for defaults across the entire package.
+	defaultDNS64Server = "2001:4860:4860::6464"
+	defaultNAT64Prefix = "64:ff9b::"
 )
 
 // ISPProbe discovers ISP DNS64 nameserver and NAT64 prefix from the network.
 // It uses RDNSS from Router Advertisements (RFC 8106) and NAT64 prefix
 // discovery via ipv4only.arpa (RFC 7050).
+// Probe always returns usable values — defaults if discovery fails.
 type ISPProbe struct {
 	Log *logrus.Logger
 }
@@ -36,14 +42,17 @@ func NewISPProbe(log *logrus.Logger) *ISPProbe {
 }
 
 // Probe discovers the ISP's DNS64 nameserver and NAT64 prefix on the given
-// tethering interface. It sends a Router Solicitation to get RDNSS, then
-// resolves ipv4only.arpa AAAA via the discovered nameserver to extract
-// the NAT64 prefix.
+// tethering interface. Always returns usable values — falls back to defaults
+// if discovery fails.
 func (p *ISPProbe) Probe(ifaceName string) (*model.ISPProbeResult, error) {
 	// Step 1: Discover DNS64 nameserver via RDNSS
 	nameserver, err := p.discoverRDNSS(ifaceName)
 	if err != nil {
-		return nil, fmt.Errorf("RDNSS discovery on %s: %w", ifaceName, err)
+		p.Log.Warnf("isp-probe: RDNSS discovery failed on %s: %v — using defaults", ifaceName, err)
+		return &model.ISPProbeResult{
+			Nameserver:  defaultDNS64Server,
+			NAT64Prefix: defaultNAT64Prefix,
+		}, nil
 	}
 
 	p.Log.Infof("isp-probe: RDNSS discovered nameserver %s on %s", nameserver, ifaceName)
@@ -55,7 +64,7 @@ func (p *ISPProbe) Probe(ifaceName string) (*model.ISPProbeResult, error) {
 		p.Log.Warnf("isp-probe: NAT64 prefix discovery failed via %s: %v — using well-known prefix", nameserver, err)
 		return &model.ISPProbeResult{
 			Nameserver:  nameserver,
-			NAT64Prefix: "64:ff9b::",
+			NAT64Prefix: defaultNAT64Prefix,
 		}, nil
 	}
 
