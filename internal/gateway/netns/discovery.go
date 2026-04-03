@@ -25,15 +25,17 @@ type Discovery struct {
 	Provisioner *Provisioner
 	Interface   string
 	DNS64Server string
+	IPCheckHost string
 }
 
-func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string, dns64 string) *Discovery {
+func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string, dns64 string, ipCheckHost string) *Discovery {
 	return &Discovery{
 		Log:         log,
 		Concurrency: concurrency,
 		Provisioner: provisioner,
 		Interface:   iface,
 		DNS64Server: dns64,
+		IPCheckHost: ipCheckHost,
 	}
 }
 
@@ -63,7 +65,7 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// Resolve api.ipify.org via DNS64 — directly on this locked thread
+	// Resolve IP check host via DNS64 — directly on this locked thread
 	resolver := &net.Resolver{PreferGo: true}
 	if d.DNS64Server != "" {
 		resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -74,7 +76,7 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ips, err := resolver.LookupHost(ctx, "api.ipify.org")
+	ips, err := resolver.LookupHost(ctx, d.IPCheckHost)
 	if err != nil {
 		return "", fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
 	}
@@ -90,7 +92,7 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 		}
 	}
 	if conn == nil {
-		return "", fmt.Errorf("no reachable address for api.ipify.org in %s", slotName)
+		return "", fmt.Errorf("no reachable address for %s in %s", d.IPCheckHost, slotName)
 	}
 	defer conn.Close()
 
@@ -99,7 +101,7 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 
 	// Write raw HTTP GET on the established connection
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
-	_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n"))
+	_, err = conn.Write([]byte(fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", d.IPCheckHost)))
 	if err != nil {
 		return "", fmt.Errorf("write HTTP request for %s: %w", slotName, err)
 	}
