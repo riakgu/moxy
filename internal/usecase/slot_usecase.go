@@ -221,6 +221,15 @@ func (c *SlotUseCase) DecrementConnections(slotName string) {
 	c.SlotRepo.DecrementConnections(slotName)
 }
 
+// GetSlotConfig returns the ISP config for a slot.
+// Returns empty strings if the slot is not found.
+func (c *SlotUseCase) GetSlotConfig(name string) (nameserver, nat64Prefix string) {
+	if slot, ok := c.SlotRepo.Get(name); ok {
+		return slot.Nameserver, slot.NAT64Prefix
+	}
+	return "", ""
+}
+
 // parseSlotName extracts device alias and slot index from names like "dev1_slot3"
 func parseSlotName(slotName string) (deviceAlias string, slotIndex int, err error) {
 	idx := strings.LastIndex(slotName, "_slot")

@@ -10,7 +10,7 @@ import (
 )
 
 type SlotDialer interface {
-	Dial(slotName string, addr string) (net.Conn, error)
+	Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
 }
 
 type ProxyUseCase struct {
@@ -30,7 +30,10 @@ func NewProxyUseCase(log *logrus.Logger, slotUC *SlotUseCase, dialer SlotDialer)
 func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, error) {
 	c.SlotUC.IncrementConnections(slotName)
 
-	conn, err := c.Dialer.Dial(slotName, targetAddr)
+	// Look up slot ISP config for this connection
+	nameserver, nat64Prefix := c.SlotUC.GetSlotConfig(slotName)
+
+	conn, err := c.Dialer.Dial(slotName, targetAddr, nameserver, nat64Prefix)
 	if err != nil {
 		c.SlotUC.DecrementConnections(slotName)
 		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)

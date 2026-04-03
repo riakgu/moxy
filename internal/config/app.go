@@ -52,7 +52,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	provisioner := netns.NewProvisioner(cfg.Logger)
 	dns64 := cfg.Viper.GetString("provision.dns64_server")
 	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), provisioner, "", dns64)
-	dialer := netns.NewSetnsDialer(cfg.Logger, dns64)
+	dialer := netns.NewSetnsDialer(cfg.Logger)
 
 	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")

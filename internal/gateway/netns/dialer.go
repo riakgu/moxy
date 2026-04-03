@@ -15,58 +15,55 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const nat64Prefix = "64:ff9b::"
+const defaultNAT64Prefix = "64:ff9b::"
+const defaultDNS64Server = "2001:4860:4860::6464"
 
 // SetnsDialer dials targets through network namespaces using the setns(2) syscall.
-// This avoids the overhead of spawning a subprocess per connection.
+// Stateless — all ISP config (nameserver, NAT64 prefix) is provided per call.
 type SetnsDialer struct {
-	Log         *logrus.Logger
-	DNS64Server string
+	Log *logrus.Logger
 }
 
 // NewSetnsDialer creates a new SetnsDialer.
-// dns64Server is the DNS64 nameserver address (e.g., "2001:4860:4860::6464")
-// used for resolving domain names inside namespaces.
-func NewSetnsDialer(log *logrus.Logger, dns64Server string) *SetnsDialer {
-	return &SetnsDialer{
-		Log:         log,
-		DNS64Server: dns64Server,
-	}
+func NewSetnsDialer(log *logrus.Logger) *SetnsDialer {
+	return &SetnsDialer{Log: log}
 }
 
 // toNAT64 converts an IPv4 address to its NAT64 representation
-// using the well-known prefix 64:ff9b::/96.
-func toNAT64(ipv4 net.IP) string {
+// using the provided prefix. Falls back to well-known 64:ff9b:: if empty.
+func toNAT64(ipv4 net.IP, prefix string) string {
+	if prefix == "" {
+		prefix = defaultNAT64Prefix
+	}
 	v4 := ipv4.To4()
-	return fmt.Sprintf("%s%02x%02x:%02x%02x", nat64Prefix, v4[0], v4[1], v4[2], v4[3])
+	return fmt.Sprintf("%s%02x%02x:%02x%02x", prefix, v4[0], v4[1], v4[2], v4[3])
 }
 
 // Dial connects to addr through the network namespace identified by slotName.
-// It uses setns(2) to enter the namespace in-process, avoiding subprocess overhead.
+// It uses setns(2) to enter the namespace in-process, performing DNS resolution
+// and TCP connect in a single namespace entry.
 //
-// For raw IPv4 addresses, NAT64 conversion is applied automatically.
-// For domain names, DNS resolution uses a native net.Resolver inside the namespace.
-func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
+// nameserver is the DNS64 server for domain resolution (falls back to Google DNS64 if empty).
+// nat64Prefix is the NAT64 /96 prefix for IPv4→IPv6 translation (falls back to 64:ff9b:: if empty).
+func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
 	}
 
-	// Resolve the target address to a NAT64 IPv6 address
+	// Apply fallbacks
+	if nameserver == "" {
+		nameserver = defaultDNS64Server
+	}
+	if nat64Prefix == "" {
+		nat64Prefix = defaultNAT64Prefix
+	}
+
+	// Check if host is a raw IPv4 — convert to NAT64 before entering namespace
 	ip := net.ParseIP(host)
 	if ip != nil && ip.To4() != nil {
-		// Raw IPv4 → NAT64
-		host = toNAT64(ip)
-	} else if ip == nil {
-		// Domain name — resolve DNS64 inside namespace using native resolver
-		resolved, err := d.resolveInNamespace(slotName, host)
-		if err != nil {
-			return nil, fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
-		}
-		host = resolved
+		host = toNAT64(ip, nat64Prefix)
 	}
-	// At this point, host is always an IPv6 address (global or NAT64)
-	target := net.JoinHostPort(host, port)
 
 	// Pin goroutine to OS thread — required because setns operates on the calling thread
 	runtime.LockOSThread()
@@ -91,7 +88,21 @@ func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
 	}
 
-	// Pure TCP connect — no DNS resolution needed, host is already an IPv6 address
+	// --- Inside namespace: resolve (if needed) + connect ---
+
+	// If host is a domain name, resolve via DNS64 inside the namespace
+	if ip == nil {
+		resolved, err := resolveDNS64(host, nameserver)
+		if err != nil {
+			// Restore host namespace before returning error
+			unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+			return nil, fmt.Errorf("DNS64 resolve %s for %s: %w", host, slotName, err)
+		}
+		host = resolved
+	}
+
+	// TCP connect — socket binds to this namespace
+	target := net.JoinHostPort(host, port)
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	conn, dialErr := dialer.DialContext(context.Background(), "tcp6", target)
 
@@ -110,36 +121,9 @@ func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-// resolveInNamespace resolves a hostname to an IPv6 address inside a network namespace
-// using Go's native net.Resolver with setns. No subprocess needed.
-func (d *SetnsDialer) resolveInNamespace(slotName string, hostname string) (string, error) {
-	dnsServer := d.DNS64Server
-	if dnsServer == "" {
-		dnsServer = "2001:4860:4860::6464"
-	}
-
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// Save host namespace
-	origNs, err := os.Open("/proc/self/ns/net")
-	if err != nil {
-		return "", fmt.Errorf("open host namespace: %w", err)
-	}
-	defer origNs.Close()
-
-	// Enter slot namespace
-	targetNs, err := os.Open("/var/run/netns/" + slotName)
-	if err != nil {
-		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
-	}
-	defer targetNs.Close()
-
-	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
-		return "", fmt.Errorf("setns to %s: %w", slotName, err)
-	}
-
-	// Resolve using native Go resolver with DNS64 server
+// resolveDNS64 resolves a hostname to an IPv6 address using the given DNS64 server.
+// Must be called while the thread is inside the target namespace.
+func resolveDNS64(hostname string, dnsServer string) (string, error) {
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -150,15 +134,9 @@ func (d *SetnsDialer) resolveInNamespace(slotName string, hostname string) (stri
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ips, lookupErr := resolver.LookupHost(ctx, hostname)
-
-	// Always restore host namespace
-	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
-		return "", fmt.Errorf("restore host namespace: %w", restoreErr)
-	}
-
-	if lookupErr != nil {
-		return "", fmt.Errorf("lookup %s: %w", hostname, lookupErr)
+	ips, err := resolver.LookupHost(ctx, hostname)
+	if err != nil {
+		return "", fmt.Errorf("lookup %s: %w", hostname, err)
 	}
 
 	// Pick first IPv6 from results

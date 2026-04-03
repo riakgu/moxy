@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/mdlayher/ndp"
@@ -82,7 +83,8 @@ func (p *ISPProbe) discoverRDNSS(ifaceName string) (string, error) {
 
 	// Send Router Solicitation
 	rs := &ndp.RouterSolicitation{}
-	if err := conn.WriteTo(rs, nil, net.IPv6linklocalallrouters); err != nil {
+	allRouters := netip.MustParseAddr("ff02::2")
+	if err := conn.WriteTo(rs, nil, allRouters); err != nil {
 		return "", fmt.Errorf("send RS on %s: %w", ifaceName, err)
 	}
 
