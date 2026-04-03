@@ -51,16 +51,6 @@ func createTables(db *sql.DB) error {
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		);
-
-		CREATE TABLE IF NOT EXISTS proxy_users (
-			id VARCHAR(36) PRIMARY KEY,
-			username VARCHAR(100) NOT NULL UNIQUE,
-			password_hash VARCHAR(255) NOT NULL,
-			device_binding VARCHAR(50) DEFAULT '',
-			enabled BOOLEAN DEFAULT 1,
-			created_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL
-		);
 	`)
 	if err != nil {
 		return fmt.Errorf("create tables: %w", err)

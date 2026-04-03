@@ -46,7 +46,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Repositories
 	deviceRepo := repository.NewDeviceRepository(cfg.Logger)
-	proxyUserRepo := repository.NewProxyUserRepository(cfg.Logger)
 
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
@@ -67,8 +66,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	)
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger, cfg.Validator, db,
 		deviceRepo, adbGateway, provisioner, slotUC, dns64)
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer, proxyUserRepo, db)
-	proxyUserUC := usecase.NewProxyUserUseCase(cfg.Logger, db, proxyUserRepo)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer)
 
 	// Shared connection semaphore
 	maxConns := cfg.Viper.GetInt("proxy.max_connections")
@@ -82,7 +80,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
-	proxyUserCtrl := httpdelivery.NewProxyUserController(proxyUserUC, cfg.Logger)
 
 	// Main proxy ConnectFunc — selects slot via strategy, then connects
 	mainConnect := proxy.ConnectFunc(func(ctx context.Context, addr string) (net.Conn, error) {
@@ -102,13 +99,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Routes
 	routeConfig := &route.RouteConfig{
-		App:                 cfg.Fiber,
-		DeviceController:    deviceCtrl,
-		SlotController:      slotCtrl,
-		StatsController:     statsCtrl,
-		ProxyUserController: proxyUserCtrl,
-		Log:                 cfg.Logger,
-		StaticFS:            cfg.StaticFS,
+		App:              cfg.Fiber,
+		DeviceController: deviceCtrl,
+		SlotController:   slotCtrl,
+		StatsController:  statsCtrl,
+		Log:              cfg.Logger,
+		StaticFS:         cfg.StaticFS,
 	}
 
 	return &BootstrapResult{
