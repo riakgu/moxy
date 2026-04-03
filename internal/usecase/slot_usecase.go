@@ -109,6 +109,12 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 			if existing.Interface != "" {
 				s.Interface = existing.Interface
 			}
+			if existing.Nameserver != "" {
+				s.Nameserver = existing.Nameserver
+			}
+			if existing.NAT64Prefix != "" {
+				s.NAT64Prefix = existing.NAT64Prefix
+			}
 		}
 		c.SlotRepo.Put(s)
 	}
