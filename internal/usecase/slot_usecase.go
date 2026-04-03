@@ -125,6 +125,23 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 	}
 }
 
+// refreshNDPProxy adds NDP proxy entries for all discovered slots that have
+// an IPv6 address and an interface. Uses per-slot interface from SlotRepo.
+func (c *SlotUseCase) refreshNDPProxy(discovered []*model.DiscoveredSlot) {
+	for _, d := range discovered {
+		if d.IPv6Address == "" {
+			continue
+		}
+		if s, ok := c.SlotRepo.Get(d.Name); ok && s.Interface != "" {
+			if err := c.Provisioner.AddNDPProxyEntry(d.IPv6Address, s.Interface); err != nil {
+				if c.Log != nil {
+					c.Log.Warnf("NDP proxy entry for %s failed: %v", d.Name, err)
+				}
+			}
+		}
+	}
+}
+
 func (c *SlotUseCase) DiscoverSlots() (int, error) {
 	names, err := c.Provisioner.ListSlotNamespaces()
 	if err != nil {
@@ -133,6 +150,7 @@ func (c *SlotUseCase) DiscoverSlots() (int, error) {
 
 	discovered := c.Discovery.DiscoverAll(names)
 	c.UpdateSlots(discovered)
+	c.refreshNDPProxy(discovered)
 	return len(discovered), nil
 }
 
@@ -423,6 +441,9 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		}
 	}
 
+	// Refresh NDP proxy entries with per-slot interface
+	c.refreshNDPProxy(discovered)
+
 	// Warmup: detect and re-roll duplicate public IPv4 addresses
 	dupFound, dupResolved := c.warmupDedup(deviceAlias, iface, dns64)
 
@@ -710,5 +731,6 @@ func (c *SlotUseCase) DiscoverSlotsForDevice(deviceAlias string, iface string, n
 		}
 	}
 	c.UpdateSlots(discovered)
+	c.refreshNDPProxy(discovered)
 	return len(discovered), nil
 }

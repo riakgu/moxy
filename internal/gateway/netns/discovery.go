@@ -22,19 +22,13 @@ import (
 type Discovery struct {
 	Log         *logrus.Logger
 	Concurrency int
-	Provisioner *Provisioner
-	Interface   string
-	DNS64Server string
 	IPCheckHost string
 }
 
-func NewDiscovery(log *logrus.Logger, concurrency int, provisioner *Provisioner, iface string, dns64 string, ipCheckHost string) *Discovery {
+func NewDiscovery(log *logrus.Logger, concurrency int, ipCheckHost string) *Discovery {
 	return &Discovery{
 		Log:         log,
 		Concurrency: concurrency,
-		Provisioner: provisioner,
-		Interface:   iface,
-		DNS64Server: dns64,
 		IPCheckHost: ipCheckHost,
 	}
 }
@@ -65,13 +59,8 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// Resolve IP check host via DNS64 — directly on this locked thread
+	// Resolve IP check host — uses namespace's /etc/resolv.conf
 	resolver := &net.Resolver{PreferGo: true}
-	if d.DNS64Server != "" {
-		resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return net.DialTimeout("udp6", net.JoinHostPort(d.DNS64Server, "53"), 5*time.Second)
-		}
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -202,13 +191,6 @@ func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
 			}
 
 			ipv6, _ := d.ResolveSlotIPv6(slotName)
-
-			// Add NDP proxy entry for the slot's IPv6 address
-			if ipv6 != "" && d.Provisioner != nil && d.Interface != "" {
-				if err := d.Provisioner.AddNDPProxyEntry(ipv6, d.Interface); err != nil {
-					d.Log.Warnf("discovery: %s NDP proxy entry failed: %v", slotName, err)
-				}
-			}
 
 			mu.Lock()
 			results = append(results, &model.DiscoveredSlot{
