@@ -213,37 +213,6 @@ func (c *SlotUseCase) GetByName(request *model.GetSlotRequest) (*model.SlotRespo
 	return converter.SlotToResponse(slot), nil
 }
 
-func (c *SlotUseCase) GetStats() *model.StatsResponse {
-	slots := c.SlotRepo.ListAll()
-	stats := &model.StatsResponse{
-		SlotStats: make([]model.SlotResponse, 0, len(slots)),
-	}
-	for _, s := range slots {
-		stats.TotalSlots++
-		if s.Status == entity.SlotStatusHealthy {
-			stats.HealthySlots++
-		} else {
-			stats.UnhealthySlots++
-		}
-		stats.ActiveConnections += atomic.LoadInt64(&s.ActiveConnections)
-		stats.SlotStats = append(stats.SlotStats, *converter.SlotToResponse(s))
-	}
-	return stats
-}
-
-func (c *SlotUseCase) GetHealth() *model.HealthResponse {
-	stats := c.GetStats()
-	status := "healthy"
-	if stats.HealthySlots == 0 {
-		status = "unhealthy"
-	}
-	return &model.HealthResponse{
-		Status:       status,
-		HealthySlots: stats.HealthySlots,
-		TotalSlots:   stats.TotalSlots,
-	}
-}
-
 func (c *SlotUseCase) IncrementConnections(slotName string) {
 	c.SlotRepo.IncrementConnections(slotName)
 }

@@ -39,9 +39,6 @@ func (c *RouteConfig) Setup() {
 	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)
 	api.Delete("/slots/:slotName", c.SlotController.Delete)
 
-	// Stats routes
-	api.Get("/stats", c.SlotController.Stats)
-	api.Get("/health", c.SlotController.Health)
 
 	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{
