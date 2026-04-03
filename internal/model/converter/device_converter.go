@@ -5,7 +5,7 @@ import (
 	"github.com/riakgu/moxy/internal/model"
 )
 
-func DeviceToResponse(device *entity.Device) *model.DeviceResponse {
+func DeviceToResponse(device *entity.Device, slotCount int) *model.DeviceResponse {
 	return &model.DeviceResponse{
 		ID:          device.ID,
 		Serial:      device.Serial,
@@ -16,5 +16,6 @@ func DeviceToResponse(device *entity.Device) *model.DeviceResponse {
 		NAT64Prefix: device.NAT64Prefix,
 		Status:      device.Status,
 		MaxSlots:    device.MaxSlots,
+		SlotCount:   slotCount,
 	}
 }

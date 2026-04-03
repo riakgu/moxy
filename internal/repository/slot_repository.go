@@ -101,7 +101,19 @@ func (r *SlotRepository) DeleteByDevice(deviceAlias string) int {
 	return removed
 }
 
-
+// CountByDevice returns the number of slots belonging to a device.
+func (r *SlotRepository) CountByDevice(deviceAlias string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	prefix := deviceAlias + "_slot"
+	count := 0
+	for name := range r.slots {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
+}
 
 // IncrementConnections atomically increments the active connection count for a slot.
 func (r *SlotRepository) IncrementConnections(name string) {

@@ -244,6 +244,11 @@ func (c *SlotUseCase) GetSlotConfig(name string) (nameserver, nat64Prefix string
 	return "", ""
 }
 
+// CountSlotsForDevice returns how many slots belong to a device.
+func (c *SlotUseCase) CountSlotsForDevice(deviceAlias string) int {
+	return c.SlotRepo.CountByDevice(deviceAlias)
+}
+
 // parseSlotName extracts device alias and slot index from names like "dev1_slot3"
 func parseSlotName(slotName string) (deviceAlias string, slotIndex int, err error) {
 	idx := strings.LastIndex(slotName, "_slot")
@@ -489,7 +494,3 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 	}
 	return nil
 }
-
-
-
-

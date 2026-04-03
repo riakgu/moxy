@@ -64,7 +64,7 @@ func (c *DeviceUseCase) Register(req *model.RegisterDeviceRequest) (*model.Devic
 	if err := c.DeviceRepo.Create(c.DB, device); err != nil {
 		return nil, err
 	}
-	return converter.DeviceToResponse(device), nil
+	return converter.DeviceToResponse(device, 0), nil
 }
 
 func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
@@ -74,7 +74,8 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	}
 	var result []model.DeviceResponse
 	for _, d := range devices {
-		result = append(result, *converter.DeviceToResponse(d))
+		slotCount := c.SlotUC.CountSlotsForDevice(d.Alias)
+		result = append(result, *converter.DeviceToResponse(d, slotCount))
 	}
 	return result, nil
 }
@@ -112,7 +113,8 @@ func (c *DeviceUseCase) GetByID(id string) (*model.DeviceResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return converter.DeviceToResponse(device), nil
+	slotCount := c.SlotUC.CountSlotsForDevice(device.Alias)
+	return converter.DeviceToResponse(device, slotCount), nil
 }
 
 func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgressResponse, error) {
@@ -304,7 +306,8 @@ func (c *DeviceUseCase) UpdateISPOverride(req *model.UpdateISPOverrideRequest) (
 	if err := c.DeviceRepo.Update(c.DB, device); err != nil {
 		return nil, err
 	}
-	return converter.DeviceToResponse(device), nil
+	slotCount := c.SlotUC.CountSlotsForDevice(device.Alias)
+	return converter.DeviceToResponse(device, slotCount), nil
 }
 
 func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.ProvisionResponse, error) {

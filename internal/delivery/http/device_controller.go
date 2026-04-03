@@ -25,7 +25,7 @@ func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
 	if serials == nil {
 		serials = []string{}
 	}
-	return ctx.JSON(fiber.Map{"data": serials})
+	return ctx.JSON(model.WebResponse[[]string]{Data: serials})
 }
 
 func (c *DeviceController) Register(ctx *fiber.Ctx) error {
@@ -37,7 +37,7 @@ func (c *DeviceController) Register(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{"data": resp})
+	return ctx.Status(fiber.StatusCreated).JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
 }
 
 func (c *DeviceController) List(ctx *fiber.Ctx) error {
@@ -48,7 +48,7 @@ func (c *DeviceController) List(ctx *fiber.Ctx) error {
 	if devices == nil {
 		devices = []model.DeviceResponse{}
 	}
-	return ctx.JSON(fiber.Map{"data": devices})
+	return ctx.JSON(model.WebResponse[[]model.DeviceResponse]{Data: devices})
 }
 
 func (c *DeviceController) Get(ctx *fiber.Ctx) error {
@@ -56,30 +56,30 @@ func (c *DeviceController) Get(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
-	return ctx.JSON(fiber.Map{"data": resp})
+	return ctx.JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
 }
 
 func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
 	req := &model.SetupDeviceRequest{DeviceId: ctx.Params("deviceId")}
 	progress, err := c.DeviceUC.Setup(req)
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"data": progress})
+		return ctx.Status(fiber.StatusInternalServerError).JSON(model.WebResponse[*model.SetupProgressResponse]{Data: progress})
 	}
-	return ctx.JSON(fiber.Map{"data": progress})
+	return ctx.JSON(model.WebResponse[*model.SetupProgressResponse]{Data: progress})
 }
 
 func (c *DeviceController) Teardown(ctx *fiber.Ctx) error {
 	if err := c.DeviceUC.Teardown(ctx.Params("deviceId")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.JSON(fiber.Map{"data": true})
+	return ctx.JSON(model.WebResponse[bool]{Data: true})
 }
 
 func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
 	if err := c.DeviceUC.Delete(ctx.Params("deviceId")); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.JSON(fiber.Map{"data": true})
+	return ctx.JSON(model.WebResponse[bool]{Data: true})
 }
 
 func (c *DeviceController) UpdateOverride(ctx *fiber.Ctx) error {
@@ -92,7 +92,7 @@ func (c *DeviceController) UpdateOverride(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.JSON(fiber.Map{"data": resp})
+	return ctx.JSON(model.WebResponse[*model.DeviceResponse]{Data: resp})
 }
 
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
@@ -106,6 +106,7 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return ctx.JSON(fiber.Map{"data": resp})
+	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{Data: resp})
 }
+
 
