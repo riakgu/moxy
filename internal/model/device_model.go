@@ -21,14 +21,16 @@ type UpdateISPOverrideRequest struct {
 }
 
 type DeviceResponse struct {
-	ID        string `json:"id"`
-	Serial    string `json:"serial"`
-	Alias     string `json:"alias"`
-	Carrier   string `json:"carrier"`
-	Interface string `json:"interface"`
-	Status    string `json:"status"`
-	MaxSlots  int    `json:"max_slots"`
-	SlotCount int    `json:"slot_count"`
+	ID          string `json:"id"`
+	Serial      string `json:"serial"`
+	Alias       string `json:"alias"`
+	Carrier     string `json:"carrier"`
+	Interface   string `json:"interface"`
+	Nameserver  string `json:"nameserver"`
+	NAT64Prefix string `json:"nat64_prefix"`
+	Status      string `json:"status"`
+	MaxSlots    int    `json:"max_slots"`
+	SlotCount   int    `json:"slot_count"`
 }
 
 type SetupProgressResponse struct {

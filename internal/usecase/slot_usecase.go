@@ -337,7 +337,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	return response, nil
 }
 
-func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int, dns64 string) (*model.ProvisionResponse, error) {
+func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int, dns64 string, nameserver string, nat64Prefix string) (*model.ProvisionResponse, error) {
 	if dns64 == "" {
 		dns64 = c.DNS64Server
 	}
@@ -410,11 +410,13 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	discovered := c.Discovery.DiscoverAll(allNames)
 	c.UpdateSlots(discovered)
 
-	// Set DeviceAlias and Interface on discovered slots
+	// Set DeviceAlias, Interface, and ISP config on discovered slots
 	for _, d := range discovered {
 		if s, ok := c.SlotRepo.Get(d.Name); ok {
 			s.DeviceAlias = deviceAlias
 			s.Interface = iface
+			s.Nameserver = nameserver
+			s.NAT64Prefix = nat64Prefix
 		}
 	}
 
@@ -688,18 +690,20 @@ func (c *SlotUseCase) TeardownAll() (*model.ProvisionResponse, error) {
 }
 
 // DiscoverSlotsForDevice runs discovery only for slots belonging to a specific device
-func (c *SlotUseCase) DiscoverSlotsForDevice(deviceAlias string, iface string) (int, error) {
+func (c *SlotUseCase) DiscoverSlotsForDevice(deviceAlias string, iface string, nameserver string, nat64Prefix string) (int, error) {
 	names, err := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
 	if err != nil {
 		return 0, fmt.Errorf("list namespaces for %s: %w", deviceAlias, err)
 	}
 
 	discovered := c.Discovery.DiscoverAll(names)
-	// Set DeviceAlias and Interface on discovered slots
+	// Set DeviceAlias, Interface, and ISP config on discovered slots
 	for _, d := range discovered {
 		if s, ok := c.SlotRepo.Get(d.Name); ok {
 			s.DeviceAlias = deviceAlias
 			s.Interface = iface
+			s.Nameserver = nameserver
+			s.NAT64Prefix = nat64Prefix
 		}
 	}
 	c.UpdateSlots(discovered)
