@@ -444,9 +444,6 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	// Refresh NDP proxy entries with per-slot interface
 	c.refreshNDPProxy(discovered)
 
-	// Warmup: detect and re-roll duplicate public IPv4 addresses
-	dupFound, dupResolved := c.warmupDedup(deviceAlias, iface, dns64)
-
 	// Count unique IPs
 	ipSet := make(map[string]bool)
 	for _, s := range c.SlotRepo.ListAll() {
@@ -456,99 +453,12 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	}
 
 	return &model.ProvisionResponse{
-		Created:            created,
-		Failed:             failed,
-		Total:              len(allNames),
-		DuplicatesFound:    dupFound,
-		DuplicatesResolved: dupResolved,
-		UniqueIPs:          len(ipSet),
+		Created:   created,
+		Failed:    failed,
+		Total:     len(allNames),
+		UniqueIPs: len(ipSet),
 	}, nil
 }
-
-const warmupMaxRetries = 3
-
-// warmupDedup finds slots sharing the same public IPv4 and re-rolls them.
-func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, resolved int) {
-	// Build IP → slot names mapping
-	ipToSlots := make(map[string][]string)
-	for _, s := range c.SlotRepo.ListAll() {
-		if s.PublicIPv4 != "" && s.Status == entity.SlotStatusHealthy {
-			ipToSlots[s.PublicIPv4] = append(ipToSlots[s.PublicIPv4], s.Name)
-		}
-	}
-
-	// Find duplicates (keep first, re-roll rest)
-	var toReroll []string
-	for ip, names := range ipToSlots {
-		if len(names) > 1 {
-			if c.Log != nil {
-				c.Log.Warnf("warmup: duplicate IPv4 %s shared by %v", ip, names)
-			}
-			toReroll = append(toReroll, names[1:]...)
-		}
-	}
-
-	if len(toReroll) == 0 {
-		return 0, 0
-	}
-
-	found = len(toReroll)
-	if c.Log != nil {
-		c.Log.Infof("warmup: found %d slots with duplicate IPs, re-rolling...", found)
-	}
-
-	for _, slotName := range toReroll {
-		da, slotIndex, _ := parseSlotName(slotName)
-		rerolled := false
-
-		for retry := 0; retry < warmupMaxRetries; retry++ {
-			if c.Log != nil {
-				c.Log.Infof("warmup: re-rolling %s (attempt %d/%d)", slotName, retry+1, warmupMaxRetries)
-			}
-
-			newIPv4, _, err := c.rerollSlotNamespace(slotName, slotIndex, da, iface, dns64)
-			if err != nil {
-				if c.Log != nil {
-					c.Log.Warnf("warmup: %s re-roll failed: %v", slotName, err)
-				}
-				continue
-			}
-
-			// Check if new IP is still duplicate
-			stillDup := false
-			for _, other := range c.SlotRepo.ListAll() {
-				if other.Name != slotName && other.PublicIPv4 == newIPv4 && other.Status == entity.SlotStatusHealthy {
-					stillDup = true
-					break
-				}
-			}
-
-			if !stillDup {
-				rerolled = true
-				if c.Log != nil {
-					c.Log.Infof("warmup: %s re-rolled → new IPv4 %s (unique)", slotName, newIPv4)
-				}
-				break
-			}
-
-			if c.Log != nil {
-				c.Log.Warnf("warmup: %s re-rolled → %s still duplicate, retrying...", slotName, newIPv4)
-			}
-		}
-
-		if rerolled {
-			resolved++
-		} else if c.Log != nil {
-			c.Log.Warnf("warmup: %s still has duplicate IP after %d retries", slotName, warmupMaxRetries)
-		}
-	}
-
-	if c.Log != nil {
-		c.Log.Infof("warmup: dedup complete — %d found, %d resolved", found, resolved)
-	}
-	return found, resolved
-}
-
 
 
 func (c *SlotUseCase) DestroySlot(slotName string) error {

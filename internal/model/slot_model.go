@@ -21,22 +21,11 @@ type ChangeIPRequest struct {
 	SlotName string `validate:"required" json:"-"`
 }
 
-type ProvisionRequest struct {
-	Interface string `json:"interface" validate:"required"`
-	Slots     int    `json:"slots" validate:"required,min=1,max=500"`
-}
-
 type ProvisionResponse struct {
-	Created            int `json:"created"`
-	Failed             int `json:"failed"`
-	Total              int `json:"total"`
-	DuplicatesFound    int `json:"duplicates_found"`
-	DuplicatesResolved int `json:"duplicates_resolved"`
-	UniqueIPs          int `json:"unique_ips"`
-}
-
-type DeleteSlotRequest struct {
-	SlotName string `validate:"required" json:"-"`
+	Created   int `json:"created"`
+	Failed    int `json:"failed"`
+	Total     int `json:"total"`
+	UniqueIPs int `json:"unique_ips"`
 }
 
 type DiscoveredSlot struct {
