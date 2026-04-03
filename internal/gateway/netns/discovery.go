@@ -173,11 +173,6 @@ func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
 	return "", fmt.Errorf("no global IPv6 found for %s", slotName)
 }
 
-// isGlobalIPv6 checks if an IP is a global unicast IPv6 (not link-local, not loopback)
-func isGlobalIPv6(ip net.IP) bool {
-	return ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsLinkLocalUnicast()
-}
-
 func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
 	results := make([]*model.DiscoveredSlot, 0, len(slotNames))
 	var mu sync.Mutex
