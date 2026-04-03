@@ -211,16 +211,7 @@ func fnvHash(s string) uint64 {
 	return h
 }
 
-func (c *SlotUseCase) SelectByName(name string) (*entity.Slot, error) {
-	slot, ok := c.SlotRepo.Get(name)
-	if !ok {
-		return nil, fmt.Errorf("slot %s not found", name)
-	}
-	if slot.Status != entity.SlotStatusHealthy {
-		return nil, fmt.Errorf("slot %s is %s", name, slot.Status)
-	}
-	return slot, nil
-}
+
 
 func (c *SlotUseCase) ListAll() []model.SlotResponse {
 	slots := c.SlotRepo.ListAll()
@@ -592,49 +583,6 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 	return nil
 }
 
-func (c *SlotUseCase) TeardownAll() (*model.ProvisionResponse, error) {
-	names := c.SlotRepo.ListNames()
 
-	destroyed := 0
-	failed := 0
-	for _, name := range names {
-		if err := c.DestroySlot(name); err != nil {
-			if c.Log != nil {
-				c.Log.WithError(err).Warnf("teardown: failed to destroy %s", name)
-			}
-			failed++
-			continue
-		}
-		destroyed++
-	}
 
-	return &model.ProvisionResponse{
-		Created: 0,
-		Failed:  failed,
-		Total:   destroyed,
-	}, nil
-}
 
-// DiscoverSlotsForDevice runs discovery only for slots belonging to a specific device
-func (c *SlotUseCase) DiscoverSlotsForDevice(deviceAlias string, iface string, nameserver string, nat64Prefix string) (int, error) {
-	names, err := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
-	if err != nil {
-		return 0, fmt.Errorf("list namespaces for %s: %w", deviceAlias, err)
-	}
-
-	discovered := c.Discovery.DiscoverAll(names)
-	c.UpdateSlots(discovered)
-
-	// Set DeviceAlias, Interface, and ISP config on discovered slots (after UpdateSlots)
-	for _, d := range discovered {
-		if s, ok := c.SlotRepo.Get(d.Name); ok {
-			s.DeviceAlias = deviceAlias
-			s.Interface = iface
-			s.Nameserver = nameserver
-			s.NAT64Prefix = nat64Prefix
-		}
-	}
-
-	c.refreshNDPProxy(discovered)
-	return len(discovered), nil
-}

@@ -20,6 +20,11 @@ type UpdateISPOverrideRequest struct {
 	NAT64Prefix string `json:"nat64_prefix"`
 }
 
+type ProvisionDeviceRequest struct {
+	DeviceId string `json:"-" validate:"required"`
+	Slots    int    `json:"slots"`
+}
+
 type DeviceResponse struct {
 	ID          string `json:"id"`
 	Serial      string `json:"serial"`

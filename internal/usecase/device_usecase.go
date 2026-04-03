@@ -306,3 +306,21 @@ func (c *DeviceUseCase) UpdateISPOverride(req *model.UpdateISPOverrideRequest) (
 	}
 	return converter.DeviceToResponse(device), nil
 }
+
+func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.ProvisionResponse, error) {
+	if err := c.Validate.Struct(req); err != nil {
+		return nil, err
+	}
+
+	device, err := c.DeviceRepo.FindByID(c.DB, req.DeviceId)
+	if err != nil {
+		return nil, fmt.Errorf("device not found: %w", err)
+	}
+
+	slots := req.Slots
+	if slots <= 0 {
+		slots = 5
+	}
+
+	return c.SlotUC.ProvisionSlots(device.Alias, device.Interface, slots, device.Nameserver, device.NAT64Prefix)
+}

@@ -69,7 +69,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer)
 
 	// Controllers
-	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
+	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 
 	// Main proxy ConnectFunc — selects slot via strategy, then connects

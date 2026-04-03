@@ -10,12 +10,11 @@ import (
 
 type DeviceController struct {
 	DeviceUC *usecase.DeviceUseCase
-	SlotUC   *usecase.SlotUseCase
 	Log      *logrus.Logger
 }
 
-func NewDeviceController(deviceUC *usecase.DeviceUseCase, slotUC *usecase.SlotUseCase, log *logrus.Logger) *DeviceController {
-	return &DeviceController{DeviceUC: deviceUC, SlotUC: slotUC, Log: log}
+func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *logrus.Logger) *DeviceController {
+	return &DeviceController{DeviceUC: deviceUC, Log: log}
 }
 
 func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
@@ -97,23 +96,13 @@ func (c *DeviceController) UpdateOverride(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
-	deviceId := ctx.Params("deviceId")
-	device, err := c.DeviceUC.GetByID(deviceId)
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, err.Error())
-	}
-
-	var body struct {
-		Slots int `json:"slots"`
-	}
-	if err := ctx.BodyParser(&body); err != nil {
+	req := new(model.ProvisionDeviceRequest)
+	if err := ctx.BodyParser(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-	if body.Slots <= 0 {
-		body.Slots = 5
-	}
+	req.DeviceId = ctx.Params("deviceId")
 
-	resp, err := c.SlotUC.ProvisionSlots(device.Alias, device.Interface, body.Slots, device.Nameserver, device.NAT64Prefix)
+	resp, err := c.DeviceUC.Provision(req)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
