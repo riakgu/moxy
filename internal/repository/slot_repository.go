@@ -15,9 +15,10 @@ import (
 // SlotRepository is an in-memory, thread-safe store for slot entities.
 // It acts as the repository layer for slots (which have no database persistence).
 type SlotRepository struct {
-	Log   *logrus.Logger
-	mu    sync.RWMutex
-	slots map[string]*entity.Slot
+	Log     *logrus.Logger
+	mu      sync.RWMutex
+	slots   map[string]*entity.Slot
+	slotSeq uint64
 }
 
 // NewSlotRepository creates a new in-memory slot repository.
@@ -26,6 +27,11 @@ func NewSlotRepository(log *logrus.Logger) *SlotRepository {
 		Log:   log,
 		slots: make(map[string]*entity.Slot),
 	}
+}
+
+// NextSlotIndex returns a globally unique slot index (0, 1, 2, ...).
+func (r *SlotRepository) NextSlotIndex() int {
+	return int(atomic.AddUint64(&r.slotSeq, 1) - 1)
 }
 
 // Put inserts or replaces a slot in the store.

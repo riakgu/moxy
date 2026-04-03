@@ -307,16 +307,6 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		target = c.MaxSlots
 	}
 
-	// Build set of existing slot indices for gap detection
-	prefix := deviceAlias + "_slot"
-	existingSet := make(map[int]bool)
-	for _, name := range existing {
-		indexStr := strings.TrimPrefix(name, prefix)
-		if idx, err := strconv.Atoi(indexStr); err == nil {
-			existingSet[idx] = true
-		}
-	}
-
 	created := 0
 	failed := 0
 	toCreate := target - existingCount
@@ -324,14 +314,12 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		toCreate = 0
 	}
 
-	// Fill gaps first, then append — iterate from 0 upward
-	for idx := 0; created+failed < toCreate; idx++ {
-		if existingSet[idx] {
-			continue // slot already exists, skip
-		}
+	// Use globally unique slot indices to prevent port collisions across devices
+	for i := 0; i < toCreate; i++ {
+		idx := c.SlotRepo.NextSlotIndex()
 		slotName := fmt.Sprintf("%s_slot%d", deviceAlias, idx)
 		if c.Log != nil {
-			c.Log.Infof("provisioning %s (%d/%d)", slotName, created+failed+1, toCreate)
+			c.Log.Infof("provisioning %s (%d/%d)", slotName, i+1, toCreate)
 		}
 		if err := c.Provisioner.CreateSlot(deviceAlias, idx, iface, dns64); err != nil {
 			if c.Log != nil {
