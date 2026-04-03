@@ -101,12 +101,7 @@ func (r *SlotRepository) DeleteByDevice(deviceAlias string) int {
 	return removed
 }
 
-// Count returns the total number of slots.
-func (r *SlotRepository) Count() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return len(r.slots)
-}
+
 
 // IncrementConnections atomically increments the active connection count for a slot.
 func (r *SlotRepository) IncrementConnections(name string) {
