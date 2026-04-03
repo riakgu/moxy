@@ -2,7 +2,6 @@
     "proxy": {
         "socks5_port": 1080,
         "http_port": 8080,
-        "max_connections": 500,
         "source_ip_strategy": "random",
         "port_based_socks5_start": 10000,
         "port_based_http_start": 20000

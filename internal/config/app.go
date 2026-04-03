@@ -68,14 +68,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		deviceRepo, adbGateway, provisioner, slotUC, dns64)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotUC, dialer)
 
-	// Shared connection semaphore
-	maxConns := cfg.Viper.GetInt("proxy.max_connections")
-	if maxConns <= 0 {
-		maxConns = 500
-	}
-	proxySem := make(chan struct{}, maxConns)
-	cfg.Logger.Infof("proxy connection limit: %d", maxConns)
-
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
@@ -91,11 +83,11 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	})
 
 	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, mainConnect, proxySem)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, mainConnect, proxySem)
+	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, mainConnect)
+	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, mainConnect)
 	socks5PortStart := cfg.Viper.GetInt("proxy.port_based_socks5_start")
 	httpPortStart := cfg.Viper.GetInt("proxy.port_based_http_start")
-	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxySem, socks5PortStart, httpPortStart)
+	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, socks5PortStart, httpPortStart)
 
 	// Routes
 	routeConfig := &route.RouteConfig{

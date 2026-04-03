@@ -16,11 +16,10 @@ import (
 // The implementation handles slot selection and connection tracking.
 type ConnectFunc func(ctx context.Context, addr string) (net.Conn, error)
 
-// Socks5Handler wraps things-go/go-socks5 with concurrency control and graceful shutdown.
+// Socks5Handler wraps things-go/go-socks5 with graceful shutdown.
 type Socks5Handler struct {
 	server *socks5.Server
 	Log    *logrus.Logger
-	sem    chan struct{}
 	ln     net.Listener
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -31,7 +30,6 @@ type Socks5Handler struct {
 func NewSocks5Handler(
 	log *logrus.Logger,
 	connect ConnectFunc,
-	sem chan struct{},
 ) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -48,7 +46,6 @@ func NewSocks5Handler(
 	return &Socks5Handler{
 		server: server,
 		Log:    log,
-		sem:    sem,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -75,20 +72,13 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 			continue
 		}
 
-		select {
-		case c.sem <- struct{}{}:
-			c.wg.Add(1)
-			go func() {
-				defer c.wg.Done()
-				defer func() { <-c.sem }()
-				if err := c.server.ServeConn(conn); err != nil {
-					c.Log.WithError(err).Debug("socks5 connection ended with error")
-				}
-			}()
-		default:
-			c.Log.Warn("socks5: connection rejected — too many concurrent connections")
-			conn.Close()
-		}
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			if err := c.server.ServeConn(conn); err != nil {
+				c.Log.WithError(err).Debug("socks5 connection ended with error")
+			}
+		}()
 	}
 }
 

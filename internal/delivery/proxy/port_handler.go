@@ -21,7 +21,6 @@ import (
 type PortBasedHandler struct {
 	Log         *logrus.Logger
 	proxyUC     *usecase.ProxyUseCase
-	sem         chan struct{}
 	socks5Start int
 	httpStart   int
 	mu          sync.Mutex
@@ -39,14 +38,12 @@ type portSlot struct {
 func NewPortBasedHandler(
 	log *logrus.Logger,
 	proxyUC *usecase.ProxyUseCase,
-	sem chan struct{},
 	socks5Start int,
 	httpStart int,
 ) *PortBasedHandler {
 	return &PortBasedHandler{
 		Log:         log,
 		proxyUC:     proxyUC,
-		sem:         sem,
 		socks5Start: socks5Start,
 		httpStart:   httpStart,
 		slots:       make(map[string]*portSlot),
@@ -96,7 +93,6 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 
 // startSlot creates and starts SOCKS5 + HTTP handlers for a single slot.
 func (c *PortBasedHandler) startSlot(slotName string, slotIndex int) *portSlot {
-	// Fixed-slot connect function — always routes through this specific slot
 	connect := func(ctx context.Context, addr string) (net.Conn, error) {
 		return c.proxyUC.Connect(slotName, addr)
 	}
@@ -109,7 +105,7 @@ func (c *PortBasedHandler) startSlot(slotName string, slotIndex int) *portSlot {
 		port := c.socks5Start + slotIndex
 		addr := fmt.Sprintf(":%d", port)
 
-		handler := NewSocks5Handler(c.Log, connect, c.sem)
+		handler := NewSocks5Handler(c.Log, connect)
 		go func() {
 			if err := handler.ListenAndServe(addr); err != nil {
 				c.Log.WithError(err).Warnf("port-based: SOCKS5 failed on port %d for %s", port, slotName)
@@ -126,7 +122,7 @@ func (c *PortBasedHandler) startSlot(slotName string, slotIndex int) *portSlot {
 		port := c.httpStart + slotIndex
 		addr := fmt.Sprintf(":%d", port)
 
-		handler := NewHttpProxyHandler(c.Log, connect, c.sem)
+		handler := NewHttpProxyHandler(c.Log, connect)
 		go func() {
 			if err := handler.ListenAndServe(addr); err != nil {
 				c.Log.WithError(err).Warnf("port-based: HTTP failed on port %d for %s", port, slotName)
