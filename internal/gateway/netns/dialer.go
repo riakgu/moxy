@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -46,21 +45,20 @@ func toNAT64(ipv4 net.IP) string {
 // It uses setns(2) to enter the namespace in-process, avoiding subprocess overhead.
 //
 // For raw IPv4 addresses, NAT64 conversion is applied automatically.
-// For domain names, DNS resolution uses a subprocess (`ip netns exec`) to safely
-// resolve inside the namespace without goroutine/thread-safety issues.
+// For domain names, DNS resolution uses a native net.Resolver inside the namespace.
 func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
 	}
 
-	// Resolve the target address to a NAT64 IPv6 address BEFORE entering the namespace.
+	// Resolve the target address to a NAT64 IPv6 address
 	ip := net.ParseIP(host)
 	if ip != nil && ip.To4() != nil {
 		// Raw IPv4 → NAT64
 		host = toNAT64(ip)
 	} else if ip == nil {
-		// Domain name — resolve DNS64 inside namespace via subprocess
+		// Domain name — resolve DNS64 inside namespace using native resolver
 		resolved, err := d.resolveInNamespace(slotName, host)
 		if err != nil {
 			return nil, fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
@@ -113,30 +111,61 @@ func (d *SetnsDialer) Dial(slotName string, addr string) (net.Conn, error) {
 }
 
 // resolveInNamespace resolves a hostname to an IPv6 address inside a network namespace
-// using a subprocess. This avoids goroutine/thread-safety issues with setns+DNS.
+// using Go's native net.Resolver with setns. No subprocess needed.
 func (d *SetnsDialer) resolveInNamespace(slotName string, hostname string) (string, error) {
 	dnsServer := d.DNS64Server
 	if dnsServer == "" {
 		dnsServer = "2001:4860:4860::6464"
 	}
 
-	// Use dig inside the namespace to get AAAA record via DNS64
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Save host namespace
+	origNs, err := os.Open("/proc/self/ns/net")
+	if err != nil {
+		return "", fmt.Errorf("open host namespace: %w", err)
+	}
+	defer origNs.Close()
+
+	// Enter slot namespace
+	targetNs, err := os.Open("/var/run/netns/" + slotName)
+	if err != nil {
+		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer targetNs.Close()
+
+	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
+		return "", fmt.Errorf("setns to %s: %w", slotName, err)
+	}
+
+	// Resolve using native Go resolver with DNS64 server
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.DialTimeout("udp6", net.JoinHostPort(dnsServer, "53"), 5*time.Second)
+		},
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ip", "netns", "exec", slotName,
-		"dig", "+short", "+time=4", "+tries=1", "AAAA", hostname,
-		"@"+dnsServer)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("lookup %s: %w", hostname, err)
+	ips, lookupErr := resolver.LookupHost(ctx, hostname)
+
+	// Always restore host namespace
+	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+		return "", fmt.Errorf("restore host namespace: %w", restoreErr)
 	}
 
-	// Parse first valid IPv6 from output
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if ip := net.ParseIP(line); ip != nil && ip.To4() == nil {
-			return ip.String(), nil
+	if lookupErr != nil {
+		return "", fmt.Errorf("lookup %s: %w", hostname, lookupErr)
+	}
+
+	// Pick first IPv6 from results
+	for _, ip := range ips {
+		parsed := net.ParseIP(ip)
+		if parsed != nil && strings.Contains(ip, ":") {
+			return parsed.String(), nil
 		}
 	}
 
