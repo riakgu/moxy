@@ -4,6 +4,8 @@ type SlotResponse struct {
 	Name              string `json:"name"`
 	DeviceAlias       string `json:"device_alias"`
 	Interface         string `json:"interface"`
+	Nameserver        string `json:"nameserver"`
+	NAT64Prefix       string `json:"nat64_prefix"`
 	IPv6Address       string `json:"ipv6_address"`
 	PublicIPv4        string `json:"public_ipv4"`
 	Status            string `json:"status"`

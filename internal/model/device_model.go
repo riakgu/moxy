@@ -38,3 +38,8 @@ type SetupProgressResponse struct {
 	FailedAt       string   `json:"failed_at,omitempty"`
 	Error          string   `json:"error,omitempty"`
 }
+
+type ISPProbeResult struct {
+	Nameserver  string `json:"nameserver"`
+	NAT64Prefix string `json:"nat64_prefix"`
+}
