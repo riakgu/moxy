@@ -63,25 +63,6 @@ func main() {
 		}
 	}()
 
-	// Slot monitor ticker — periodic public IP re-check
-	monitorInterval := v.GetInt("slots.monitor_interval_seconds")
-	if monitorInterval <= 0 {
-		monitorInterval = 300 // default 5 minutes
-	}
-	stopMonitor := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(time.Duration(monitorInterval) * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				b.SlotUseCase.MonitorIPs()
-			case <-stopMonitor:
-				return
-			}
-		}
-	}()
-
 	// Start listeners
 	socks5Addr := fmt.Sprintf(":%d", v.GetInt("proxy.socks5_port"))
 	httpProxyAddr := fmt.Sprintf(":%d", v.GetInt("proxy.http_port"))
@@ -112,7 +93,6 @@ func main() {
 
 	log.Info("shutting down...")
 	close(stopDiscovery)
-	close(stopMonitor)
 
 	drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)

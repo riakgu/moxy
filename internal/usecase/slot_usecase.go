@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -111,6 +110,12 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 			}
 			if existing.NAT64Prefix != "" {
 				s.NAT64Prefix = existing.NAT64Prefix
+			}
+			// Log IP changes
+			if existing.PublicIPv4 != "" && existing.PublicIPv4 != d.IPv4Address && d.IPv4Address != "" {
+				if c.Log != nil {
+					c.Log.Infof("slot %s: IPv4 changed %s → %s", d.Name, existing.PublicIPv4, d.IPv4Address)
+				}
 			}
 		}
 		c.SlotRepo.Put(s)
@@ -589,74 +594,7 @@ func (c *SlotUseCase) warmupDedup(deviceAlias, iface, dns64 string) (found, reso
 	return found, resolved
 }
 
-// MonitorIPs re-checks the actual public IPv4 of all healthy slots.
-func (c *SlotUseCase) MonitorIPs() {
-	healthy := c.SlotRepo.ListHealthy()
-	if len(healthy) == 0 {
-		return
-	}
 
-	names := make([]string, len(healthy))
-	for i, s := range healthy {
-		names[i] = s.Name
-	}
-
-	if c.Log != nil {
-		c.Log.Infof("slot-monitor: checking public IPs for %d slots", len(names))
-	}
-
-	type ipResult struct {
-		name    string
-		newIPv4 string
-	}
-
-	results := make(chan ipResult, len(names))
-	sem := make(chan struct{}, 10)
-	var wg sync.WaitGroup
-
-	for _, name := range names {
-		wg.Add(1)
-		go func(slotName string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ipv4, err := c.Discovery.ResolveSlotIP(slotName)
-			if err != nil {
-				if c.Log != nil {
-					c.Log.Warnf("slot-monitor: %s IP check failed: %v", slotName, err)
-				}
-				return
-			}
-			results <- ipResult{name: slotName, newIPv4: ipv4}
-		}(name)
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	changed := 0
-	for r := range results {
-		if slot, ok := c.SlotRepo.Get(r.name); ok {
-			if slot.PublicIPv4 != r.newIPv4 {
-				if c.Log != nil {
-					c.Log.Infof("slot-monitor: %s IPv4 changed %s → %s", r.name, slot.PublicIPv4, r.newIPv4)
-				}
-				slot.PublicIPv4 = r.newIPv4
-				slot.LastCheckedAt = time.Now().UnixMilli()
-				changed++
-			} else {
-				slot.LastCheckedAt = time.Now().UnixMilli()
-			}
-		}
-	}
-
-	if c.Log != nil {
-		c.Log.Infof("slot-monitor: done — %d/%d IPs changed", changed, len(names))
-	}
-}
 
 func (c *SlotUseCase) DestroySlot(slotName string) error {
 	slot, ok := c.SlotRepo.Get(slotName)
