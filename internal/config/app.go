@@ -72,7 +72,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, slotUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
-	statsCtrl := httpdelivery.NewStatsController(slotUC, cfg.Logger)
 
 	// Main proxy ConnectFunc — selects slot via strategy, then connects
 	mainConnect := proxy.ConnectFunc(func(ctx context.Context, addr string) (net.Conn, error) {
@@ -95,7 +94,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		App:              cfg.Fiber,
 		DeviceController: deviceCtrl,
 		SlotController:   slotCtrl,
-		StatsController:  statsCtrl,
 		Log:              cfg.Logger,
 		StaticFS:         cfg.StaticFS,
 	}

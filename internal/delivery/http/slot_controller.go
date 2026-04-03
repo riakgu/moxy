@@ -84,3 +84,16 @@ func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 	})
 }
 
+func (c *SlotController) Stats(ctx *fiber.Ctx) error {
+	stats := c.UseCase.GetStats()
+	return ctx.JSON(model.WebResponse[*model.StatsResponse]{
+		Data: stats,
+	})
+}
+
+func (c *SlotController) Health(ctx *fiber.Ctx) error {
+	health := c.UseCase.GetHealth()
+	return ctx.JSON(model.WebResponse[*model.HealthResponse]{
+		Data: health,
+	})
+}

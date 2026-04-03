@@ -15,7 +15,6 @@ type RouteConfig struct {
 	App              *fiber.App
 	DeviceController *httpdelivery.DeviceController
 	SlotController   *httpdelivery.SlotController
-	StatsController  *httpdelivery.StatsController
 	Log              *logrus.Logger
 	StaticFS         embed.FS
 }
@@ -41,8 +40,8 @@ func (c *RouteConfig) Setup() {
 	api.Delete("/slots/:slotName", c.SlotController.Delete)
 
 	// Stats routes
-	api.Get("/stats", c.StatsController.Stats)
-	api.Get("/health", c.StatsController.Health)
+	api.Get("/stats", c.SlotController.Stats)
+	api.Get("/health", c.SlotController.Health)
 
 	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{
