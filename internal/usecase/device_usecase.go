@@ -20,6 +20,10 @@ import (
 	"github.com/riakgu/moxy/internal/repository"
 )
 
+type ISPProber interface {
+	Probe(ifaceName string) (*model.ISPProbeResult, error)
+}
+
 type DeviceUseCase struct {
 	Log         *logrus.Logger
 	Validate    *validator.Validate
@@ -29,15 +33,17 @@ type DeviceUseCase struct {
 	Provisioner SlotProvisioner
 	SlotUC      *SlotUseCase
 	DNS64Server string
+	ISPProber   ISPProber
 }
 
 func NewDeviceUseCase(log *logrus.Logger, validate *validator.Validate, db *sql.DB,
 	deviceRepo *repository.DeviceRepository, adbGW *adb.ADBGateway,
-	provisioner SlotProvisioner, slotUC *SlotUseCase, dns64 string) *DeviceUseCase {
+	provisioner SlotProvisioner, slotUC *SlotUseCase, dns64 string, ispProber ISPProber) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log: log, Validate: validate, DB: db,
 		DeviceRepo: deviceRepo, ADB: adbGW,
 		Provisioner: provisioner, SlotUC: slotUC, DNS64Server: dns64,
+		ISPProber: ispProber,
 	}
 }
 
@@ -129,12 +135,6 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 		Fn   func() error
 	}
 
-	dns64 := c.DNS64Server
-	if device.Nameserver != "" {
-		dns64 = device.Nameserver
-	}
-	_ = dns64 // used in future phases
-
 	steps := []setupStep{
 		{"screen_unlocked", func() error {
 			ok, err := c.ADB.IsScreenUnlocked(device.Serial)
@@ -201,6 +201,39 @@ func (c *DeviceUseCase) Setup(req *model.SetupDeviceRequest) (*model.SetupProgre
 				}
 			}
 			return fmt.Errorf("no global IPv6 address on %s — check phone APN is set to IPv4/IPv6", device.Interface)
+		}},
+		{"isp_probed", func() error {
+			// Skip if manual override is already set
+			if device.Nameserver != "" && device.NAT64Prefix != "" {
+				c.Log.Infof("device %s: using manual ISP override (ns=%s, prefix=%s)",
+					device.Alias, device.Nameserver, device.NAT64Prefix)
+				return nil
+			}
+
+			if c.ISPProber == nil {
+				c.Log.Warnf("device %s: ISP prober not available — using global DNS64 config", device.Alias)
+				return nil
+			}
+
+			result, err := c.ISPProber.Probe(device.Interface)
+			if err != nil {
+				c.Log.Warnf("device %s: ISP probe failed on %s: %v — using global DNS64 config. Set manual override if connections fail.",
+					device.Alias, device.Interface, err)
+				// Fall back to global config
+				if device.Nameserver == "" {
+					device.Nameserver = c.DNS64Server
+				}
+				if device.NAT64Prefix == "" {
+					device.NAT64Prefix = "64:ff9b::"
+				}
+				return nil
+			}
+
+			device.Nameserver = result.Nameserver
+			device.NAT64Prefix = result.NAT64Prefix
+			c.Log.Infof("device %s: ISP probe discovered ns=%s prefix=%s",
+				device.Alias, result.Nameserver, result.NAT64Prefix)
+			return nil
 		}},
 		{"isp_detected", func() error {
 			carrier, err := c.ADB.GetCarrier(device.Serial)
