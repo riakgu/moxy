@@ -62,9 +62,6 @@ func NewSlotUseCase(
 	maxSlots int,
 	strategy string,
 ) *SlotUseCase {
-	if strategy == "" {
-		strategy = StrategyRandom
-	}
 	return &SlotUseCase{
 		Log:         log,
 		Validate:    validate,
