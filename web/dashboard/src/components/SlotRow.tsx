@@ -20,6 +20,16 @@ function relativeTime(timestampMs: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+function countdownTime(timestampMs: number): string {
+  if (!timestampMs) return '—'
+  const diffMs = timestampMs - Date.now()
+  if (diffMs <= 0) return 'now'
+  const seconds = Math.ceil(diffMs / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${seconds % 60}s`
+}
+
 function extractSlotIndex(name: string): number {
   const match = name.match(/^slot(\d+)$/)
   return match ? parseInt(match[1], 10) : 0
@@ -79,6 +89,9 @@ export default function SlotRow({ slot, onChangeIP, onDelete, host }: SlotRowPro
       <td className="py-2.5 px-3 font-mono text-sm text-text-secondary">{slot.active_connections}</td>
       <td className="py-2.5 px-3 text-xs text-text-muted">
         {slot.last_checked_at ? relativeTime(slot.last_checked_at) : '—'}
+      </td>
+      <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
+        {slot.next_check_at ? countdownTime(slot.next_check_at) : '—'}
       </td>
       <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">

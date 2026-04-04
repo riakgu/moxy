@@ -11,6 +11,8 @@ type SlotResponse struct {
 	Status            string `json:"status"`
 	ActiveConnections int64  `json:"active_connections"`
 	LastCheckedAt     int64  `json:"last_checked_at"`
+	NextCheckAt       int64  `json:"next_check_at"`
+	MonitorState      string `json:"monitor_state"`
 }
 
 type GetSlotRequest struct {

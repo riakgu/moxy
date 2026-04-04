@@ -31,6 +31,7 @@ export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTab
               <th className="py-2 px-3 font-medium">Status</th>
               <th className="py-2 px-3 font-medium">Conns</th>
               <th className="py-2 px-3 font-medium">Last Check</th>
+              <th className="py-2 px-3 font-medium">Next Check</th>
               <th className="py-2 px-3 font-medium">Actions</th>
             </tr>
           </thead>

@@ -4,6 +4,7 @@ package config
 
 import (
 	"embed"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
@@ -28,6 +29,7 @@ type BootstrapConfig struct {
 type BootstrapResult struct {
 	SlotUseCase   *usecase.SlotUseCase
 	DeviceUseCase *usecase.DeviceUseCase
+	SlotMonitor   *usecase.SlotMonitorUseCase
 	PortHandler   *proxy.PortBasedHandler
 	RouteConfig   *route.RouteConfig
 }
@@ -54,6 +56,28 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		provisioner,
 		maxSlots,
 	)
+
+	// Slot monitor (per-slot discovery goroutines)
+	monitorConfig := usecase.SlotMonitorConfig{
+		FastInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_fast_interval_seconds")) * time.Second,
+		SteadyInterval:   time.Duration(cfg.Viper.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
+		RecoveryInterval: time.Duration(cfg.Viper.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
+		FastTicks:        cfg.Viper.GetInt("slots.monitor_fast_ticks"),
+	}
+	if monitorConfig.FastInterval == 0 {
+		monitorConfig.FastInterval = 10 * time.Second
+	}
+	if monitorConfig.SteadyInterval == 0 {
+		monitorConfig.SteadyInterval = 60 * time.Second
+	}
+	if monitorConfig.RecoveryInterval == 0 {
+		monitorConfig.RecoveryInterval = 15 * time.Second
+	}
+	if monitorConfig.FastTicks == 0 {
+		monitorConfig.FastTicks = 6
+	}
+	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
+	slotUC.Monitor = slotMonitor
 	ispProbe := netns.NewISPProbe(cfg.Logger)
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe)
@@ -80,6 +104,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	return &BootstrapResult{
 		SlotUseCase:   slotUC,
 		DeviceUseCase: deviceUC,
+		SlotMonitor:   slotMonitor,
 		PortHandler:   portHandler,
 		RouteConfig:   routeConfig,
 	}

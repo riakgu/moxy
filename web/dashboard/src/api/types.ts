@@ -27,6 +27,8 @@ export interface Slot {
   status: 'healthy' | 'unhealthy' | 'discovering'
   active_connections: number
   last_checked_at: number
+  next_check_at: number
+  monitor_state: string
 }
 
 // Scan — matches model.ScanResponse

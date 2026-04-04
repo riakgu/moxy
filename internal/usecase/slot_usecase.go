@@ -28,7 +28,6 @@ type SlotProvisioner interface {
 }
 
 type SlotDiscovery interface {
-	DiscoverAll(slotNames []string) []*model.DiscoveredSlot
 	ResolveSlotIP(slotName string) (string, error)
 	ResolveSlotIPv6(slotName string) (string, error)
 }
@@ -41,6 +40,7 @@ type SlotUseCase struct {
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
 	MaxSlots    int
+	Monitor     *SlotMonitorUseCase
 }
 
 func NewSlotUseCase(
@@ -59,85 +59,7 @@ func NewSlotUseCase(
 	}
 }
 
-func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
-	now := time.Now().UnixMilli()
 
-	seen := make(map[string]bool)
-	for _, d := range discovered {
-		seen[d.Name] = true
-
-		status := entity.SlotStatusUnhealthy
-		if d.Healthy {
-			status = entity.SlotStatusHealthy
-		}
-
-		s := &entity.Slot{
-			Name:          d.Name,
-			IPv6Address:   d.IPv6Address,
-			PublicIPv4:    d.IPv4Address,
-			Status:        status,
-			LastCheckedAt: now,
-		}
-
-		if existing, ok := c.SlotRepo.Get(d.Name); ok {
-			s.DeviceAlias = existing.DeviceAlias
-			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
-			if existing.Interface != "" {
-				s.Interface = existing.Interface
-			}
-			if existing.Nameserver != "" {
-				s.Nameserver = existing.Nameserver
-			}
-			if existing.NAT64Prefix != "" {
-				s.NAT64Prefix = existing.NAT64Prefix
-			}
-			// Log IP changes
-			if existing.PublicIPv4 != "" && existing.PublicIPv4 != d.IPv4Address && d.IPv4Address != "" {
-				if c.Log != nil {
-					c.Log.Infof("slot %s: IPv4 changed %s → %s", d.Name, existing.PublicIPv4, d.IPv4Address)
-				}
-			}
-		}
-		c.SlotRepo.Put(s)
-	}
-
-	// Mark unseen slots as unhealthy
-	for _, slot := range c.SlotRepo.ListAll() {
-		if !seen[slot.Name] {
-			slot.Status = entity.SlotStatusUnhealthy
-			slot.LastCheckedAt = now
-		}
-	}
-}
-
-// refreshNDPProxy adds NDP proxy entries for all discovered slots that have
-// an IPv6 address and an interface. Uses per-slot interface from SlotRepo.
-func (c *SlotUseCase) refreshNDPProxy(discovered []*model.DiscoveredSlot) {
-	for _, d := range discovered {
-		if d.IPv6Address == "" {
-			continue
-		}
-		if s, ok := c.SlotRepo.Get(d.Name); ok && s.Interface != "" {
-			if err := c.Provisioner.AddNDPProxyEntry(d.IPv6Address, s.Interface); err != nil {
-				if c.Log != nil {
-					c.Log.Warnf("NDP proxy entry for %s failed: %v", d.Name, err)
-				}
-			}
-		}
-	}
-}
-
-func (c *SlotUseCase) DiscoverSlots() (int, error) {
-	names, err := c.Provisioner.ListSlotNamespaces()
-	if err != nil {
-		return 0, fmt.Errorf("list namespaces: %w", err)
-	}
-
-	discovered := c.Discovery.DiscoverAll(names)
-	c.UpdateSlots(discovered)
-	c.refreshNDPProxy(discovered)
-	return len(discovered), nil
-}
 
 func (c *SlotUseCase) GetSlotNames() []string {
 	return c.SlotRepo.ListNames()
@@ -252,6 +174,12 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		return nil, err
 	}
 
+	// Restart monitor in FAST_CHECK mode
+	if c.Monitor != nil {
+		c.Monitor.StopSlot(request.SlotName)
+		c.Monitor.StartSlot(request.SlotName)
+	}
+
 	response := converter.SlotToResponse(slot)
 	if c.Log != nil {
 		c.Log.Infof("slot %s recycled: IPv4=%s", request.SlotName, newIPv4)
@@ -313,6 +241,15 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 			failed++
 			continue
 		}
+		// Pre-register slot in repo so the monitor can find it
+		c.SlotRepo.Put(&entity.Slot{
+			Name:        slotName,
+			DeviceAlias: deviceAlias,
+			Interface:   iface,
+			Nameserver:  nameserver,
+			NAT64Prefix: nat64Prefix,
+			Status:      entity.SlotStatusDiscovering,
+		})
 		createdNames = append(createdNames, slotName)
 		created++
 	}
@@ -320,22 +257,12 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	// Wait for SLAAC
 	time.Sleep(slaacWaitDuration)
 
-	// Discover only the just-created slots (avoids overwriting other devices' data)
-	discovered := c.Discovery.DiscoverAll(createdNames)
-	c.UpdateSlots(discovered)
-
-	// Set DeviceAlias, Interface, and ISP config on newly created slots
-	for _, d := range discovered {
-		if s, ok := c.SlotRepo.Get(d.Name); ok {
-			s.DeviceAlias = deviceAlias
-			s.Interface = iface
-			s.Nameserver = nameserver
-			s.NAT64Prefix = nat64Prefix
+	// Start per-slot monitors (handles IP discovery + NDP proxy)
+	for _, name := range createdNames {
+		if c.Monitor != nil {
+			c.Monitor.StartSlot(name)
 		}
 	}
-
-	// Refresh NDP proxy entries with per-slot interface
-	c.refreshNDPProxy(discovered)
 
 	// Count unique IPs
 	ipSet := make(map[string]bool)
@@ -355,6 +282,11 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 
 
 func (c *SlotUseCase) DestroySlot(slotName string) error {
+	// Stop monitor goroutine first
+	if c.Monitor != nil {
+		c.Monitor.StopSlot(slotName)
+	}
+
 	slot, ok := c.SlotRepo.Get(slotName)
 	if !ok {
 		return model.ErrSlotNotFound

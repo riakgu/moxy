@@ -48,37 +48,33 @@ func main() {
 			scanResult.Discovered, scanResult.SetupOk, scanResult.Failed)
 	}
 
-	// Discover slots (picks up just-provisioned + any pre-existing namespaces)
-	log.Info("running initial slot discovery...")
-	count, err := b.SlotUseCase.DiscoverSlots()
-	if err != nil {
-		log.WithError(err).Warn("initial discovery failed")
-	} else {
-		log.Infof("discovered %d slots", count)
+	// Start per-slot monitors for existing slots
+	log.Info("starting per-slot monitors...")
+	slotNames := b.SlotUseCase.GetSlotNames()
+	for _, name := range slotNames {
+		b.SlotMonitor.StartSlot(name)
 	}
+	log.Infof("started monitors for %d slots", len(slotNames))
 
 	// Sync device + slot listeners
 	b.PortHandler.SyncDevices(deviceAliases(scanResult))
 	b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
 
-	// Discovery ticker
-	discoveryInterval := time.Duration(v.GetInt("slots.discovery_interval_seconds")) * time.Second
-	stopDiscovery := make(chan struct{})
+	// Health check ticker (device ADB connectivity only — slot monitoring is per-goroutine)
+	healthInterval := time.Duration(v.GetInt("slots.monitor_steady_interval_seconds")) * time.Second
+	if healthInterval == 0 {
+		healthInterval = 60 * time.Second
+	}
+	stopHealth := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(discoveryInterval)
+		ticker := time.NewTicker(healthInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
 				b.DeviceUseCase.CheckHealth()
-				count, err := b.SlotUseCase.DiscoverSlots()
-				if err != nil {
-					log.WithError(err).Error("discovery scan failed")
-					continue
-				}
-				log.Debugf("discovery tick: %d slots", count)
 				b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
-			case <-stopDiscovery:
+			case <-stopHealth:
 				return
 			}
 		}
@@ -98,7 +94,8 @@ func main() {
 	<-quit
 
 	log.Info("shutting down...")
-	close(stopDiscovery)
+	close(stopHealth)
+	b.SlotMonitor.StopAll()
 
 	drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
