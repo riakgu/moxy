@@ -79,11 +79,47 @@ func (g *ADBGateway) DisableWifi(serial string) error {
 }
 
 func (g *ADBGateway) GetCarrier(serial string) (string, error) {
-	out, err := g.adbShell(serial, "getprop", "gsm.operator.alpha")
+	// 1. Get data subscription ID
+	subId, err := g.adbShell(serial, "settings", "get", "global", "multi_sim_data_call")
+	if err == nil && subId != "" && subId != "null" {
+		// 2. Parse dumpsys isub to find carrier name for that subscription
+		out, err := g.adbShell(serial, "dumpsys", "isub")
+		if err == nil {
+			target := fmt.Sprintf("id=%s ", subId)
+			for _, line := range strings.Split(out, "\n") {
+				if !strings.Contains(line, target) {
+					continue
+				}
+				idx := strings.Index(line, "carrierName=")
+				if idx == -1 {
+					continue
+				}
+				rest := line[idx+len("carrierName="):]
+				// carrierName value ends at next " key=" pattern
+				endIdx := strings.Index(rest, " isOpportunistic=")
+				if endIdx == -1 {
+					endIdx = len(rest)
+				}
+				name := strings.TrimSpace(rest[:endIdx])
+				if name != "" {
+					return name, nil
+				}
+			}
+		}
+	}
+
+	// Fallback: first non-empty from gsm.sim.operator.alpha
+	out, err := g.adbShell(serial, "getprop", "gsm.sim.operator.alpha")
 	if err != nil {
 		return "", fmt.Errorf("get carrier: %w", err)
 	}
-	return out, nil
+	for _, part := range strings.Split(out, ",") {
+		name := strings.TrimSpace(part)
+		if name != "" {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no carrier found for %s", serial)
 }
 
 // GetDNSServers reads the phone's carrier-assigned DNS servers from
