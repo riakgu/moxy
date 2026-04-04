@@ -17,7 +17,7 @@ import (
 )
 
 type ISPProber interface {
-	Probe(ifaceName string) (*model.ISPProbeResult, error)
+	Probe(hintDNS []string) (*model.ISPProbeResult, error)
 }
 
 type SlotProvisionService interface {
@@ -265,10 +265,18 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 				c.Log.Warnf("device %s: ISP prober not available", device.Alias)
 				return nil
 			}
-			result, err := c.ISPProber.Probe(device.Interface)
+
+			// Read carrier-assigned DNS from the phone (most reliable source)
+			adbDNS, err := c.ADB.GetDNSServers(device.Serial)
 			if err != nil {
-				c.Log.Warnf("device %s: ISP probe failed: %v — using defaults", device.Alias, err)
-				return nil
+				c.Log.Warnf("device %s: ADB DNS discovery failed: %v", device.Alias, err)
+			} else if len(adbDNS) > 0 {
+				c.Log.Infof("device %s: ADB DNS servers: %v", device.Alias, adbDNS)
+			}
+
+			result, err := c.ISPProber.Probe(adbDNS)
+			if err != nil {
+				return fmt.Errorf("ISP probe: %w", err)
 			}
 			device.Nameserver = result.Nameserver
 			device.NAT64Prefix = result.NAT64Prefix

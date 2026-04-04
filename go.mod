@@ -6,7 +6,6 @@ require (
 	github.com/elazarl/goproxy v1.8.3
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/gofiber/fiber/v2 v2.52.12
-	github.com/mdlayher/ndp v1.1.0
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
 	github.com/things-go/go-socks5 v0.1.1

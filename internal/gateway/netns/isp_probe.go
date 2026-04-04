@@ -6,32 +6,30 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"time"
 
-	"github.com/mdlayher/ndp"
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/model"
 )
 
 const (
-	rdnssTimeout      = 5 * time.Second
 	rfc7050Timeout    = 5 * time.Second
 	rfc7050Host       = "ipv4only.arpa"
 	rfc7050WellKnown1 = "192.0.0.170"
 	rfc7050WellKnown2 = "192.0.0.171"
-
-	// Default DNS64 and NAT64 values — used as fallback when discovery fails.
-	// These are the single source of truth for defaults across the entire package.
-	defaultDNS64Server = "2001:4860:4860::6464"
-	defaultNAT64Prefix = "64:ff9b::"
 )
 
-// ISPProbe discovers ISP DNS64 nameserver and NAT64 prefix from the network.
-// It uses RDNSS from Router Advertisements (RFC 8106) and NAT64 prefix
-// discovery via ipv4only.arpa (RFC 7050).
-// Probe always returns usable values — defaults if discovery fails.
+// Public DNS64 fallback servers. Tried when ADB DNS servers don't support DNS64.
+var dns64Fallbacks = []string{
+	"2001:4860:4860::64",   // Google Public DNS64 (primary)
+	"2001:4860:4860::6464", // Google Public DNS64 (secondary)
+	"2606:4700:4700::64",   // Cloudflare DNS64
+}
+
+// ISPProbe discovers ISP DNS64 nameserver and NAT64 prefix.
+// It tests DNS64 capability on candidates provided by the caller (from ADB)
+// and falls back to public DNS64 servers.
 type ISPProbe struct {
 	Log *logrus.Logger
 }
@@ -41,91 +39,33 @@ func NewISPProbe(log *logrus.Logger) *ISPProbe {
 	return &ISPProbe{Log: log}
 }
 
-// Probe discovers the ISP's DNS64 nameserver and NAT64 prefix on the given
-// tethering interface. Always returns usable values — falls back to defaults
-// if discovery fails.
-func (p *ISPProbe) Probe(ifaceName string) (*model.ISPProbeResult, error) {
-	// Step 1: Discover DNS64 nameserver via RDNSS
-	nameserver, err := p.discoverRDNSS(ifaceName)
-	if err != nil {
-		p.Log.Warnf("isp-probe: RDNSS discovery failed on %s: %v — using defaults", ifaceName, err)
-		return &model.ISPProbeResult{
-			Nameserver:  defaultDNS64Server,
-			NAT64Prefix: defaultNAT64Prefix,
-		}, nil
-	}
+// Probe tests DNS64 capability on candidates in priority order:
+//  1. hintDNS — carrier-assigned DNS from the phone (via ADB, most reliable)
+//  2. Public DNS64 fallbacks — Google and Cloudflare
+//
+// Returns the first candidate that passes the DNS64 test (ipv4only.arpa AAAA).
+// Returns error if ALL candidates fail — device cannot work without DNS64.
+func (p *ISPProbe) Probe(hintDNS []string) (*model.ISPProbeResult, error) {
+	// Build priority-ordered candidate list
+	candidates := make([]string, 0, len(hintDNS)+len(dns64Fallbacks))
+	candidates = append(candidates, hintDNS...)
+	candidates = append(candidates, dns64Fallbacks...)
 
-	p.Log.Infof("isp-probe: RDNSS discovered nameserver %s on %s", nameserver, ifaceName)
-
-	// Step 2: Discover NAT64 prefix via RFC 7050
-	prefix, err := p.discoverNAT64Prefix(nameserver)
-	if err != nil {
-		// Partial success: we got the nameserver but not the prefix
-		p.Log.Warnf("isp-probe: NAT64 prefix discovery failed via %s: %v — using well-known prefix", nameserver, err)
-		return &model.ISPProbeResult{
-			Nameserver:  nameserver,
-			NAT64Prefix: defaultNAT64Prefix,
-		}, nil
-	}
-
-	p.Log.Infof("isp-probe: NAT64 prefix discovered %s via %s", prefix, nameserver)
-
-	return &model.ISPProbeResult{
-		Nameserver:  nameserver,
-		NAT64Prefix: prefix,
-	}, nil
-}
-
-// discoverRDNSS sends a Router Solicitation on the interface and parses
-// the Router Advertisement for RDNSS (Recursive DNS Server) option.
-func (p *ISPProbe) discoverRDNSS(ifaceName string) (string, error) {
-	iface, err := net.InterfaceByName(ifaceName)
-	if err != nil {
-		return "", fmt.Errorf("interface %s not found: %w", ifaceName, err)
-	}
-
-	conn, _, err := ndp.Listen(iface, ndp.LinkLocal)
-	if err != nil {
-		return "", fmt.Errorf("listen NDP on %s: %w", ifaceName, err)
-	}
-	defer conn.Close()
-
-	// Send Router Solicitation
-	rs := &ndp.RouterSolicitation{}
-	allRouters := netip.MustParseAddr("ff02::2")
-	if err := conn.WriteTo(rs, nil, allRouters); err != nil {
-		return "", fmt.Errorf("send RS on %s: %w", ifaceName, err)
-	}
-
-	// Wait for Router Advertisement with RDNSS
-	if err := conn.SetReadDeadline(time.Now().Add(rdnssTimeout)); err != nil {
-		return "", fmt.Errorf("set read deadline: %w", err)
-	}
-
-	for {
-		msg, _, _, err := conn.ReadFrom()
+	// Test DNS64 on each candidate until one works
+	for _, ns := range candidates {
+		prefix, err := p.discoverNAT64Prefix(ns)
 		if err != nil {
-			return "", fmt.Errorf("read RA on %s: %w", ifaceName, err)
-		}
-
-		ra, ok := msg.(*ndp.RouterAdvertisement)
-		if !ok {
+			p.Log.Debugf("isp-probe: DNS64 test failed on %s: %v", ns, err)
 			continue
 		}
-
-		// Extract RDNSS option
-		for _, opt := range ra.Options {
-			rdnss, ok := opt.(*ndp.RecursiveDNSServer)
-			if !ok || len(rdnss.Servers) == 0 {
-				continue
-			}
-			// Return first DNS server
-			return rdnss.Servers[0].String(), nil
-		}
-
-		// RA received but no RDNSS option
-		return "", fmt.Errorf("RA on %s has no RDNSS option", ifaceName)
+		p.Log.Infof("isp-probe: DNS64 verified on %s with prefix %s", ns, prefix)
+		return &model.ISPProbeResult{
+			Nameserver:  ns,
+			NAT64Prefix: prefix,
+		}, nil
 	}
+
+	return nil, fmt.Errorf("no DNS64-capable server found (tested %d candidates)", len(candidates))
 }
 
 // discoverNAT64Prefix resolves ipv4only.arpa AAAA via the given DNS64

@@ -86,6 +86,54 @@ func (g *ADBGateway) GetCarrier(serial string) (string, error) {
 	return out, nil
 }
 
+// GetDNSServers reads the phone's carrier-assigned DNS servers from
+// `dumpsys connectivity`. Returns IPv6 DNS addresses from the internet
+// connection (not IMS). These are typically the carrier's DNS64 servers.
+func (g *ADBGateway) GetDNSServers(serial string) ([]string, error) {
+	out, err := g.adbShell(serial, "dumpsys", "connectivity")
+	if err != nil {
+		return nil, fmt.Errorf("dumpsys connectivity: %w", err)
+	}
+
+	var ipv6Servers []string
+	for _, line := range strings.Split(out, "\n") {
+		// Only look at the internet connection (skip IMS, etc.)
+		if !strings.Contains(line, "extra: internet") {
+			continue
+		}
+
+		// Extract DnsAddresses: [ /addr1,/addr2,... ]
+		dnsIdx := strings.Index(line, "DnsAddresses: [")
+		if dnsIdx == -1 {
+			continue
+		}
+		start := dnsIdx + len("DnsAddresses: [")
+		end := strings.Index(line[start:], "]")
+		if end == -1 {
+			continue
+		}
+		dnsBlock := strings.TrimSpace(line[start : start+end])
+		if dnsBlock == "" {
+			continue
+		}
+
+		for _, entry := range strings.Split(dnsBlock, ",") {
+			addr := strings.TrimSpace(entry)
+			addr = strings.TrimPrefix(addr, "/")
+			if addr == "" {
+				continue
+			}
+			// Keep only IPv6 addresses
+			ip := net.ParseIP(addr)
+			if ip != nil && ip.To4() == nil {
+				ipv6Servers = append(ipv6Servers, ip.String())
+			}
+		}
+		break // only need the internet connection
+	}
+	return ipv6Servers, nil
+}
+
 // DetectInterfaceForSerial finds the USB tethering interface that belongs to
 // a specific phone by matching the ADB serial against the USB device serial
 // exposed in sysfs at /sys/class/net/<iface>/device/../serial.
