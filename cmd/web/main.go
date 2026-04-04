@@ -16,15 +16,13 @@ import (
 func main() {
 	v := config.NewViper()
 	log := config.NewLogger(v)
-	validate := config.NewValidator()
 	app := config.NewFiber(v)
 
 	b := config.Bootstrap(&config.BootstrapConfig{
-		Viper:     v,
-		Logger:    log,
-		Validator: validate,
-		Fiber:     app,
-		StaticFS:  web.StaticFS,
+		Viper:    v,
+		Logger:   log,
+		Fiber:    app,
+		StaticFS: web.StaticFS,
 	})
 
 	b.RouteConfig.Setup()

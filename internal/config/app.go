@@ -5,7 +5,6 @@ package config
 import (
 	"embed"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -20,11 +19,10 @@ import (
 )
 
 type BootstrapConfig struct {
-	Viper     *viper.Viper
-	Logger    *logrus.Logger
-	Validator *validator.Validate
-	Fiber     *fiber.App
-	StaticFS  embed.FS
+	Viper    *viper.Viper
+	Logger   *logrus.Logger
+	Fiber    *fiber.App
+	StaticFS embed.FS
 }
 
 type BootstrapResult struct {
@@ -52,7 +50,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		strategy = usecase.StrategyRandom
 	}
 	slotUC := usecase.NewSlotUseCase(
-		cfg.Logger, cfg.Validator, slotRepo, discovery,
+		cfg.Logger, slotRepo, discovery,
 		provisioner,
 		maxSlots,
 	)

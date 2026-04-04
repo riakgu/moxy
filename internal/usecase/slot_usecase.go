@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
@@ -38,7 +37,6 @@ const slaacWaitDuration = 5 * time.Second
 
 type SlotUseCase struct {
 	Log         *logrus.Logger
-	Validate    *validator.Validate
 	SlotRepo    *repository.SlotRepository
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
@@ -47,7 +45,6 @@ type SlotUseCase struct {
 
 func NewSlotUseCase(
 	log *logrus.Logger,
-	validate *validator.Validate,
 	slotRepo *repository.SlotRepository,
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
@@ -55,7 +52,6 @@ func NewSlotUseCase(
 ) *SlotUseCase {
 	return &SlotUseCase{
 		Log:         log,
-		Validate:    validate,
 		SlotRepo:    slotRepo,
 		Discovery:   discovery,
 		Provisioner: provisioner,
@@ -228,11 +224,6 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 }
 
 func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotResponse, error) {
-	if c.Validate != nil {
-		if err := c.Validate.Struct(request); err != nil {
-			return nil, err
-		}
-	}
 
 	slotIndex, err := parseSlotIndex(request.SlotName)
 	if err != nil {

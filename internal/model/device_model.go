@@ -1,7 +1,7 @@
 package model
 
 type ProvisionDeviceRequest struct {
-	Alias string `json:"-" validate:"required"`
+	Alias string `json:"-"`
 	Slots int    `json:"slots"`
 }
 
