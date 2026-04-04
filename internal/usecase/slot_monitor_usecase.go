@@ -56,7 +56,6 @@ func (c *SlotMonitorUseCase) StartSlot(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Already monitoring
 	if _, ok := c.slots[name]; ok {
 		return
 	}
@@ -95,14 +94,8 @@ func (c *SlotMonitorUseCase) StopAll() {
 func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	fastTicks := c.Config.FastTicks
 
-	// Initial burst: detect IP pair
-	ips := c.detectIPPair(name)
-	ipv6, _ := c.Discovery.ResolveSlotIPv6(name)
-	c.updateSlotPair(name, ips, ipv6, len(ips) == 0)
-
-	if len(ips) == 0 {
-		fastTicks = c.Config.FastTicks // stay in fast mode if failed
-	}
+	// Initial burst: detect IP pair with metadata
+	c.burstDetect(name)
 
 	for {
 		// Determine interval
@@ -132,7 +125,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		case <-time.After(interval):
 		}
 
-		// Steady-state: single check
+		// Steady-state: single lightweight check (plain text, just IP)
 		ip, err := c.Discovery.ResolveSlotIP(name)
 		if err != nil {
 			c.updateSlotStatus(name, entity.SlotStatusUnhealthy)
@@ -143,48 +136,55 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		// Check if IP is in known pair
 		if slot, ok := c.SlotRepo.Get(name); ok {
 			if !containsIP(slot.PublicIPv4s, ip) {
-				// Unknown IP — re-burst to detect new pair
+				// Unknown IP — re-burst with full metadata
 				c.Log.Infof("monitor: %s unknown IP %s (not in pair %v) — re-detecting",
 					name, ip, slot.PublicIPv4s)
-				newIPs := c.detectIPPair(name)
-				ipv6, _ = c.Discovery.ResolveSlotIPv6(name)
-				c.updateSlotPair(name, newIPs, ipv6, len(newIPs) == 0)
+				c.burstDetect(name)
 				fastTicks = c.Config.FastTicks
 			} else {
-				// Known IP — just update last check time
+				// Known IP — just update status
 				slot.LastCheckedAt = time.Now().UnixMilli()
 				slot.Status = entity.SlotStatusHealthy
 			}
 		}
 
-		// Update IPv6 (always — it rarely changes but keep it fresh)
+		// Update IPv6 (rarely changes but keep fresh)
 		newIPv6, _ := c.Discovery.ResolveSlotIPv6(name)
 		c.updateIPv6(name, newIPv6)
 	}
 }
 
-// detectIPPair makes up to 5 rapid IP checks to discover the CGNAT pair.
-// Stops early when it sees a repeated IP (pair complete).
-func (c *SlotMonitorUseCase) detectIPPair(name string) []string {
+// burstDetect makes up to 5 rapid IP checks using the JSON endpoint
+// to discover the CGNAT pair and collect metadata (city, ASN, RTT).
+// Stops early when it sees a repeated IP.
+func (c *SlotMonitorUseCase) burstDetect(name string) {
 	seen := make(map[string]bool)
 	var ips []string
+	var city, asn, org, rtt string
 
 	for i := 0; i < 5; i++ {
-		ip, err := c.Discovery.ResolveSlotIP(name)
+		gotIP, gotCity, gotASN, gotOrg, gotRTT, err := c.Discovery.ResolveSlotIPInfo(name)
 		if err != nil {
+			c.Log.Warnf("monitor: %s burst check %d failed: %v", name, i+1, err)
 			continue
 		}
-		if seen[ip] {
+		// Store metadata from first successful response
+		if city == "" {
+			city = gotCity
+			asn = gotASN
+			org = gotOrg
+			rtt = gotRTT
+		}
+		if seen[gotIP] {
 			break // repeat seen — pair complete
 		}
-		seen[ip] = true
-		ips = append(ips, ip)
+		seen[gotIP] = true
+		ips = append(ips, gotIP)
 	}
-	return ips
-}
 
-// updateSlotPair updates the slot's IP pair and logs changes.
-func (c *SlotMonitorUseCase) updateSlotPair(name string, ips []string, ipv6 string, failed bool) {
+	// Update IPv6 too
+	ipv6, _ := c.Discovery.ResolveSlotIPv6(name)
+
 	slot, ok := c.SlotRepo.Get(name)
 	if !ok {
 		return
@@ -193,7 +193,7 @@ func (c *SlotMonitorUseCase) updateSlotPair(name string, ips []string, ipv6 stri
 	now := time.Now().UnixMilli()
 	slot.LastCheckedAt = now
 
-	if failed {
+	if len(ips) == 0 {
 		slot.Status = entity.SlotStatusUnhealthy
 		c.Log.Warnf("monitor: %s pair detection failed", name)
 		return
@@ -209,6 +209,10 @@ func (c *SlotMonitorUseCase) updateSlotPair(name string, ips []string, ipv6 stri
 	}
 
 	slot.PublicIPv4s = ips
+	slot.City = city
+	slot.ASN = asn
+	slot.Org = org
+	slot.RTT = rtt
 	slot.Status = entity.SlotStatusHealthy
 
 	// Update IPv6
@@ -245,7 +249,6 @@ func (c *SlotMonitorUseCase) updateIPv6Helper(slot *entity.Slot, ipv6 string) {
 	}
 }
 
-// containsIP checks if an IP is in the known pair.
 func containsIP(pair []string, ip string) bool {
 	for _, p := range pair {
 		if p == ip {
@@ -255,7 +258,6 @@ func containsIP(pair []string, ip string) bool {
 	return false
 }
 
-// pairKey returns a sorted, canonical string for comparison.
 func pairKey(ips []string) string {
 	if len(ips) == 0 {
 		return ""

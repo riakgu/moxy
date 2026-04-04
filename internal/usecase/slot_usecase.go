@@ -29,6 +29,7 @@ type SlotProvisioner interface {
 
 type SlotDiscovery interface {
 	ResolveSlotIP(slotName string) (string, error)
+	ResolveSlotIPInfo(slotName string) (ip, city, asn, org, rtt string, err error)
 	ResolveSlotIPv6(slotName string) (string, error)
 }
 

@@ -9,7 +9,7 @@
     },
     "slots": {
         "max_slots_per_device": 250,
-        "ip_check_host": "api.ipify.org",
+        "ip_check_host": "ip.moxy.my.id",
         "monitor_fast_interval_seconds": 10,
         "monitor_steady_interval_seconds": 60,
         "monitor_recovery_interval_seconds": 15,

@@ -14,6 +14,10 @@ type Slot struct {
 	NAT64Prefix       string
 	IPv6Address       string
 	PublicIPv4s       []string
+	City              string
+	ASN               string
+	Org               string
+	RTT               string
 	Status            string
 	ActiveConnections int64
 	LastCheckedAt     int64
