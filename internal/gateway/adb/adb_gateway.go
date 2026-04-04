@@ -118,21 +118,19 @@ func (g *ADBGateway) DetectInterfaceForSerial(serial string) (string, error) {
 
 // readUSBSerial resolves the sysfs device path for a network interface
 // and reads the USB device serial.
-// Chain: /sys/class/net/<iface>/device -> symlink -> USB device -> serial file
+// Chain: /sys/class/net/<iface>/device -> symlink -> USB interface -> parent -> serial file
 func (g *ADBGateway) readUSBSerial(ifaceName string) (string, error) {
-	deviceLink := fmt.Sprintf("/sys/class/net/%s/device", ifaceName)
-	resolved, err := os.Readlink(deviceLink)
+	devicePath := fmt.Sprintf("/sys/class/net/%s/device", ifaceName)
+
+	// EvalSymlinks resolves all symlinks (like readlink -f)
+	resolved, err := filepath.EvalSymlinks(devicePath)
 	if err != nil {
-		return "", fmt.Errorf("readlink %s: %w", deviceLink, err)
+		return "", fmt.Errorf("resolve %s: %w", devicePath, err)
 	}
 
-	// resolved is relative to deviceLink's directory
-	sysNetDir := fmt.Sprintf("/sys/class/net/%s", ifaceName)
-	absDevice := filepath.Join(sysNetDir, resolved)
-
-	// Go up one level to the USB device node (device/ points to the USB interface,
-	// serial is on the USB device which is the parent)
-	usbDevice := filepath.Dir(absDevice)
+	// resolved points to the USB interface (e.g. .../1-2/1-2:1.0)
+	// Go up one level to the USB device node (e.g. .../1-2) which has the serial file
+	usbDevice := filepath.Dir(resolved)
 	serialPath := filepath.Join(usbDevice, "serial")
 
 	data, err := os.ReadFile(serialPath)
