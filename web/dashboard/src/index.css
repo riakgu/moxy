@@ -112,6 +112,11 @@ body::before {
   100% { background-color: transparent; }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* === Utility Classes === */
 
 .animate-fade-up {
@@ -136,6 +141,10 @@ body::before {
 
 .animate-copy-flash {
   animation: copyFlash 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out both;
 }
 
 /* Glow text for stat values */
@@ -163,6 +172,21 @@ body::before {
 .card-glow:hover {
   box-shadow: 0 0 25px rgba(56, 189, 248, 0.08);
   border-color: var(--color-border-active);
+}
+
+/* Slot table: content-visibility optimization for off-screen rows */
+.slot-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 41px;
+}
+
+/* Slot table scroll container */
+.slot-scroll-container {
+  max-height: 400px;
+  overflow-y: auto;
+  will-change: transform;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-muted) transparent;
 }
 
 /* Scrollbar styling */

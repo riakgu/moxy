@@ -8,6 +8,8 @@ interface SlotTableProps {
   host: string
 }
 
+const VISIBLE_THRESHOLD = 12
+
 export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTableProps) {
   if (slots.length === 0) {
     return (
@@ -18,31 +20,38 @@ export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTab
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-border-subtle text-xs text-text-muted uppercase tracking-wider">
-            <th className="py-2 px-3 font-medium">Name</th>
-            <th className="py-2 px-3 font-medium">Public IPv4</th>
-            <th className="py-2 px-3 font-medium">IPv6</th>
-            <th className="py-2 px-3 font-medium">Status</th>
-            <th className="py-2 px-3 font-medium">Conns</th>
-            <th className="py-2 px-3 font-medium">Last Check</th>
-            <th className="py-2 px-3 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {slots.map((slot) => (
-            <SlotRow
-              key={slot.name}
-              slot={slot}
-              onChangeIP={onChangeIP}
-              onDelete={onDelete}
-              host={host}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <div className="slot-scroll-container">
+        <table className="w-full text-left">
+          <thead className="sticky top-0 z-10 bg-bg-surface">
+            <tr className="border-b border-border-subtle text-xs text-text-muted uppercase tracking-wider">
+              <th className="py-2 px-3 font-medium">Name</th>
+              <th className="py-2 px-3 font-medium">Public IPv4</th>
+              <th className="py-2 px-3 font-medium">IPv6</th>
+              <th className="py-2 px-3 font-medium">Status</th>
+              <th className="py-2 px-3 font-medium">Conns</th>
+              <th className="py-2 px-3 font-medium">Last Check</th>
+              <th className="py-2 px-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {slots.map((slot) => (
+              <SlotRow
+                key={slot.name}
+                slot={slot}
+                onChangeIP={onChangeIP}
+                onDelete={onDelete}
+                host={host}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {slots.length > VISIBLE_THRESHOLD && (
+        <p className="pt-2 text-center text-xs text-text-muted font-mono">
+          {slots.length} slots · scroll to see all
+        </p>
+      )}
     </div>
   )
 }

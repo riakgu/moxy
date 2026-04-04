@@ -64,7 +64,7 @@ export default function SlotRow({ slot, onChangeIP, onDelete, host }: SlotRowPro
     : slot.ipv6_address
 
   return (
-    <tr className="border-b border-border-subtle/50 hover:bg-bg-surface-hover/50 transition-colors">
+    <tr className="slot-row border-b border-border-subtle/50 hover:bg-bg-surface-hover/50 transition-colors">
       <td className="py-2.5 px-3 font-mono text-sm text-accent-cyan">{slot.name}</td>
       <td className="py-2.5 px-3 font-mono text-sm">{slot.public_ipv4 || '—'}</td>
       <td className="py-2.5 px-3 font-mono text-xs text-text-secondary" title={slot.ipv6_address}>

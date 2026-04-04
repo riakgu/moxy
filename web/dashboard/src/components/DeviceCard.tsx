@@ -130,12 +130,8 @@ export default function DeviceCard({
       </div>
 
       {/* Expandable slot table */}
-      <div
-        className={`overflow-hidden transition-all duration-200 ease-in-out ${
-          expanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
-        }`}
-      >
-        <div className="border-t border-border-subtle/50 px-5 py-3">
+      {expanded && (
+        <div className="animate-fade-in border-t border-border-subtle/50 px-5 py-3">
           <SlotTable
             slots={slots}
             onChangeIP={onChangeSlotIP}
@@ -143,7 +139,7 @@ export default function DeviceCard({
             host={host}
           />
         </div>
-      </div>
+      )}
     </div>
   )
 }
