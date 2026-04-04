@@ -9,26 +9,21 @@ import (
 	"net"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
-
-	"github.com/riakgu/moxy/internal/model"
 )
 
 type Discovery struct {
 	Log         *logrus.Logger
-	Concurrency int
 	IPCheckHost string
 }
 
-func NewDiscovery(log *logrus.Logger, concurrency int, ipCheckHost string) *Discovery {
+func NewDiscovery(log *logrus.Logger, ipCheckHost string) *Discovery {
 	return &Discovery{
 		Log:         log,
-		Concurrency: concurrency,
 		IPCheckHost: ipCheckHost,
 	}
 }
@@ -164,46 +159,5 @@ func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
 	return "", fmt.Errorf("no global IPv6 found for %s", slotName)
 }
 
-func (d *Discovery) DiscoverAll(slotNames []string) []*model.DiscoveredSlot {
-	results := make([]*model.DiscoveredSlot, 0, len(slotNames))
-	var mu sync.Mutex
 
-	sem := make(chan struct{}, d.Concurrency)
-	var wg sync.WaitGroup
-
-	for _, name := range slotNames {
-		wg.Add(1)
-		go func(slotName string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ipv4, err := d.ResolveSlotIP(slotName)
-			if err != nil {
-				d.Log.Warnf("discovery: %s IPv4 resolve failed: %v", slotName, err)
-				mu.Lock()
-				results = append(results, &model.DiscoveredSlot{
-					Name:    slotName,
-					Healthy: false,
-				})
-				mu.Unlock()
-				return
-			}
-
-			ipv6, _ := d.ResolveSlotIPv6(slotName)
-
-			mu.Lock()
-			results = append(results, &model.DiscoveredSlot{
-				Name:        slotName,
-				IPv6Address: ipv6,
-				IPv4Address: ipv4,
-				Healthy:     true,
-			})
-			mu.Unlock()
-		}(name)
-	}
-
-	wg.Wait()
-	return results
-}
 

@@ -42,7 +42,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
 	provisioner := netns.NewProvisioner(cfg.Logger)
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetInt("slots.discovery_concurrency"), cfg.Viper.GetString("slots.ip_check_host"))
+	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetString("slots.ip_check_host"))
 	dialer := netns.NewSetnsDialer(cfg.Logger)
 
 	// UseCases

@@ -30,13 +30,6 @@ type ProvisionResponse struct {
 	UniqueIPs int `json:"unique_ips"`
 }
 
-type DiscoveredSlot struct {
-	Name        string
-	IPv4Address string
-	IPv6Address string
-	Healthy     bool
-}
-
 type CleanupResponse struct {
 	Cleaned int `json:"cleaned"`
 }
