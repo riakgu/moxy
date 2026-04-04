@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Slot } from '../api/types'
 import CopyButton from './CopyButton'
 
@@ -20,14 +20,22 @@ function relativeTime(timestampMs: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function countdownTime(timestampMs: number): string {
-  if (!timestampMs) return '—'
-  const diffMs = timestampMs - Date.now()
-  if (diffMs <= 0) return 'now'
+function CountdownCell({ timestampMs }: { timestampMs: number }) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (!timestampMs) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [timestampMs])
+
+  if (!timestampMs) return <span>—</span>
+  const diffMs = timestampMs - now
+  if (diffMs <= 0) return <span>now</span>
   const seconds = Math.ceil(diffMs / 1000)
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return <span>{seconds}s</span>
   const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ${seconds % 60}s`
+  return <span>{minutes}m {seconds % 60}s</span>
 }
 
 function extractSlotIndex(name: string): number {
@@ -91,7 +99,7 @@ export default function SlotRow({ slot, onChangeIP, onDelete, host }: SlotRowPro
         {slot.last_checked_at ? relativeTime(slot.last_checked_at) : '—'}
       </td>
       <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
-        {slot.next_check_at ? countdownTime(slot.next_check_at) : '—'}
+        <CountdownCell timestampMs={slot.next_check_at} />
       </td>
       <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">
