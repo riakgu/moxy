@@ -35,7 +35,6 @@ export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTab
             <tr className="border-b border-border-subtle text-xs text-text-muted uppercase tracking-wider">
               <th className="py-2 px-3 font-medium">Name</th>
               <th className="py-2 px-3 font-medium">Public IPv4</th>
-              <th className="py-2 px-3 font-medium">IPv6</th>
               <th className="py-2 px-3 font-medium">Status</th>
               <th className="py-2 px-3 font-medium">Conns</th>
               <th className="py-2 px-3 font-medium">Last Check</th>

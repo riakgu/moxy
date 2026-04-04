@@ -7,7 +7,7 @@ type SlotResponse struct {
 	Nameserver        string `json:"nameserver"`
 	NAT64Prefix       string `json:"nat64_prefix"`
 	IPv6Address       string `json:"ipv6_address"`
-	PublicIPv4        string `json:"public_ipv4"`
+	PublicIPv4s       []string `json:"public_ipv4s"`
 	Status            string `json:"status"`
 	ActiveConnections int64  `json:"active_connections"`
 	LastCheckedAt     int64  `json:"last_checked_at"`

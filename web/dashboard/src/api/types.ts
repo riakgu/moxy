@@ -23,7 +23,7 @@ export interface Slot {
   nameserver: string
   nat64_prefix: string
   ipv6_address: string
-  public_ipv4: string
+  public_ipv4s: string[]
   status: 'healthy' | 'unhealthy' | 'discovering'
   active_connections: number
   last_checked_at: number

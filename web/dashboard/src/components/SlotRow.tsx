@@ -70,16 +70,21 @@ export default function SlotRow({ slot, onChangeIP, onDelete, host, now }: SlotR
     }
   }
 
-  const truncatedIPv6 = slot.ipv6_address.length > 24
-    ? slot.ipv6_address.slice(0, 24) + '…'
-    : slot.ipv6_address
+  const ips = slot.public_ipv4s ?? []
 
   return (
     <tr className="slot-row border-b border-border-subtle/50 hover:bg-bg-surface-hover/50 transition-colors">
       <td className="py-2.5 px-3 font-mono text-sm text-accent-cyan">{slot.name}</td>
-      <td className="py-2.5 px-3 font-mono text-sm">{slot.public_ipv4 || '—'}</td>
-      <td className="py-2.5 px-3 font-mono text-xs text-text-secondary" title={slot.ipv6_address}>
-        {truncatedIPv6 || '—'}
+      <td className="py-2.5 px-3 font-mono text-sm">
+        {ips.length > 0 ? (
+          <div className="flex flex-col gap-0.5">
+            {ips.map((ip, i) => (
+              <span key={ip} className={i > 0 ? 'text-text-secondary text-xs' : ''}>
+                {ip}
+              </span>
+            ))}
+          </div>
+        ) : '—'}
       </td>
       <td className="py-2.5 px-3">
         <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
