@@ -32,6 +32,14 @@ func main() {
 	// Start shared proxy port
 	b.PortHandler.StartShared()
 
+	// Cleanup orphaned namespaces from previous runs
+	log.Info("cleaning up orphaned namespaces...")
+	if cleaned, err := b.SlotUseCase.CleanupOrphans(); err != nil {
+		log.WithError(err).Warn("namespace cleanup failed")
+	} else if cleaned > 0 {
+		log.Infof("cleaned %d orphaned namespaces", cleaned)
+	}
+
 	// Auto-scan: discover ADB devices, setup, provision 1 slot each
 	log.Info("running initial device scan...")
 	scanResult, err := b.DeviceUseCase.Scan()

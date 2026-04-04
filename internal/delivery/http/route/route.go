@@ -30,7 +30,8 @@ func (c *RouteConfig) Setup() {
 	api.Delete("/devices/:alias", c.DeviceController.Delete)
 	api.Post("/devices/:alias/provision", c.DeviceController.Provision)
 
-	// Slot routes
+	// Slot routes — static routes BEFORE :slotName wildcard
+	api.Post("/slots/cleanup", c.SlotController.Cleanup)
 	api.Get("/slots", c.SlotController.List)
 	api.Get("/slots/:slotName", c.SlotController.Get)
 	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)

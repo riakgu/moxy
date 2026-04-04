@@ -83,3 +83,15 @@ func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 		Data: "slot deleted",
 	})
 }
+
+func (c *SlotController) Cleanup(ctx *fiber.Ctx) error {
+	cleaned, err := c.UseCase.CleanupOrphans()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return ctx.JSON(model.WebResponse[model.CleanupResponse]{
+		Data: model.CleanupResponse{Cleaned: cleaned},
+	})
+}
+

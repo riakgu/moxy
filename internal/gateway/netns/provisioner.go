@@ -250,3 +250,32 @@ func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
 	return slots, nil
 }
 
+// CleanupNamespaces deletes slot* namespaces that are not in the keep list.
+// If keep is nil, all slot* namespaces are deleted. Returns count of deleted.
+func (p *Provisioner) CleanupNamespaces(keep []string) (int, error) {
+	all, err := p.ListSlotNamespaces()
+	if err != nil {
+		return 0, err
+	}
+
+	keepSet := make(map[string]struct{}, len(keep))
+	for _, name := range keep {
+		keepSet[name] = struct{}{}
+	}
+
+	cleaned := 0
+	for _, name := range all {
+		if _, ok := keepSet[name]; ok {
+			continue
+		}
+		if err := p.DestroySlot(name); err != nil {
+			p.Log.Warnf("cleanup: failed to delete namespace %s: %v", name, err)
+			continue
+		}
+		p.Log.Infof("cleanup: deleted orphaned namespace %s", name)
+		cleaned++
+	}
+	return cleaned, nil
+}
+
+

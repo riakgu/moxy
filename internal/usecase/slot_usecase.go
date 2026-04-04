@@ -23,6 +23,7 @@ type SlotProvisioner interface {
 	AddNDPProxyEntry(ipv6 string, iface string) error
 	RemoveNDPProxyEntry(ipv6 string, iface string) error
 	ListSlotNamespaces() ([]string, error)
+	CleanupNamespaces(keep []string) (int, error)
 	ConfigureDHCP(iface string) error
 	ConfigureIPv6SLAAC(iface string) error
 }
@@ -393,3 +394,15 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 	}
 	return nil
 }
+
+// CleanupOrphans removes network namespaces that exist on disk but are not
+// tracked in the in-memory SlotRepository.
+func (uc *SlotUseCase) CleanupOrphans() (int, error) {
+	tracked := uc.SlotRepo.ListAllNames()
+	cleaned, err := uc.Provisioner.CleanupNamespaces(tracked)
+	if err != nil {
+		return 0, fmt.Errorf("cleanup orphans: %w", err)
+	}
+	return cleaned, nil
+}
+

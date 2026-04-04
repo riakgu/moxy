@@ -34,3 +34,8 @@ type DiscoveredSlot struct {
 	IPv6Address string
 	Healthy     bool
 }
+
+type CleanupResponse struct {
+	Cleaned int `json:"cleaned"`
+}
+

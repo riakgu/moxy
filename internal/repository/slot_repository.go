@@ -160,3 +160,15 @@ func (r *SlotRepository) DecrementConnections(name string) {
 		atomic.AddInt64(&slot.ActiveConnections, -1)
 	}
 }
+
+// ListAllNames returns the names of all slots currently tracked in memory.
+func (r *SlotRepository) ListAllNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.slots))
+	for name := range r.slots {
+		names = append(names, name)
+	}
+	return names
+}
+

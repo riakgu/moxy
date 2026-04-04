@@ -44,3 +44,8 @@ export interface ProvisionResponse {
   total: number
   unique_ips: number
 }
+
+export interface CleanupResponse {
+  cleaned: number
+}
+
