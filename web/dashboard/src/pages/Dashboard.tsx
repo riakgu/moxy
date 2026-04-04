@@ -1,0 +1,196 @@
+import { useState, useCallback } from 'react'
+import { useDevices } from '../hooks/useDevices'
+import { useSlots } from '../hooks/useSlots'
+import { scanDevices } from '../api/devices'
+import { provisionDevice, deleteDevice } from '../api/devices'
+import { changeSlotIP, deleteSlot } from '../api/slots'
+import StatsBar from '../components/StatsBar'
+import DeviceCard from '../components/DeviceCard'
+import ProxyGenerator from '../components/ProxyGenerator'
+
+interface Toast {
+  id: number
+  message: string
+  type: 'success' | 'error'
+}
+
+let toastId = 0
+
+export default function Dashboard() {
+  const { data: devices, loading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices()
+  const { data: slots, loading: slotsLoading, error: slotsError, refetch: refetchSlots } = useSlots()
+  const [scanning, setScanning] = useState(false)
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  const host = window.location.hostname || 'localhost'
+
+  const addToast = useCallback((message: string, type: 'success' | 'error') => {
+    const id = ++toastId
+    setToasts((prev) => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 3000)
+  }, [])
+
+  const refetchAll = useCallback(async () => {
+    await Promise.all([refetchDevices(), refetchSlots()])
+  }, [refetchDevices, refetchSlots])
+
+  const handleScan = async () => {
+    setScanning(true)
+    try {
+      const result = await scanDevices()
+      await refetchAll()
+      addToast(`Scan complete: ${result.discovered} discovered, ${result.setup_ok} online`, 'success')
+    } catch (e) {
+      addToast(`Scan failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const handleProvision = async (alias: string, count: number) => {
+    try {
+      const result = await provisionDevice(alias, count)
+      await refetchAll()
+      addToast(`Provisioned ${result.created} slots for ${alias} (${result.unique_ips} unique IPs)`, 'success')
+    } catch (e) {
+      addToast(`Provision failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    }
+  }
+
+  const handleDeleteDevice = async (alias: string) => {
+    try {
+      await deleteDevice(alias)
+      await refetchAll()
+      addToast(`Deleted ${alias}`, 'success')
+    } catch (e) {
+      addToast(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    }
+  }
+
+  const handleChangeSlotIP = async (name: string) => {
+    try {
+      await changeSlotIP(name)
+      await refetchSlots()
+      addToast(`IP changed for ${name}`, 'success')
+    } catch (e) {
+      addToast(`Change IP failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    }
+  }
+
+  const handleDeleteSlot = async (name: string) => {
+    try {
+      await deleteSlot(name)
+      await refetchAll()
+      addToast(`Deleted ${name}`, 'success')
+    } catch (e) {
+      addToast(`Delete slot failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    }
+  }
+
+  const loading = devicesLoading && slotsLoading
+  const error = devicesError && slotsError ? `${devicesError}` : null
+
+  return (
+    <div className="space-y-8">
+      {/* Toast notifications */}
+      <div className="fixed top-16 right-4 z-50 space-y-2">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`animate-toast-in px-4 py-2.5 rounded-lg shadow-lg font-mono text-xs
+              border backdrop-blur-sm max-w-sm ${
+              toast.type === 'success'
+                ? 'bg-accent-green/15 border-accent-green/30 text-accent-green'
+                : 'bg-accent-red/15 border-accent-red/30 text-accent-red'
+            }`}
+          >
+            {toast.type === 'success' ? '✓' : '✗'} {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-mono text-2xl font-semibold tracking-wide">
+            <span className="text-accent-cyan">▸</span> Dashboard
+          </h1>
+          <p className="text-sm text-text-muted mt-1">
+            {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <button
+          onClick={handleScan}
+          disabled={scanning}
+          className="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer
+            bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30
+            hover:bg-accent-cyan/25 hover:shadow-[0_0_20px_rgba(56,189,248,0.15)]
+            disabled:opacity-50 disabled:cursor-wait"
+        >
+          {scanning ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-accent-cyan border-t-transparent rounded-full animate-spin-slow" />
+              Scanning...
+            </span>
+          ) : (
+            '📡 Scan Devices'
+          )}
+        </button>
+      </div>
+
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center space-y-3">
+            <span className="inline-block w-8 h-8 border-2 border-accent-cyan border-t-transparent rounded-full animate-spin-slow" />
+            <p className="font-mono text-sm text-text-muted">Connecting to backend...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {!loading && error && (
+        <div className="bg-accent-red/10 border border-accent-red/20 rounded-lg px-5 py-4">
+          <p className="font-mono text-sm text-accent-red">{error}</p>
+          <p className="text-xs text-text-muted mt-1">Backend may be offline. Dashboard will retry every 10s.</p>
+        </div>
+      )}
+
+      {/* Main content */}
+      {!loading && (
+        <>
+          {/* Stats */}
+          <StatsBar devices={devices} slots={slots} />
+
+          {/* Device cards */}
+          <div className="space-y-4">
+            {devices.length === 0 && !error && (
+              <div className="bg-bg-surface border border-border-subtle rounded-lg px-6 py-12 text-center">
+                <p className="font-mono text-text-secondary mb-2">No devices found</p>
+                <p className="text-sm text-text-muted">Click "Scan Devices" to discover connected phones</p>
+              </div>
+            )}
+            {devices.map((device, i) => (
+              <DeviceCard
+                key={device.alias}
+                device={device}
+                slots={slots.filter((s) => s.device_alias === device.alias)}
+                onProvision={handleProvision}
+                onDeleteDevice={handleDeleteDevice}
+                onChangeSlotIP={handleChangeSlotIP}
+                onDeleteSlot={handleDeleteSlot}
+                host={host}
+                animationDelay={200 + i * 50}
+              />
+            ))}
+          </div>
+
+          {/* Proxy Generator */}
+          <ProxyGenerator devices={devices} slots={slots} />
+        </>
+      )}
+    </div>
+  )
+}

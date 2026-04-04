@@ -1,23 +1,13 @@
-import { Routes, Route } from 'react-router-dom'
-import MainLayout from './components/Layout/MainLayout'
-import Devices from './pages/Devices'
-import SlotMonitor from './pages/SlotMonitor'
-import ProxyUsers from './pages/ProxyUsers'
-import DestinationStats from './pages/DestinationStats'
-import Config from './pages/Config'
-import Logs from './pages/Logs'
+import { Outlet } from 'react-router-dom'
+import NavBar from './components/NavBar'
 
 export default function App() {
   return (
-    <MainLayout>
-      <Routes>
-        <Route path="/" element={<Devices />} />
-        <Route path="/slots" element={<SlotMonitor />} />
-        <Route path="/users" element={<ProxyUsers />} />
-        <Route path="/destinations" element={<DestinationStats />} />
-        <Route path="/config" element={<Config />} />
-        <Route path="/logs" element={<Logs />} />
-      </Routes>
-    </MainLayout>
+    <div className="min-h-screen bg-bg-primary">
+      <NavBar />
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <Outlet />
+      </main>
+    </div>
   )
 }

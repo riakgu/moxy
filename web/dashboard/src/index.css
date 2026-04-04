@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+/* === Theme: Network Operations Terminal === */
+
+@theme {
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --color-bg-primary: #0a0e1a;
+  --color-bg-surface: #111827;
+  --color-bg-surface-hover: #1a2235;
+  --color-bg-elevated: #1e293b;
+
+  --color-border-subtle: rgba(56, 189, 248, 0.08);
+  --color-border-active: rgba(56, 189, 248, 0.25);
+
+  --color-accent-cyan: #38bdf8;
+  --color-accent-amber: #fbbf24;
+  --color-accent-green: #4ade80;
+  --color-accent-red: #f87171;
+
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #475569;
+}
+
+/* === Base === */
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scan-line overlay for CRT atmosphere */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(56, 189, 248, 0.015) 3px,
+    rgba(56, 189, 248, 0.015) 4px
+  );
+}
+
+/* === Keyframes === */
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseBadge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toastOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(56, 189, 248, 0); }
+  50% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.15); }
+}
+
+@keyframes borderRotate {
+  from { --border-angle: 0deg; }
+  to { --border-angle: 360deg; }
+}
+
+@keyframes copyFlash {
+  0% { background-color: rgba(56, 189, 248, 0.3); }
+  100% { background-color: transparent; }
+}
+
+/* === Utility Classes === */
+
+.animate-fade-up {
+  animation: fadeUp 0.4s ease-out both;
+}
+
+.animate-pulse-badge {
+  animation: pulseBadge 2s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spinSlow 1.5s linear infinite;
+}
+
+.animate-toast-in {
+  animation: toastIn 0.3s ease-out both;
+}
+
+.animate-toast-out {
+  animation: toastOut 0.3s ease-in both;
+}
+
+.animate-copy-flash {
+  animation: copyFlash 0.3s ease-out;
+}
+
+/* Glow text for stat values */
+.glow-cyan {
+  text-shadow: 0 0 10px rgba(56, 189, 248, 0.4), 0 0 30px rgba(56, 189, 248, 0.1);
+}
+
+.glow-green {
+  text-shadow: 0 0 10px rgba(74, 222, 128, 0.4), 0 0 30px rgba(74, 222, 128, 0.1);
+}
+
+.glow-red {
+  text-shadow: 0 0 10px rgba(248, 113, 113, 0.4), 0 0 30px rgba(248, 113, 113, 0.1);
+}
+
+.glow-amber {
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.4), 0 0 30px rgba(251, 191, 36, 0.1);
+}
+
+/* Card hover glow */
+.card-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.08);
+  border-color: var(--color-border-active);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}

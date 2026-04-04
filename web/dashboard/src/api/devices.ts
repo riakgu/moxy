@@ -1,37 +1,25 @@
 import { apiFetch } from './client'
-import type { Device, RegisterDeviceRequest, SetupProgress, UpdateISPOverrideRequest, ProvisionResponse } from './types'
+import type { Device, ScanResponse, ProvisionResponse } from './types'
 
-export const devicesApi = {
-  scanADB: () => apiFetch<string[]>('/adb-devices'),
+export function scanDevices(): Promise<ScanResponse> {
+  return apiFetch<ScanResponse>('/devices/scan', { method: 'POST' })
+}
 
-  list: () => apiFetch<Device[]>('/devices'),
+export function listDevices(): Promise<Device[]> {
+  return apiFetch<Device[]>('/devices')
+}
 
-  get: (id: string) => apiFetch<Device>(`/devices/${id}`),
+export function getDevice(alias: string): Promise<Device> {
+  return apiFetch<Device>(`/devices/${alias}`)
+}
 
-  register: (req: RegisterDeviceRequest) =>
-    apiFetch<Device>('/devices', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
+export function deleteDevice(alias: string): Promise<boolean> {
+  return apiFetch<boolean>(`/devices/${alias}`, { method: 'DELETE' })
+}
 
-  setup: (id: string) =>
-    apiFetch<SetupProgress>(`/devices/${id}/setup`, { method: 'POST' }),
-
-  teardown: (id: string) =>
-    apiFetch<boolean>(`/devices/${id}/teardown`, { method: 'POST' }),
-
-  delete: (id: string) =>
-    apiFetch<boolean>(`/devices/${id}`, { method: 'DELETE' }),
-
-  override: (id: string, req: UpdateISPOverrideRequest) =>
-    apiFetch<Device>(`/devices/${id}/override`, {
-      method: 'PUT',
-      body: JSON.stringify(req),
-    }),
-
-  provision: (id: string, slots: number) =>
-    apiFetch<ProvisionResponse>(`/devices/${id}/provision`, {
-      method: 'POST',
-      body: JSON.stringify({ slots }),
-    }),
+export function provisionDevice(alias: string, slots: number): Promise<ProvisionResponse> {
+  return apiFetch<ProvisionResponse>(`/devices/${alias}/provision`, {
+    method: 'POST',
+    body: JSON.stringify({ slots }),
+  })
 }
