@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { Slot } from '../api/types'
 import CopyButton from './CopyButton'
 
@@ -7,6 +7,7 @@ interface SlotRowProps {
   onChangeIP: (name: string) => Promise<void>
   onDelete: (name: string) => Promise<void>
   host: string
+  now: number
 }
 
 function relativeTime(timestampMs: number): string {
@@ -20,22 +21,14 @@ function relativeTime(timestampMs: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function CountdownCell({ timestampMs }: { timestampMs: number }) {
-  const [now, setNow] = useState(Date.now())
-
-  useEffect(() => {
-    if (!timestampMs) return
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [timestampMs])
-
-  if (!timestampMs) return <span>—</span>
+function countdownTime(timestampMs: number, now: number): string {
+  if (!timestampMs) return '—'
   const diffMs = timestampMs - now
-  if (diffMs <= 0) return <span>now</span>
+  if (diffMs <= 0) return 'now'
   const seconds = Math.ceil(diffMs / 1000)
-  if (seconds < 60) return <span>{seconds}s</span>
+  if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
-  return <span>{minutes}m {seconds % 60}s</span>
+  return `${minutes}m ${seconds % 60}s`
 }
 
 function extractSlotIndex(name: string): number {
@@ -49,7 +42,7 @@ const statusStyles: Record<string, { dot: string; text: string; class: string }>
   discovering: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Discovering', class: 'text-accent-amber' },
 }
 
-export default function SlotRow({ slot, onChangeIP, onDelete, host }: SlotRowProps) {
+export default function SlotRow({ slot, onChangeIP, onDelete, host, now }: SlotRowProps) {
   const [changingIP, setChangingIP] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -99,7 +92,7 @@ export default function SlotRow({ slot, onChangeIP, onDelete, host }: SlotRowPro
         {slot.last_checked_at ? relativeTime(slot.last_checked_at) : '—'}
       </td>
       <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
-        <CountdownCell timestampMs={slot.next_check_at} />
+        {countdownTime(slot.next_check_at, now)}
       </td>
       <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">

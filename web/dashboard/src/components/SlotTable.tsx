@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import type { Slot } from '../api/types'
 import SlotRow from './SlotRow'
 
@@ -11,6 +12,13 @@ interface SlotTableProps {
 const VISIBLE_THRESHOLD = 12
 
 export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTableProps) {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
   if (slots.length === 0) {
     return (
       <p className="py-6 text-center text-sm text-text-muted font-mono">
@@ -43,6 +51,7 @@ export default function SlotTable({ slots, onChangeIP, onDelete, host }: SlotTab
                 onChangeIP={onChangeIP}
                 onDelete={onDelete}
                 host={host}
+                now={now}
               />
             ))}
           </tbody>
