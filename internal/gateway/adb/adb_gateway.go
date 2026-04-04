@@ -5,7 +5,9 @@ package adb
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -84,22 +86,59 @@ func (g *ADBGateway) GetCarrier(serial string) (string, error) {
 	return out, nil
 }
 
-// DetectTetheringInterface finds USB tethering interfaces on the host
-// by listing network interfaces matching common tethering patterns (usb*, rndis*, enp*)
-func (g *ADBGateway) DetectTetheringInterface() ([]string, error) {
+// DetectInterfaceForSerial finds the USB tethering interface that belongs to
+// a specific phone by matching the ADB serial against the USB device serial
+// exposed in sysfs at /sys/class/net/<iface>/device/../serial.
+func (g *ADBGateway) DetectInterfaceForSerial(serial string) (string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil, fmt.Errorf("list interfaces: %w", err)
+		return "", fmt.Errorf("list interfaces: %w", err)
 	}
 
-	var tethering []string
 	for _, iface := range ifaces {
 		name := iface.Name
-		if strings.HasPrefix(name, "usb") || strings.HasPrefix(name, "rndis") || strings.HasPrefix(name, "enp") {
-			if iface.Flags&net.FlagUp != 0 {
-				tethering = append(tethering, name)
-			}
+		if !strings.HasPrefix(name, "usb") && !strings.HasPrefix(name, "rndis") && !strings.HasPrefix(name, "enp") {
+			continue
+		}
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
+		usbSerial, err := g.readUSBSerial(name)
+		if err != nil {
+			g.Log.Debugf("skip %s: %v", name, err)
+			continue
+		}
+		if usbSerial == serial {
+			return name, nil
 		}
 	}
-	return tethering, nil
+	return "", fmt.Errorf("no tethering interface found for serial %s", serial)
 }
+
+// readUSBSerial resolves the sysfs device path for a network interface
+// and reads the USB device serial.
+// Chain: /sys/class/net/<iface>/device -> symlink -> USB device -> serial file
+func (g *ADBGateway) readUSBSerial(ifaceName string) (string, error) {
+	deviceLink := fmt.Sprintf("/sys/class/net/%s/device", ifaceName)
+	resolved, err := os.Readlink(deviceLink)
+	if err != nil {
+		return "", fmt.Errorf("readlink %s: %w", deviceLink, err)
+	}
+
+	// resolved is relative to deviceLink's directory
+	sysNetDir := fmt.Sprintf("/sys/class/net/%s", ifaceName)
+	absDevice := filepath.Join(sysNetDir, resolved)
+
+	// Go up one level to the USB device node (device/ points to the USB interface,
+	// serial is on the USB device which is the parent)
+	usbDevice := filepath.Dir(absDevice)
+	serialPath := filepath.Join(usbDevice, "serial")
+
+	data, err := os.ReadFile(serialPath)
+	if err != nil {
+		return "", fmt.Errorf("read serial from %s: %w", serialPath, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+

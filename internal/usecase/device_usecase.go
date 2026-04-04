@@ -218,14 +218,11 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 		}},
 		{"enabled_tethering", func() error { return c.ADB.EnableTethering(device.Serial) }},
 		{"interface_detected", func() error {
-			ifaces, err := c.ADB.DetectTetheringInterface()
+			iface, err := c.ADB.DetectInterfaceForSerial(device.Serial)
 			if err != nil {
 				return err
 			}
-			if len(ifaces) == 0 {
-				return fmt.Errorf("no tethering interface detected")
-			}
-			device.Interface = ifaces[0]
+			device.Interface = iface
 			return nil
 		}},
 		{"enabled_data", func() error { return c.ADB.EnableData(device.Serial) }},
