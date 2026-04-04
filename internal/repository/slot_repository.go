@@ -3,7 +3,6 @@
 package repository
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -91,15 +90,13 @@ func (r *SlotRepository) ListHealthy() []*entity.Slot {
 	return healthy
 }
 
-// DeleteByDevice removes all slots whose name starts with "<deviceAlias>_slot"
-// and returns the count of removed slots.
+// DeleteByDevice removes all slots belonging to a device and returns count removed.
 func (r *SlotRepository) DeleteByDevice(deviceAlias string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	prefix := deviceAlias + "_slot"
 	removed := 0
-	for name := range r.slots {
-		if strings.HasPrefix(name, prefix) {
+	for name, slot := range r.slots {
+		if slot.DeviceAlias == deviceAlias {
 			delete(r.slots, name)
 			removed++
 		}
@@ -111,14 +108,39 @@ func (r *SlotRepository) DeleteByDevice(deviceAlias string) int {
 func (r *SlotRepository) CountByDevice(deviceAlias string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	prefix := deviceAlias + "_slot"
 	count := 0
-	for name := range r.slots {
-		if strings.HasPrefix(name, prefix) {
+	for _, slot := range r.slots {
+		if slot.DeviceAlias == deviceAlias {
 			count++
 		}
 	}
 	return count
+}
+
+// ListHealthyForDevice returns healthy slots belonging to a specific device.
+func (r *SlotRepository) ListHealthyForDevice(deviceAlias string) []*entity.Slot {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*entity.Slot
+	for _, s := range r.slots {
+		if s.DeviceAlias == deviceAlias && s.Status == entity.SlotStatusHealthy {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// ListNamesForDevice returns slot names belonging to a specific device.
+func (r *SlotRepository) ListNamesForDevice(deviceAlias string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var names []string
+	for _, s := range r.slots {
+		if s.DeviceAlias == deviceAlias {
+			names = append(names, s.Name)
+		}
+	}
+	return names
 }
 
 // IncrementConnections atomically increments the active connection count for a slot.

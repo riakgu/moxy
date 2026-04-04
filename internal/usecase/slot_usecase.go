@@ -17,13 +17,12 @@ import (
 )
 
 type SlotProvisioner interface {
-	CreateSlot(deviceAlias string, slotIndex int, iface string, dns64 string) error
+	CreateSlot(slotIndex int, iface string, dns64 string) error
 	DestroySlot(name string) error
 	EnableNDPProxy(iface string) error
 	AddNDPProxyEntry(ipv6 string, iface string) error
 	RemoveNDPProxyEntry(ipv6 string, iface string) error
 	ListSlotNamespaces() ([]string, error)
-	ListSlotNamespacesForDevice(deviceAlias string) ([]string, error)
 	ConfigureDHCP(iface string) error
 	ConfigureIPv6SLAAC(iface string) error
 }
@@ -83,11 +82,8 @@ func (c *SlotUseCase) UpdateSlots(discovered []*model.DiscoveredSlot) {
 			LastCheckedAt: now,
 		}
 
-		if da, _, err := parseSlotName(d.Name); err == nil {
-			s.DeviceAlias = da
-		}
-
 		if existing, ok := c.SlotRepo.Get(d.Name); ok {
+			s.DeviceAlias = existing.DeviceAlias
 			s.ActiveConnections = atomic.LoadInt64(&existing.ActiveConnections)
 			if existing.Interface != "" {
 				s.Interface = existing.Interface
@@ -167,24 +163,21 @@ func (c *SlotUseCase) GetByName(request *model.GetSlotRequest) (*model.SlotRespo
 	return converter.SlotToResponse(slot), nil
 }
 
-// parseSlotName extracts device alias and slot index from names like "dev1_slot3"
-func parseSlotName(slotName string) (deviceAlias string, slotIndex int, err error) {
-	idx := strings.LastIndex(slotName, "_slot")
-	if idx < 0 {
-		return "", 0, fmt.Errorf("invalid slot name %s: missing _slot", slotName)
+// parseSlotIndex extracts the slot index from names like "slot3"
+func parseSlotIndex(slotName string) (int, error) {
+	if !strings.HasPrefix(slotName, "slot") {
+		return 0, fmt.Errorf("invalid slot name %s: missing slot prefix", slotName)
 	}
-	deviceAlias = slotName[:idx]
-	indexStr := slotName[idx+5:] // skip "_slot"
-	slotIndex, err = strconv.Atoi(indexStr)
+	idx, err := strconv.Atoi(slotName[4:])
 	if err != nil {
-		return "", 0, fmt.Errorf("invalid slot name %s: cannot parse index", slotName)
+		return 0, fmt.Errorf("invalid slot name %s: cannot parse index", slotName)
 	}
-	return deviceAlias, slotIndex, nil
+	return idx, nil
 }
 
 // rerollSlotNamespace destroys and recreates a slot's namespace to get a new IP.
 // Returns the new IPv4, IPv6, and any error.
-func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, deviceAlias string, iface string, dns64 string) (newIPv4, newIPv6 string, err error) {
+func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface string, dns64 string) (newIPv4, newIPv6 string, err error) {
 	// Get current state
 	var oldIPv6 string
 	if s, ok := c.SlotRepo.Get(slotName); ok {
@@ -204,7 +197,7 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, device
 
 	// Destroy + recreate
 	c.Provisioner.DestroySlot(slotName)
-	if err := c.Provisioner.CreateSlot(deviceAlias, slotIndex, iface, dns64); err != nil {
+	if err := c.Provisioner.CreateSlot(slotIndex, iface, dns64); err != nil {
 		return "", "", fmt.Errorf("recreate %s: %w", slotName, err)
 	}
 
@@ -240,7 +233,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		}
 	}
 
-	deviceAlias, slotIndex, err := parseSlotName(request.SlotName)
+	slotIndex, err := parseSlotIndex(request.SlotName)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +251,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		c.Log.Infof("recycling slot %s (index %d)", request.SlotName, slotIndex)
 	}
 
-	newIPv4, _, err := c.rerollSlotNamespace(request.SlotName, slotIndex, deviceAlias, slot.Interface, slot.Nameserver)
+	newIPv4, _, err := c.rerollSlotNamespace(request.SlotName, slotIndex, slot.Interface, slot.Nameserver)
 	if err != nil {
 		slot.Status = entity.SlotStatusUnhealthy
 		if c.Log != nil {
@@ -284,8 +277,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	}
 
 	// count = total desired slots (declarative)
-	existing, _ := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
-	existingCount := len(existing)
+	existingCount := c.SlotRepo.CountByDevice(deviceAlias)
 
 	if existingCount >= count {
 		if c.Log != nil {
@@ -314,32 +306,33 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		toCreate = 0
 	}
 
-	// Use globally unique slot indices to prevent port collisions across devices
+	// Use globally unique slot indices
+	var createdNames []string
 	for i := 0; i < toCreate; i++ {
 		idx := c.SlotRepo.NextSlotIndex()
-		slotName := fmt.Sprintf("%s_slot%d", deviceAlias, idx)
+		slotName := fmt.Sprintf("slot%d", idx)
 		if c.Log != nil {
 			c.Log.Infof("provisioning %s (%d/%d)", slotName, i+1, toCreate)
 		}
-		if err := c.Provisioner.CreateSlot(deviceAlias, idx, iface, dns64); err != nil {
+		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
 			if c.Log != nil {
 				c.Log.WithError(err).Errorf("failed to provision %s", slotName)
 			}
 			failed++
 			continue
 		}
+		createdNames = append(createdNames, slotName)
 		created++
 	}
 
 	// Wait for SLAAC
 	time.Sleep(slaacWaitDuration)
 
-	// Discover all slots for this device
-	allNames, _ := c.Provisioner.ListSlotNamespacesForDevice(deviceAlias)
-	discovered := c.Discovery.DiscoverAll(allNames)
+	// Discover only the just-created slots (avoids overwriting other devices' data)
+	discovered := c.Discovery.DiscoverAll(createdNames)
 	c.UpdateSlots(discovered)
 
-	// Set DeviceAlias, Interface, and ISP config on discovered slots
+	// Set DeviceAlias, Interface, and ISP config on newly created slots
 	for _, d := range discovered {
 		if s, ok := c.SlotRepo.Get(d.Name); ok {
 			s.DeviceAlias = deviceAlias
@@ -363,7 +356,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	return &model.ProvisionResponse{
 		Created:   created,
 		Failed:    failed,
-		Total:     len(allNames),
+		Total:     existingCount + created,
 		UniqueIPs: len(ipSet),
 	}, nil
 }

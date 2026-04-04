@@ -82,6 +82,17 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 	}
 }
 
+// ServeConn handles a single pre-accepted connection.
+func (c *Socks5Handler) ServeConn(conn net.Conn) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := c.server.ServeConn(conn); err != nil {
+			c.Log.WithError(err).Debug("socks5 connection ended with error")
+		}
+	}()
+}
+
 // Shutdown stops accepting new connections and waits for active ones to drain.
 func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 	c.cancel()

@@ -101,6 +101,47 @@ func (c *ProxyUseCase) SelectSlot(clientIP string) (string, error) {
 	return slot.Name, nil
 }
 
+// SelectSlotForDevice picks a slot from a specific device using the load balancing strategy.
+func (c *ProxyUseCase) SelectSlotForDevice(deviceAlias string, clientIP string) (string, error) {
+	healthy := c.SlotRepo.ListHealthyForDevice(deviceAlias)
+	if len(healthy) == 0 {
+		return "", model.ErrNoSlotsAvailable
+	}
+
+	var slot *entity.Slot
+
+	switch c.Strategy {
+	case StrategyRoundRobin:
+		idx := atomic.AddUint64(&c.rrIndex, 1)
+		slot = healthy[idx%uint64(len(healthy))]
+
+	case StrategyLeastConnections:
+		best := healthy[0]
+		bestConns := atomic.LoadInt64(&best.ActiveConnections)
+		for _, s := range healthy[1:] {
+			conns := atomic.LoadInt64(&s.ActiveConnections)
+			if conns < bestConns {
+				best = s
+				bestConns = conns
+			}
+		}
+		slot = best
+
+	case StrategyStickyIP:
+		if clientIP == "" {
+			slot = healthy[rand.Intn(len(healthy))]
+		} else {
+			hash := fnvHash(clientIP)
+			slot = healthy[hash%uint64(len(healthy))]
+		}
+
+	default: // random
+		slot = healthy[rand.Intn(len(healthy))]
+	}
+
+	return slot.Name, nil
+}
+
 // getSlotConfig returns the ISP config for a slot.
 func (c *ProxyUseCase) getSlotConfig(name string) (nameserver, nat64Prefix string) {
 	if slot, ok := c.SlotRepo.Get(name); ok {

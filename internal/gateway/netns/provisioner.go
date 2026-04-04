@@ -24,9 +24,9 @@ func NewProvisioner(log *logrus.Logger) *Provisioner {
 	return &Provisioner{Log: log}
 }
 
-func (p *Provisioner) CreateSlot(deviceAlias string, slotIndex int, iface string, dns64 string) error {
-	name := fmt.Sprintf("%s_slot%d", deviceAlias, slotIndex)
-	ipvlanName := fmt.Sprintf("%s_ipvlan%d", deviceAlias, slotIndex)
+func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) error {
+	name := fmt.Sprintf("slot%d", slotIndex)
+	ipvlanName := fmt.Sprintf("ipvlan%d", slotIndex)
 
 	// Lock thread for entire operation — setns operates on the calling thread
 	runtime.LockOSThread()
@@ -243,25 +243,10 @@ func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
 
 	var slots []string
 	for _, entry := range entries {
-		if strings.Contains(entry.Name(), "_slot") {
+		if strings.HasPrefix(entry.Name(), "slot") {
 			slots = append(slots, entry.Name())
 		}
 	}
 	return slots, nil
 }
 
-// ListSlotNamespacesForDevice returns namespace names matching a device prefix
-func (p *Provisioner) ListSlotNamespacesForDevice(deviceAlias string) ([]string, error) {
-	all, err := p.ListSlotNamespaces()
-	if err != nil {
-		return nil, err
-	}
-	prefix := deviceAlias + "_slot"
-	var filtered []string
-	for _, ns := range all {
-		if strings.HasPrefix(ns, prefix) {
-			filtered = append(filtered, ns)
-		}
-	}
-	return filtered, nil
-}

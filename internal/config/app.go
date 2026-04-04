@@ -3,9 +3,7 @@
 package config
 
 import (
-	"context"
 	"embed"
-	"net"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -30,12 +28,10 @@ type BootstrapConfig struct {
 }
 
 type BootstrapResult struct {
-	SlotUseCase      *usecase.SlotUseCase
-	DeviceUseCase    *usecase.DeviceUseCase
-	Socks5Handler    *proxy.Socks5Handler
-	HttpProxyHandler *proxy.HttpProxyHandler
-	PortHandler      *proxy.PortBasedHandler
-	RouteConfig      *route.RouteConfig
+	SlotUseCase   *usecase.SlotUseCase
+	DeviceUseCase *usecase.DeviceUseCase
+	PortHandler   *proxy.PortBasedHandler
+	RouteConfig   *route.RouteConfig
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
@@ -69,21 +65,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
 
-	// Main proxy ConnectFunc — selects slot via strategy, then connects
-	mainConnect := proxy.ConnectFunc(func(ctx context.Context, addr string) (net.Conn, error) {
-		slotName, err := proxyUC.SelectSlot("")
-		if err != nil {
-			return nil, err
-		}
-		return proxyUC.Connect(slotName, addr)
-	})
-
-	// Proxy handlers
-	socks5Handler := proxy.NewSocks5Handler(cfg.Logger, mainConnect)
-	httpProxyHandler := proxy.NewHttpProxyHandler(cfg.Logger, mainConnect)
-	socks5PortStart := cfg.Viper.GetInt("proxy.port_based_socks5_start")
-	httpPortStart := cfg.Viper.GetInt("proxy.port_based_http_start")
-	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, socks5PortStart, httpPortStart)
+	// Port-based handler (shared + device + per-slot mux listeners)
+	proxyPort := cfg.Viper.GetInt("proxy.port")
+	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
+	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart)
 
 	// Routes
 	routeConfig := &route.RouteConfig{
@@ -95,11 +80,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 
 	return &BootstrapResult{
-		SlotUseCase:      slotUC,
-		DeviceUseCase:    deviceUC,
-		Socks5Handler:    socks5Handler,
-		HttpProxyHandler: httpProxyHandler,
-		PortHandler:      portHandler,
-		RouteConfig:      routeConfig,
+		SlotUseCase:   slotUC,
+		DeviceUseCase: deviceUC,
+		PortHandler:   portHandler,
+		RouteConfig:   routeConfig,
 	}
 }

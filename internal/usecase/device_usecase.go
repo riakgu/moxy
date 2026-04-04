@@ -306,14 +306,11 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 
 // teardownDevice destroys namespaces and removes slots for a device.
 func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
-	namespaces, err := c.Provisioner.ListSlotNamespacesForDevice(device.Alias)
-	if err != nil {
-		c.Log.WithError(err).Warnf("teardown %s: list namespaces failed", device.Alias)
-		return
-	}
-	for _, ns := range namespaces {
-		if err := c.Provisioner.DestroySlot(ns); err != nil {
-			c.Log.WithError(err).Warnf("teardown %s: failed to destroy %s", device.Alias, ns)
+	// Get slot names from in-memory repo (not filesystem)
+	slotNames := c.SlotRepo.ListNamesForDevice(device.Alias)
+	for _, name := range slotNames {
+		if err := c.Provisioner.DestroySlot(name); err != nil {
+			c.Log.WithError(err).Warnf("teardown %s: failed to destroy %s", device.Alias, name)
 		}
 	}
 	removed := c.SlotRepo.DeleteByDevice(device.Alias)

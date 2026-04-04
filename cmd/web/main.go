@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/riakgu/moxy/internal/config"
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/web"
 )
 
@@ -27,6 +28,9 @@ func main() {
 	})
 
 	b.RouteConfig.Setup()
+
+	// Start shared proxy port
+	b.PortHandler.StartShared()
 
 	// Auto-scan: discover ADB devices, setup, provision 1 slot each
 	log.Info("running initial device scan...")
@@ -47,7 +51,8 @@ func main() {
 		log.Infof("discovered %d slots", count)
 	}
 
-	// Sync port-based listeners
+	// Sync device + slot listeners
+	b.PortHandler.SyncDevices(deviceAliases(scanResult))
 	b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
 
 	// Discovery ticker
@@ -73,23 +78,8 @@ func main() {
 		}
 	}()
 
-	// Start listeners
-	socks5Addr := fmt.Sprintf(":%d", v.GetInt("proxy.socks5_port"))
-	httpProxyAddr := fmt.Sprintf(":%d", v.GetInt("proxy.http_port"))
+	// Start API listener
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
-
-	go func() {
-		if err := b.Socks5Handler.ListenAndServe(socks5Addr); err != nil {
-			log.WithError(err).Fatal("SOCKS5 listener failed")
-		}
-	}()
-
-	go func() {
-		if err := b.HttpProxyHandler.ListenAndServe(httpProxyAddr); err != nil {
-			log.WithError(err).Fatal("HTTP proxy listener failed")
-		}
-	}()
-
 	go func() {
 		if err := app.Listen(apiAddr); err != nil {
 			log.WithError(err).Fatal("API listener failed")
@@ -108,20 +98,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 
-	// Stop accepting new proxy connections
-	log.Info("stopping SOCKS5 listener...")
-	if err := b.Socks5Handler.Shutdown(ctx); err != nil {
-		log.WithError(err).Warn("SOCKS5 shutdown: some connections did not drain in time")
-	}
-
-	log.Info("stopping HTTP proxy listener...")
-	if err := b.HttpProxyHandler.Shutdown(ctx); err != nil {
-		log.WithError(err).Warn("HTTP proxy shutdown: some connections did not drain in time")
-	}
-
-	log.Info("stopping port-based listeners...")
+	log.Info("stopping proxy listeners...")
 	if err := b.PortHandler.Shutdown(ctx); err != nil {
-		log.WithError(err).Warn("port-based shutdown: some connections did not drain in time")
+		log.WithError(err).Warn("proxy shutdown: some connections did not drain in time")
 	}
 
 	// Stop API/dashboard
@@ -130,4 +109,15 @@ func main() {
 	}
 
 	log.Info("moxy stopped")
+}
+
+func deviceAliases(scan *model.ScanResponse) []string {
+	if scan == nil {
+		return nil
+	}
+	aliases := make([]string, 0, len(scan.Devices))
+	for _, d := range scan.Devices {
+		aliases = append(aliases, d.Alias)
+	}
+	return aliases
 }

@@ -1,20 +1,23 @@
 {
     "proxy": {
-        "socks5_port": 1080,
-        "http_port": 8080,
-        "source_ip_strategy": "round-robin",
-        "port_based_socks5_start": 0,
-        "port_based_http_start": 0
+        "port": 1080,
+        "slot_port_start": 10000,
+        "source_ip_strategy": "round-robin"
     },
     "api": {
-        "port": 3000
+        "port": 8080
     },
     "slots": {
-        "max_slots_per_device": 20,
+        "max_slots_per_device": 250,
         "discovery_interval_seconds": 30,
         "discovery_concurrency": 20,
         "ip_check_host": "api.ipify.org"
     },
-    "server": { "shutdown_drain_seconds": 30 },
-    "log": { "level": "info", "format": "json" }
+    "server": {
+        "shutdown_drain_seconds": 30
+    },
+    "log": {
+        "level": "info",
+        "format": "json"
+    }
 }

@@ -15,44 +15,118 @@ import (
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// PortBasedHandler manages per-slot proxy listeners on sequential ports.
-// Each slot gets two ports: one SOCKS5 (via Socks5Handler) and one HTTP (via HttpProxyHandler).
-// No authentication required — the port number determines the slot.
+// PortBasedHandler manages three tiers of mux proxy listeners:
+// - Shared (load-balanced across all devices)
+// - Device-level (load-balanced across one device's slots)
+// - Per-slot (specific IP)
 type PortBasedHandler struct {
-	Log         *logrus.Logger
-	proxyUC     *usecase.ProxyUseCase
-	socks5Start int
-	httpStart   int
-	mu          sync.Mutex
-	slots       map[string]*portSlot
-}
-
-// portSlot holds the per-slot handler instances.
-type portSlot struct {
-	slotName string
-	socks5   *Socks5Handler
-	http     *HttpProxyHandler
+	Log       *logrus.Logger
+	proxyUC   *usecase.ProxyUseCase
+	proxyPort int // shared + device-level base port
+	slotStart int // per-slot base port
+	mu        sync.Mutex
+	shared    *MuxHandler
+	devices   map[string]*MuxHandler // alias → handler
+	slots     map[string]*MuxHandler // slotName → handler
 }
 
 // NewPortBasedHandler creates a new port-based handler.
 func NewPortBasedHandler(
 	log *logrus.Logger,
 	proxyUC *usecase.ProxyUseCase,
-	socks5Start int,
-	httpStart int,
+	proxyPort int,
+	slotStart int,
 ) *PortBasedHandler {
 	return &PortBasedHandler{
-		Log:         log,
-		proxyUC:     proxyUC,
-		socks5Start: socks5Start,
-		httpStart:   httpStart,
-		slots:       make(map[string]*portSlot),
+		Log:       log,
+		proxyUC:   proxyUC,
+		proxyPort: proxyPort,
+		slotStart: slotStart,
+		devices:   make(map[string]*MuxHandler),
+		slots:     make(map[string]*MuxHandler),
 	}
 }
 
-// SyncSlots starts/stops port listeners to match the current set of slots.
+// StartShared starts the shared proxy port (load-balanced across all devices).
+func (c *PortBasedHandler) StartShared() {
+	if c.proxyPort <= 0 {
+		return
+	}
+	addr := fmt.Sprintf(":%d", c.proxyPort)
+	connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+		slotName, err := c.proxyUC.SelectSlot("")
+		if err != nil {
+			return nil, err
+		}
+		return c.proxyUC.Connect(slotName, targetAddr)
+	}
+	c.shared = NewMuxHandler(c.Log, connect)
+	go func() {
+		if err := c.shared.ListenAndServe(addr); err != nil {
+			c.Log.WithError(err).Errorf("shared proxy failed on %s", addr)
+		}
+	}()
+	c.Log.Infof("shared proxy on %s", addr)
+}
+
+// SyncDevices starts/stops device-level mux handlers.
+func (c *PortBasedHandler) SyncDevices(aliases []string) {
+	if c.proxyPort <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	desired := make(map[string]bool)
+	for _, alias := range aliases {
+		desired[alias] = true
+	}
+
+	// Stop removed devices
+	for alias, handler := range c.devices {
+		if !desired[alias] {
+			c.Log.Infof("stopping device proxy for %s", alias)
+			handler.Shutdown(context.Background())
+			delete(c.devices, alias)
+		}
+	}
+
+	// Start new devices
+	for _, alias := range aliases {
+		if _, exists := c.devices[alias]; exists {
+			continue
+		}
+		devIdx := deviceIndex(alias)
+		if devIdx <= 0 {
+			continue
+		}
+		port := c.proxyPort + devIdx
+		addr := fmt.Sprintf(":%d", port)
+
+		deviceAlias := alias // capture for closure
+		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+			slotName, err := c.proxyUC.SelectSlotForDevice(deviceAlias, "")
+			if err != nil {
+				return nil, err
+			}
+			return c.proxyUC.Connect(slotName, targetAddr)
+		}
+
+		handler := NewMuxHandler(c.Log, connect)
+		go func() {
+			if err := handler.ListenAndServe(addr); err != nil {
+				c.Log.WithError(err).Warnf("device proxy for %s failed on %s", deviceAlias, addr)
+			}
+		}()
+
+		c.devices[alias] = handler
+		c.Log.Infof("device proxy: %s → port %d", alias, port)
+	}
+}
+
+// SyncSlots starts/stops per-slot mux handlers.
 func (c *PortBasedHandler) SyncSlots(slotNames []string) {
-	if c.socks5Start <= 0 && c.httpStart <= 0 {
+	if c.slotStart <= 0 {
 		return
 	}
 
@@ -64,16 +138,16 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 		desired[name] = true
 	}
 
-	// Stop listeners for removed slots
-	for name, ps := range c.slots {
+	// Stop removed slots
+	for name, handler := range c.slots {
 		if !desired[name] {
-			c.Log.Infof("port-based: stopping listeners for %s", name)
-			c.stopSlot(ps)
+			c.Log.Infof("stopping slot proxy for %s", name)
+			handler.Shutdown(context.Background())
 			delete(c.slots, name)
 		}
 	}
 
-	// Start listeners for new slots
+	// Start new slots
 	for _, name := range slotNames {
 		if _, exists := c.slots[name]; exists {
 			continue
@@ -84,118 +158,72 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 			continue
 		}
 
-		ps := c.startSlot(name, slotIndex)
-		if ps != nil {
-			c.slots[name] = ps
+		port := c.slotStart + slotIndex
+		addr := fmt.Sprintf(":%d", port)
+
+		slotName := name // capture for closure
+		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+			return c.proxyUC.Connect(slotName, targetAddr)
 		}
-	}
-}
 
-// startSlot creates and starts SOCKS5 + HTTP handlers for a single slot.
-func (c *PortBasedHandler) startSlot(slotName string, slotIndex int) *portSlot {
-	connect := func(ctx context.Context, addr string) (net.Conn, error) {
-		return c.proxyUC.Connect(slotName, addr)
-	}
-
-	ps := &portSlot{slotName: slotName}
-	started := false
-
-	// SOCKS5 handler
-	if c.socks5Start > 0 {
-		port := c.socks5Start + slotIndex
-		addr := fmt.Sprintf(":%d", port)
-
-		handler := NewSocks5Handler(c.Log, connect)
+		handler := NewMuxHandler(c.Log, connect)
 		go func() {
 			if err := handler.ListenAndServe(addr); err != nil {
-				c.Log.WithError(err).Warnf("port-based: SOCKS5 failed on port %d for %s", port, slotName)
+				c.Log.WithError(err).Warnf("slot proxy for %s failed on %s", slotName, addr)
 			}
 		}()
 
-		ps.socks5 = handler
-		c.Log.Infof("port-based: %s → SOCKS5 port %d", slotName, port)
-		started = true
-	}
-
-	// HTTP handler
-	if c.httpStart > 0 {
-		port := c.httpStart + slotIndex
-		addr := fmt.Sprintf(":%d", port)
-
-		handler := NewHttpProxyHandler(c.Log, connect)
-		go func() {
-			if err := handler.ListenAndServe(addr); err != nil {
-				c.Log.WithError(err).Warnf("port-based: HTTP failed on port %d for %s", port, slotName)
-			}
-		}()
-
-		ps.http = handler
-		c.Log.Infof("port-based: %s → HTTP port %d", slotName, port)
-		started = true
-	}
-
-	if !started {
-		return nil
-	}
-	return ps
-}
-
-// stopSlot shuts down both handlers for a slot.
-func (c *PortBasedHandler) stopSlot(ps *portSlot) {
-	ctx := context.Background()
-	if ps.socks5 != nil {
-		ps.socks5.Shutdown(ctx)
-	}
-	if ps.http != nil {
-		ps.http.Shutdown(ctx)
+		c.slots[name] = handler
+		c.Log.Infof("slot proxy: %s → port %d", name, port)
 	}
 }
 
-// GetPortMappings returns current slot → port mappings for the dashboard.
-func (c *PortBasedHandler) GetPortMappings() map[string]map[string]int {
+// GetPortMappings returns current slot → port mappings.
+func (c *PortBasedHandler) GetPortMappings() map[string]int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	mappings := make(map[string]map[string]int, len(c.slots))
+	mappings := make(map[string]int, len(c.slots))
 	for name := range c.slots {
-		slotIndex := extractSlotIndex(name)
-		if slotIndex < 0 {
-			continue
+		idx := extractSlotIndex(name)
+		if idx >= 0 {
+			mappings[name] = c.slotStart + idx
 		}
-		m := make(map[string]int)
-		if c.socks5Start > 0 {
-			m["socks5"] = c.socks5Start + slotIndex
-		}
-		if c.httpStart > 0 {
-			m["http"] = c.httpStart + slotIndex
-		}
-		mappings[name] = m
 	}
 	return mappings
 }
 
-// Shutdown stops all port-based listeners and drains connections.
+// Shutdown stops all listeners.
 func (c *PortBasedHandler) Shutdown(ctx context.Context) error {
 	c.mu.Lock()
-	for _, ps := range c.slots {
-		c.stopSlot(ps)
+	if c.shared != nil {
+		c.shared.Shutdown(ctx)
+	}
+	for _, h := range c.devices {
+		h.Shutdown(ctx)
+	}
+	for _, h := range c.slots {
+		h.Shutdown(ctx)
 	}
 	c.mu.Unlock()
 	return nil
 }
 
-// extractSlotIndex parses "dev1_slot0" → 0, "dev2_slot5" → 5, etc.
+// extractSlotIndex parses "slot0" → 0, "slot5" → 5, etc.
 func extractSlotIndex(name string) int {
-	idx := strings.LastIndex(name, "_slot")
-	if idx >= 0 {
-		n, err := strconv.Atoi(name[idx+5:])
+	if strings.HasPrefix(name, "slot") {
+		n, err := strconv.Atoi(name[4:])
 		if err != nil {
 			return -1
 		}
 		return n
 	}
-	if len(name) >= 5 && name[:4] == "slot" {
-		n, err := strconv.Atoi(name[4:])
+	return -1
+}
+
+// deviceIndex extracts the numeric part from "dev1" → 1, "dev2" → 2.
+func deviceIndex(alias string) int {
+	if strings.HasPrefix(alias, "dev") {
+		n, err := strconv.Atoi(alias[3:])
 		if err != nil {
 			return -1
 		}
