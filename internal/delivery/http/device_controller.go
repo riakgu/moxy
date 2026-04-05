@@ -80,7 +80,7 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 
 func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
 	alias := ctx.Params("alias")
-	resp, err := c.DeviceUC.Setup(alias)
+	resp, err := c.DeviceUC.Setup(ctx.UserContext(), alias)
 	if err != nil {
 		if errors.Is(err, model.ErrDeviceNotDetected) {
 			return fiber.NewError(fiber.StatusConflict, err.Error())

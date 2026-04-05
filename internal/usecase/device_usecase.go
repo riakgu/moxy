@@ -71,6 +71,12 @@ func NewDeviceUseCase(
 	}
 }
 
+// SetMonitor sets the slot monitor for this use case.
+// Must be called after construction to break the circular dependency.
+func (c *DeviceUseCase) SetMonitor(m *SlotMonitorUseCase) {
+	c.Monitor = m
+}
+
 // Scan discovers ADB devices and registers new ones as "detected".
 // No setup or provisioning — use Setup(alias) for that.
 func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
@@ -128,7 +134,7 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 
 // Setup runs the full setup pipeline for a single detected device.
 // Configures tethering, network interface, DNS64, and auto-provisions 1 slot.
-func (c *DeviceUseCase) Setup(alias string) (*model.SetupResponse, error) {
+func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupResponse, error) {
 	device, ok := c.DeviceRepo.GetByAlias(alias)
 	if !ok {
 		return nil, fmt.Errorf("device %s not found", alias)
@@ -140,7 +146,7 @@ func (c *DeviceUseCase) Setup(alias string) (*model.SetupResponse, error) {
 	device.Status = entity.DeviceStatusSetup
 	c.DeviceRepo.Put(device)
 
-	if err := c.setup(device); err != nil {
+	if err := c.setup(ctx, device); err != nil {
 		c.Log.WithError(err).Warnf("setup: failed for %s (%s)", device.Alias, device.Serial)
 		device.Status = entity.DeviceStatusError
 		c.DeviceRepo.Put(device)
@@ -387,8 +393,8 @@ func (c *DeviceUseCase) cancelAllGraceTimers() {
 	}
 }
 
-// setup runs the device setup steps (private — called by Scan).
-func (c *DeviceUseCase) setup(device *entity.Device) error {
+// setup runs the device setup steps (private — called by Setup).
+func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error {
 	type setupStep struct {
 		Name string
 		Fn   func() error
@@ -424,7 +430,12 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 			if err := c.Provisioner.ConfigureIPv6SLAAC(device.Interface); err != nil {
 				return err
 			}
-			time.Sleep(5 * time.Second) // Wait for SLAAC
+			// Wait for SLAAC (cancellable)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+			}
 			return nil
 		}},
 		{"ipv6_verified", func() error {
@@ -484,6 +495,9 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 	}
 
 	for _, step := range steps {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		c.Log.Infof("device %s: running step %s", device.Alias, step.Name)
 		if err := step.Fn(); err != nil {
 			return fmt.Errorf("step %s: %w", step.Name, err)

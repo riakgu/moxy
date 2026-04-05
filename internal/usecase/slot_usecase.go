@@ -62,7 +62,11 @@ func NewSlotUseCase(
 	}
 }
 
-
+// SetMonitor sets the slot monitor for this use case.
+// Must be called after construction to break the circular dependency.
+func (c *SlotUseCase) SetMonitor(m *SlotMonitorUseCase) {
+	c.Monitor = m
+}
 
 func (c *SlotUseCase) GetSlotNames() []string {
 	return c.SlotRepo.ListNames()

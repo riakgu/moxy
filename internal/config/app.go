@@ -74,7 +74,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		monitorConfig.FastTicks = 6
 	}
 	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
-	slotUC.Monitor = slotMonitor
+	slotUC.SetMonitor(slotMonitor)
 	ispProbe := netns.NewISPProbe(cfg.Logger)
 
 	// ADB device watcher (event-driven device monitoring)
@@ -87,7 +87,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod)
-	deviceUC.Monitor = slotMonitor
+	deviceUC.SetMonitor(slotMonitor)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 
 	// Controllers
