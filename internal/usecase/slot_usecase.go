@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -72,6 +73,9 @@ func (c *SlotUseCase) ListAll() []model.SlotResponse {
 	for _, s := range slots {
 		result = append(result, *converter.SlotToResponse(s))
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return naturalSlotLess(result[i].Name, result[j].Name)
+	})
 	return result
 }
 
@@ -332,5 +336,15 @@ func (uc *SlotUseCase) CleanupOrphans() (int, error) {
 		return 0, fmt.Errorf("cleanup orphans: %w", err)
 	}
 	return cleaned, nil
+}
+
+// naturalSlotLess compares slot names by their numeric suffix (e.g., slot2 < slot10).
+func naturalSlotLess(a, b string) bool {
+	aNum, aErr := strconv.Atoi(strings.TrimPrefix(a, "slot"))
+	bNum, bErr := strconv.Atoi(strings.TrimPrefix(b, "slot"))
+	if aErr == nil && bErr == nil {
+		return aNum < bNum
+	}
+	return a < b
 }
 
