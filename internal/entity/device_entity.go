@@ -1,10 +1,11 @@
 package entity
 
 const (
-	DeviceStatusOffline = "offline"
-	DeviceStatusSetup   = "setup"
-	DeviceStatusOnline  = "online"
-	DeviceStatusError   = "error"
+	DeviceStatusDetected = "detected"
+	DeviceStatusOffline  = "offline"
+	DeviceStatusSetup    = "setup"
+	DeviceStatusOnline   = "online"
+	DeviceStatusError    = "error"
 )
 
 type Device struct {

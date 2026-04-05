@@ -29,6 +29,7 @@ func (c *RouteConfig) Setup() {
 	api.Get("/devices/:alias", c.DeviceController.Get)
 	api.Delete("/devices/:alias", c.DeviceController.Delete)
 	api.Post("/devices/:alias/provision", c.DeviceController.Provision)
+	api.Post("/devices/:alias/setup", c.DeviceController.Setup)
 
 	// Slot routes — static routes BEFORE :slotName wildcard
 	api.Post("/slots/cleanup", c.SlotController.Cleanup)

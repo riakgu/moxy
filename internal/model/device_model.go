@@ -18,9 +18,12 @@ type DeviceResponse struct {
 
 type ScanResponse struct {
 	Discovered int              `json:"discovered"`
-	SetupOk    int              `json:"setup_ok"`
-	Failed     int              `json:"failed"`
 	Devices    []DeviceResponse `json:"devices"`
+}
+
+type SetupResponse struct {
+	Device    DeviceResponse     `json:"device"`
+	Provision *ProvisionResponse `json:"provision,omitempty"`
 }
 
 type ISPProbeResult struct {

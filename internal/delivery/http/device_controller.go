@@ -1,6 +1,8 @@
 package http
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 
@@ -74,4 +76,16 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{Data: resp})
+}
+
+func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
+	alias := ctx.Params("alias")
+	resp, err := c.DeviceUC.Setup(alias)
+	if err != nil {
+		if errors.Is(err, model.ErrDeviceNotDetected) {
+			return fiber.NewError(fiber.StatusConflict, err.Error())
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return ctx.JSON(model.WebResponse[*model.SetupResponse]{Data: resp})
 }

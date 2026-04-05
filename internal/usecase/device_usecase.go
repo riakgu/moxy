@@ -54,8 +54,8 @@ func NewDeviceUseCase(
 	}
 }
 
-// Scan discovers ADB devices, sets up new ones, and tears down missing ones.
-// New devices get 1 slot auto-provisioned.
+// Scan discovers ADB devices and registers new ones as "detected".
+// No setup or provisioning — use Setup(alias) for that.
 func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	serials, err := c.ADB.ListDevices()
 	if err != nil {
@@ -65,40 +65,21 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	resp := &model.ScanResponse{}
 	serialSet := make(map[string]bool, len(serials))
 
-	// Setup new phones
+	// Register new phones as "detected" — no setup, no provisioning
 	for _, serial := range serials {
 		serialSet[serial] = true
 
 		if _, exists := c.DeviceRepo.GetBySerial(serial); exists {
-			continue // already registered
+			continue // already known
 		}
 
 		resp.Discovered++
 		device := &entity.Device{
 			Alias:  c.DeviceRepo.NextAlias(),
 			Serial: serial,
-			Status: entity.DeviceStatusSetup,
+			Status: entity.DeviceStatusDetected,
 		}
 		c.DeviceRepo.Put(device)
-
-		if err := c.setup(device); err != nil {
-			c.Log.WithError(err).Warnf("scan: setup failed for %s (%s)", device.Alias, serial)
-			device.Status = entity.DeviceStatusError
-			c.DeviceRepo.Put(device)
-			resp.Failed++
-			continue
-		}
-
-		// Auto-provision 1 slot
-		_, provErr := c.SlotProvision.ProvisionSlots(
-			device.Alias, device.Interface, 1,
-			device.Nameserver, device.NAT64Prefix,
-		)
-		if provErr != nil {
-			c.Log.WithError(provErr).Warnf("scan: provision failed for %s", device.Alias)
-		}
-
-		resp.SetupOk++
 	}
 
 	// Teardown disconnected phones
@@ -119,6 +100,46 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	}
 
 	return resp, nil
+}
+
+// Setup runs the full setup pipeline for a single detected device.
+// Configures tethering, network interface, DNS64, and auto-provisions 1 slot.
+func (c *DeviceUseCase) Setup(alias string) (*model.SetupResponse, error) {
+	device, ok := c.DeviceRepo.GetByAlias(alias)
+	if !ok {
+		return nil, fmt.Errorf("device %s not found", alias)
+	}
+	if device.Status != entity.DeviceStatusDetected {
+		return nil, model.ErrDeviceNotDetected
+	}
+
+	device.Status = entity.DeviceStatusSetup
+	c.DeviceRepo.Put(device)
+
+	if err := c.setup(device); err != nil {
+		c.Log.WithError(err).Warnf("setup: failed for %s (%s)", device.Alias, device.Serial)
+		device.Status = entity.DeviceStatusError
+		c.DeviceRepo.Put(device)
+		return nil, err
+	}
+
+	// Auto-provision 1 slot
+	var provResp *model.ProvisionResponse
+	prov, provErr := c.SlotProvision.ProvisionSlots(
+		device.Alias, device.Interface, 1,
+		device.Nameserver, device.NAT64Prefix,
+	)
+	if provErr != nil {
+		c.Log.WithError(provErr).Warnf("setup: provision failed for %s", device.Alias)
+	} else {
+		provResp = prov
+	}
+
+	slotCount := c.SlotRepo.CountByDevice(device.Alias)
+	return &model.SetupResponse{
+		Device:    *converter.DeviceToResponse(device, slotCount),
+		Provision: provResp,
+	}, nil
 }
 
 // ListADBDevices returns raw ADB serial numbers.

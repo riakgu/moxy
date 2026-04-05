@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useDevices } from '../hooks/useDevices'
 import { useSlots } from '../hooks/useSlots'
-import { scanDevices } from '../api/devices'
+import { scanDevices, setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot, cleanupOrphans } from '../api/slots'
 import StatsBar from '../components/StatsBar'
@@ -42,11 +42,25 @@ export default function Dashboard() {
     try {
       const result = await scanDevices()
       await refetchAll()
-      addToast(`Scan complete: ${result.discovered} discovered, ${result.setup_ok} online`, 'success')
+      addToast(`Scan complete: ${result.discovered} new device${result.discovered !== 1 ? 's' : ''} detected`, 'success')
     } catch (e) {
       addToast(`Scan failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     } finally {
       setScanning(false)
+    }
+  }
+
+  const handleSetupDevice = async (alias: string) => {
+    try {
+      const result = await setupDevice(alias)
+      await refetchAll()
+      const msg = result.provision
+        ? `${alias} online — ${result.provision.created} slot provisioned`
+        : `${alias} online`
+      addToast(msg, 'success')
+    } catch (e) {
+      await refetchAll()
+      addToast(`Setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
@@ -217,6 +231,7 @@ export default function Dashboard() {
                 slots={slots.filter((s) => s.device_alias === device.alias)}
                 onProvision={handleProvision}
                 onDeleteDevice={handleDeleteDevice}
+                onSetupDevice={handleSetupDevice}
                 onChangeSlotIP={handleChangeSlotIP}
                 onDeleteSlot={handleDeleteSlot}
                 host={host}

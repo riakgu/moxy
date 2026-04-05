@@ -11,7 +11,7 @@ export interface Device {
   interface: string
   nameserver: string
   nat64_prefix: string
-  status: 'offline' | 'setup' | 'online' | 'error'
+  status: 'detected' | 'offline' | 'setup' | 'online' | 'error'
   slot_count: number
 }
 
@@ -38,8 +38,6 @@ export interface Slot {
 // Scan — matches model.ScanResponse
 export interface ScanResponse {
   discovered: number
-  setup_ok: number
-  failed: number
   devices: Device[]
 }
 
@@ -53,5 +51,11 @@ export interface ProvisionResponse {
 
 export interface CleanupResponse {
   cleaned: number
+}
+
+// Setup — matches model.SetupResponse
+export interface SetupResponse {
+  device: Device
+  provision?: ProvisionResponse
 }
 

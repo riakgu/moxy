@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { listDevices } from '../api/devices'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { listDevices, scanDevices } from '../api/devices'
 import type { Device } from '../api/types'
 
 export function useDevices(intervalMs = 10000) {
   const [data, setData] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const hasScanned = useRef(false)
 
   const refetch = useCallback(async () => {
     try {
@@ -20,7 +21,19 @@ export function useDevices(intervalMs = 10000) {
   }, [])
 
   useEffect(() => {
-    refetch()
+    // Auto-scan on first page load to detect connected devices
+    const init = async () => {
+      if (!hasScanned.current) {
+        hasScanned.current = true
+        try {
+          await scanDevices()
+        } catch {
+          // Scan failure is non-critical — just show whatever devices exist
+        }
+      }
+      await refetch()
+    }
+    init()
     const id = setInterval(refetch, intervalMs)
     return () => clearInterval(id)
   }, [refetch, intervalMs])

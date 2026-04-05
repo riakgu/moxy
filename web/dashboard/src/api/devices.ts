@@ -1,8 +1,12 @@
 import { apiFetch } from './client'
-import type { Device, ScanResponse, ProvisionResponse } from './types'
+import type { Device, ScanResponse, ProvisionResponse, SetupResponse } from './types'
 
 export function scanDevices(): Promise<ScanResponse> {
   return apiFetch<ScanResponse>('/devices/scan', { method: 'POST' })
+}
+
+export function setupDevice(alias: string): Promise<SetupResponse> {
+  return apiFetch<SetupResponse>(`/devices/${alias}/setup`, { method: 'POST' })
 }
 
 export function listDevices(): Promise<Device[]> {

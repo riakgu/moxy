@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/riakgu/moxy/internal/config"
-	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/web"
 )
 
@@ -38,29 +37,9 @@ func main() {
 		log.Infof("cleaned %d orphaned namespaces", cleaned)
 	}
 
-	// Auto-scan: discover ADB devices, setup, provision 1 slot each
-	log.Info("running initial device scan...")
-	scanResult, err := b.DeviceUseCase.Scan()
-	if err != nil {
-		log.WithError(err).Warn("initial scan failed")
-	} else {
-		log.Infof("scan complete: %d discovered, %d ok, %d failed",
-			scanResult.Discovered, scanResult.SetupOk, scanResult.Failed)
-	}
-
-	// Start per-slot monitors for existing slots
-	log.Info("starting per-slot monitors...")
-	slotNames := b.SlotUseCase.GetSlotNames()
-	for _, name := range slotNames {
-		b.SlotMonitor.StartSlot(name)
-	}
-	log.Infof("started monitors for %d slots", len(slotNames))
-
-	// Sync device + slot listeners
-	b.PortHandler.SyncDevices(deviceAliases(scanResult))
-	b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
-
-	// Health check ticker (device ADB connectivity only — slot monitoring is per-goroutine)
+	// Device health ticker — checks ADB connectivity, marks disconnected devices offline.
+	// Slot health is handled by per-slot monitor goroutines.
+	// Port syncing is handled by SyncSlots calls after provisioning.
 	healthInterval := time.Duration(v.GetInt("slots.monitor_steady_interval_seconds")) * time.Second
 	if healthInterval == 0 {
 		healthInterval = 60 * time.Second
@@ -112,15 +91,4 @@ func main() {
 	}
 
 	log.Info("moxy stopped")
-}
-
-func deviceAliases(scan *model.ScanResponse) []string {
-	if scan == nil {
-		return nil
-	}
-	aliases := make([]string, 0, len(scan.Devices))
-	for _, d := range scan.Devices {
-		aliases = append(aliases, d.Alias)
-	}
-	return aliases
 }
