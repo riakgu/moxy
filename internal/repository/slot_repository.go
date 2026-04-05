@@ -142,6 +142,24 @@ func (r *SlotRepository) CountByDevice(deviceAlias string) int {
 	return count
 }
 
+// UniqueIPsByDevice returns the count of distinct public IPv4 addresses
+// across all healthy slots belonging to a device.
+func (r *SlotRepository) UniqueIPsByDevice(deviceAlias string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	seen := make(map[string]bool)
+	for _, slot := range r.slots {
+		if slot.DeviceAlias == deviceAlias && slot.Status == entity.SlotStatusHealthy {
+			for _, ip := range slot.PublicIPv4s {
+				if ip != "" {
+					seen[ip] = true
+				}
+			}
+		}
+	}
+	return len(seen)
+}
+
 // ListHealthyForDevice returns healthy slots belonging to a specific device.
 func (r *SlotRepository) ListHealthyForDevice(deviceAlias string) []*entity.Slot {
 	r.mu.RLock()

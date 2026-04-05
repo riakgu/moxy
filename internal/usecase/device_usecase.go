@@ -127,7 +127,8 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	// Build response
 	for _, device := range c.DeviceRepo.ListAll() {
 		slotCount := c.SlotRepo.CountByDevice(device.Alias)
-		resp.Devices = append(resp.Devices, *converter.DeviceToResponse(device, slotCount))
+		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
+		resp.Devices = append(resp.Devices, *converter.DeviceToResponse(device, slotCount, uniqueIPs))
 	}
 	if resp.Devices == nil {
 		resp.Devices = []model.DeviceResponse{}
@@ -170,8 +171,9 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 	}
 
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
+	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
 	return &model.SetupResponse{
-		Device:    *converter.DeviceToResponse(device, slotCount),
+		Device:    *converter.DeviceToResponse(device, slotCount, uniqueIPs),
 		Provision: provResp,
 	}, nil
 }
@@ -187,7 +189,8 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	result := make([]model.DeviceResponse, 0, len(devices))
 	for _, d := range devices {
 		slotCount := c.SlotRepo.CountByDevice(d.Alias)
-		result = append(result, *converter.DeviceToResponse(d, slotCount))
+		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(d.Alias)
+		result = append(result, *converter.DeviceToResponse(d, slotCount, uniqueIPs))
 	}
 	return result, nil
 }
@@ -199,7 +202,8 @@ func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) 
 		return nil, fmt.Errorf("device %s not found", alias)
 	}
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
-	return converter.DeviceToResponse(device, slotCount), nil
+	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
+	return converter.DeviceToResponse(device, slotCount, uniqueIPs), nil
 }
 
 // Delete tears down a device and removes it from memory.
@@ -494,6 +498,13 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 				return err
 			}
 			device.Carrier = carrier
+			return nil
+		}},
+		{"device_info", func() error {
+			model, brand, version := c.ADB.GetDeviceInfo(device.Serial)
+			device.Model = model
+			device.Brand = brand
+			device.AndroidVersion = version
 			return nil
 		}},
 	}

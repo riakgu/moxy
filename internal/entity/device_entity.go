@@ -10,11 +10,14 @@ const (
 )
 
 type Device struct {
-	Alias       string
-	Serial      string
-	Carrier     string
-	Interface   string
-	Nameserver  string
-	NAT64Prefix string
-	Status      string
+	Alias          string
+	Serial         string
+	Model          string
+	Brand          string
+	AndroidVersion string
+	Carrier        string
+	Interface      string
+	Nameserver     string
+	NAT64Prefix    string
+	Status         string
 }

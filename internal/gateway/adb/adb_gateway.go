@@ -78,6 +78,14 @@ func (g *ADBGateway) DisableWifi(serial string) error {
 	return err
 }
 
+// GetDeviceInfo reads device model, brand, and Android version from system properties.
+func (g *ADBGateway) GetDeviceInfo(serial string) (model, brand, androidVersion string) {
+	model, _ = g.adbShell(serial, "getprop", "ro.product.model")
+	brand, _ = g.adbShell(serial, "getprop", "ro.product.brand")
+	androidVersion, _ = g.adbShell(serial, "getprop", "ro.build.version.release")
+	return
+}
+
 func (g *ADBGateway) GetCarrier(serial string) (string, error) {
 	// 1. Get data subscription ID
 	subId, err := g.adbShell(serial, "settings", "get", "global", "multi_sim_data_call")
