@@ -129,6 +129,9 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		ip, err := c.Discovery.ResolveSlotIP(name)
 		if err != nil {
 			if slot, ok := c.SlotRepo.Get(name); ok {
+				if slot.Status == entity.SlotStatusSuspended {
+					continue
+				}
 				slot.Status = entity.SlotStatusUnhealthy
 				slot.LastCheckedAt = time.Now().UnixMilli()
 			}
@@ -138,14 +141,15 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 
 		// Check if IP is in known pair
 		if slot, ok := c.SlotRepo.Get(name); ok {
+			if slot.Status == entity.SlotStatusSuspended {
+				continue
+			}
 			if !containsIP(slot.PublicIPv4s, ip) {
-				// Unknown IP — re-burst with full metadata
 				c.Log.Infof("monitor: %s unknown IP %s (not in pair %v) — re-detecting",
 					name, ip, slot.PublicIPv4s)
 				c.burstDetect(name)
 				fastTicks = c.Config.FastTicks
 			} else {
-				// Known IP — just update status
 				slot.LastCheckedAt = time.Now().UnixMilli()
 				slot.Status = entity.SlotStatusHealthy
 			}
