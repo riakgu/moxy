@@ -54,11 +54,12 @@ func (c *PortBasedHandler) StartShared() {
 	}
 	addr := fmt.Sprintf(":%d", c.proxyPort)
 	connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
-		slotName, err := c.proxyUC.SelectSlot("")
+		slots := c.proxyUC.SlotRepo.ListHealthy()
+		slot, err := c.proxyUC.SelectSlot(slots)
 		if err != nil {
 			return nil, err
 		}
-		return c.proxyUC.Connect(slotName, targetAddr)
+		return c.proxyUC.Connect(slot.Name, targetAddr)
 	}
 	c.shared = NewMuxHandler(c.Log, connect)
 	go func() {
@@ -105,11 +106,12 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 
 		deviceAlias := alias // capture for closure
 		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
-			slotName, err := c.proxyUC.SelectSlotForDevice(deviceAlias, "")
+			slots := c.proxyUC.SlotRepo.ListHealthyForDevice(deviceAlias)
+			slot, err := c.proxyUC.SelectSlot(slots)
 			if err != nil {
 				return nil, err
 			}
-			return c.proxyUC.Connect(slotName, targetAddr)
+			return c.proxyUC.Connect(slot.Name, targetAddr)
 		}
 
 		handler := NewMuxHandler(c.Log, connect)
