@@ -100,6 +100,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		}
 	}
 	if conn == nil {
+		d.Log.Warnf("discovery: %s DNS returned %d addrs: %v (last dial err: %v)", slotName, len(ips), ips, err)
 		return nil, fmt.Errorf("no reachable address for %s in %s: %v", d.IPCheckHost, slotName, err)
 	}
 	defer conn.Close()

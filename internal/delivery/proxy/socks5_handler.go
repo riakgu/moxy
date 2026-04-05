@@ -40,7 +40,7 @@ func NewSocks5Handler(
 		socks5.WithAuthMethods([]socks5.Authenticator{
 			socks5.NoAuthAuthenticator{},
 		}),
-		socks5.WithLogger(nopLogger{}),
+		socks5.WithLogger(socks5Logger{log: log}),
 	)
 
 	return &Socks5Handler{
@@ -76,7 +76,7 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 		go func() {
 			defer c.wg.Done()
 			if err := c.server.ServeConn(conn); err != nil {
-				c.Log.WithError(err).Debug("socks5 connection ended with error")
+				c.Log.WithError(err).Warn("socks5 connection ended with error")
 			}
 		}()
 	}
@@ -88,7 +88,7 @@ func (c *Socks5Handler) ServeConn(conn net.Conn) {
 	go func() {
 		defer c.wg.Done()
 		if err := c.server.ServeConn(conn); err != nil {
-			c.Log.WithError(err).Debug("socks5 connection ended with error")
+			c.Log.WithError(err).Warn("socks5 connection ended with error")
 		}
 	}()
 }
@@ -114,7 +114,11 @@ func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 	}
 }
 
-// nopLogger implements socks5.Logger with no output.
-type nopLogger struct{}
+// socks5Logger forwards SOCKS5 library errors to logrus.
+type socks5Logger struct {
+	log *logrus.Logger
+}
 
-func (nopLogger) Errorf(string, ...interface{}) {}
+func (l socks5Logger) Errorf(format string, args ...interface{}) {
+	l.log.Warnf("socks5: "+format, args...)
+}

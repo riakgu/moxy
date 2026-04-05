@@ -50,6 +50,7 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	conn, err := c.Dialer.Dial(slotName, targetAddr, nameserver, nat64Prefix)
 	if err != nil {
 		c.SlotRepo.DecrementConnections(slotName)
+		c.Log.Warnf("proxy: dial %s via %s failed: %v", targetAddr, slotName, err)
 		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)
 	}
 
