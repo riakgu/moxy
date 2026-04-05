@@ -99,11 +99,18 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 		c.DeviceRepo.Put(device)
 	}
 
-	// Teardown disconnected phones
+	// Teardown disconnected phones (guarded by c.mu to prevent race with grace timer)
 	for _, device := range c.DeviceRepo.ListAll() {
 		if device.Status != entity.DeviceStatusOffline && !serialSet[device.Serial] {
+			c.mu.Lock()
+			// Cancel grace timer if one exists (prevents double teardown)
+			if timer, ok := c.graceTimers[device.Serial]; ok {
+				timer.Stop()
+				delete(c.graceTimers, device.Serial)
+			}
 			c.Log.Warnf("scan: device %s (%s) disconnected — tearing down", device.Alias, device.Serial)
 			c.teardownDevice(device)
+			c.mu.Unlock()
 		}
 	}
 
@@ -326,9 +333,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	for _, name := range slotNames {
 		if err := c.Provisioner.ReattachSlot(name, iface); err != nil {
 			c.Log.Warnf("device watcher: re-attach %s failed: %v", name, err)
-			if slot, ok := c.SlotRepo.Get(name); ok {
-				slot.Status = entity.SlotStatusUnhealthy
-			}
+			c.SlotRepo.SetStatus(name, entity.SlotStatusUnhealthy)
 			continue
 		}
 		reattached++
@@ -357,9 +362,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 func (c *DeviceUseCase) suspendDeviceSlots(deviceAlias string) {
 	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
 	for _, name := range slotNames {
-		if slot, ok := c.SlotRepo.Get(name); ok {
-			slot.Status = entity.SlotStatusSuspended
-		}
+		c.SlotRepo.SetStatus(name, entity.SlotStatusSuspended)
 		if c.Monitor != nil {
 			c.Monitor.StopSlot(name)
 		}
@@ -370,9 +373,7 @@ func (c *DeviceUseCase) suspendDeviceSlots(deviceAlias string) {
 func (c *DeviceUseCase) resumeDeviceSlots(deviceAlias string) {
 	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
 	for _, name := range slotNames {
-		if slot, ok := c.SlotRepo.Get(name); ok && slot.Status == entity.SlotStatusSuspended {
-			slot.Status = entity.SlotStatusHealthy
-		}
+		c.SlotRepo.CompareAndSetStatus(name, entity.SlotStatusSuspended, entity.SlotStatusHealthy)
 	}
 }
 
@@ -490,7 +491,9 @@ func (c *DeviceUseCase) setup(device *entity.Device) error {
 	}
 
 	// Enable NDP proxy on the interface
-	c.Provisioner.EnableNDPProxy(device.Interface)
+	if err := c.Provisioner.EnableNDPProxy(device.Interface); err != nil {
+		c.Log.Warnf("device %s: enable NDP proxy on %s failed: %v", device.Alias, device.Interface, err)
+	}
 
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)

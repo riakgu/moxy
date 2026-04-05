@@ -40,7 +40,10 @@ func (r *SlotRepository) Put(slot *entity.Slot) {
 	r.slots[slot.Name] = slot
 }
 
-// Get returns a slot by name and whether it exists.
+// Get returns a slot by name and whether it exists. The returned pointer
+// references the internal map entry — callers MUST NOT mutate fields
+// without appropriate synchronization. Use Put() or SetStatus() to
+// persist changes.
 func (r *SlotRepository) Get(name string) (*entity.Slot, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -55,7 +58,29 @@ func (r *SlotRepository) Delete(name string) {
 	delete(r.slots, name)
 }
 
-// ListAll returns a snapshot of all slots.
+// SetStatus atomically updates a slot's status.
+func (r *SlotRepository) SetStatus(name string, status string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slot, ok := r.slots[name]; ok {
+		slot.Status = status
+	}
+}
+
+// CompareAndSetStatus atomically updates status only if it matches expected.
+func (r *SlotRepository) CompareAndSetStatus(name, expected, newStatus string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slot, ok := r.slots[name]; ok && slot.Status == expected {
+		slot.Status = newStatus
+		return true
+	}
+	return false
+}
+
+// ListAll returns a snapshot of all slots. The returned pointers reference
+// the internal map entries — callers MUST NOT mutate fields without
+// appropriate synchronization. Use Put() or SetStatus() to persist changes.
 func (r *SlotRepository) ListAll() []*entity.Slot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
