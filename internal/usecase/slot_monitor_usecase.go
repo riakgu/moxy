@@ -128,7 +128,10 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		// Steady-state: single lightweight check (plain text, just IP)
 		ip, err := c.Discovery.ResolveSlotIP(name)
 		if err != nil {
-			c.updateSlotStatus(name, entity.SlotStatusUnhealthy)
+			if slot, ok := c.SlotRepo.Get(name); ok {
+				slot.Status = entity.SlotStatusUnhealthy
+				slot.LastCheckedAt = time.Now().UnixMilli()
+			}
 			c.Log.Warnf("monitor: %s check failed: %v", name, err)
 			continue
 		}
