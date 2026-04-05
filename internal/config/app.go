@@ -83,10 +83,14 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	if gracePeriod == 0 {
 		gracePeriod = 30 * time.Second
 	}
+	drainTimeout := time.Duration(cfg.Viper.GetInt("devices.drain_timeout_seconds")) * time.Second
+	if drainTimeout == 0 {
+		drainTimeout = 10 * time.Second
+	}
 
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
-		adbWatcher, gracePeriod)
+		adbWatcher, gracePeriod, drainTimeout)
 	deviceUC.SetMonitor(slotMonitor)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 

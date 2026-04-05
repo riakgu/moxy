@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,7 @@ type DeviceUseCase struct {
 	ISPProber     ISPProber
 	Watcher       DeviceWatcher
 	GracePeriod   time.Duration
+	DrainTimeout  time.Duration
 	Monitor       *SlotMonitorUseCase
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
@@ -56,6 +58,7 @@ func NewDeviceUseCase(
 	ispProber ISPProber,
 	watcher DeviceWatcher,
 	gracePeriod time.Duration,
+	drainTimeout time.Duration,
 ) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log:           log,
@@ -67,6 +70,7 @@ func NewDeviceUseCase(
 		ISPProber:     ispProber,
 		Watcher:       watcher,
 		GracePeriod:   gracePeriod,
+		DrainTimeout:  drainTimeout,
 		graceTimers:   make(map[string]*time.Timer),
 	}
 }
@@ -515,10 +519,18 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 }
 
 // teardownDevice destroys namespaces and removes slots for a device.
+// It waits for active connections to drain before destroying each slot.
 func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	// Get slot names from in-memory repo (not filesystem)
 	slotNames := c.SlotRepo.ListNamesForDevice(device.Alias)
 	for _, name := range slotNames {
+		// Wait for active connections to drain
+		if c.DrainTimeout > 0 {
+			if remaining := c.drainSlot(name, c.DrainTimeout); remaining > 0 {
+				c.Log.Warnf("teardown %s: forcing destroy of %s with %d active connections",
+					device.Alias, name, remaining)
+			}
+		}
 		if err := c.Provisioner.DestroySlot(name); err != nil {
 			c.Log.WithError(err).Warnf("teardown %s: failed to destroy %s", device.Alias, name)
 		}
@@ -527,4 +539,27 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	c.Log.Infof("device %s: teardown complete — removed %d slots", device.Alias, removed)
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
+}
+
+// drainSlot waits for a slot's active connections to reach 0.
+// Returns the remaining connection count (0 = fully drained).
+func (c *DeviceUseCase) drainSlot(name string, timeout time.Duration) int64 {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		slot, ok := c.SlotRepo.Get(name)
+		if !ok {
+			return 0
+		}
+		conns := atomic.LoadInt64(&slot.ActiveConnections)
+		if conns <= 0 {
+			return 0
+		}
+		select {
+		case <-deadline:
+			return conns
+		case <-ticker.C:
+		}
+	}
 }
