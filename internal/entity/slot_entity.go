@@ -4,6 +4,7 @@ const (
 	SlotStatusHealthy     = "healthy"
 	SlotStatusUnhealthy   = "unhealthy"
 	SlotStatusDiscovering = "discovering"
+	SlotStatusSuspended   = "suspended"
 )
 
 type Slot struct {

@@ -232,6 +232,117 @@ func (p *Provisioner) DestroySlot(name string) error {
 	return nil
 }
 
+// ReattachSlot recreates the IPVLAN interface inside an existing namespace.
+// Used for smart reconnect after a transient USB disconnect — the namespace
+// still exists but the IPVLAN is orphaned because the parent interface was removed.
+func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
+	var slotIndex int
+	if _, err := fmt.Sscanf(slotName, "slot%d", &slotIndex); err != nil {
+		return fmt.Errorf("parse slot name %s: %w", slotName, err)
+	}
+	ipvlanName := fmt.Sprintf("ipvlan%d", slotIndex)
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hostNs, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("get host namespace: %w", err)
+	}
+	defer hostNs.Close()
+	defer func() {
+		if err := netns.Set(hostNs); err != nil {
+			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
+		}
+	}()
+
+	// Open existing namespace
+	slotNs, err := netns.GetFromName(slotName)
+	if err != nil {
+		return fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer slotNs.Close()
+
+	// In host namespace: delete old IPVLAN if it still exists (ignore errors)
+	if oldLink, err := netlink.LinkByName(ipvlanName); err == nil {
+		netlink.LinkDel(oldLink)
+	}
+
+	// Also try to delete inside the namespace (it may be stuck there)
+	if err := netns.Set(slotNs); err != nil {
+		return fmt.Errorf("enter namespace %s for cleanup: %w", slotName, err)
+	}
+	if oldLink, err := netlink.LinkByName(ipvlanName); err == nil {
+		netlink.LinkDel(oldLink)
+	}
+
+	// Switch back to host for IPVLAN creation
+	if err := netns.Set(hostNs); err != nil {
+		return fmt.Errorf("restore host ns for link setup: %w", err)
+	}
+
+	// Get parent interface
+	parent, err := netlink.LinkByName(iface)
+	if err != nil {
+		return fmt.Errorf("get parent interface %s: %w", iface, err)
+	}
+
+	// Create new IPVLAN
+	ipvlan := &netlink.IPVlan{
+		LinkAttrs: netlink.LinkAttrs{
+			Name:        ipvlanName,
+			ParentIndex: parent.Attrs().Index,
+		},
+		Mode: netlink.IPVLAN_MODE_L2,
+	}
+	if err := netlink.LinkAdd(ipvlan); err != nil {
+		return fmt.Errorf("create IPVLAN %s: %w", ipvlanName, err)
+	}
+
+	// Move IPVLAN into namespace
+	ipvlanLink, err := netlink.LinkByName(ipvlanName)
+	if err != nil {
+		return fmt.Errorf("get IPVLAN link %s: %w", ipvlanName, err)
+	}
+	if err := netlink.LinkSetNsFd(ipvlanLink, int(slotNs)); err != nil {
+		return fmt.Errorf("move %s to namespace %s: %w", ipvlanName, slotName, err)
+	}
+
+	// Enter namespace to configure
+	if err := netns.Set(slotNs); err != nil {
+		return fmt.Errorf("enter namespace %s: %w", slotName, err)
+	}
+
+	// Bring up loopback (should already be up, but be safe)
+	if lo, err := netlink.LinkByName("lo"); err == nil {
+		netlink.LinkSetUp(lo)
+	}
+
+	// Bring up IPVLAN
+	ipvlanInNs, err := netlink.LinkByName(ipvlanName)
+	if err != nil {
+		return fmt.Errorf("get %s in namespace %s: %w", ipvlanName, slotName, err)
+	}
+	if err := netlink.LinkSetUp(ipvlanInNs); err != nil {
+		return fmt.Errorf("bring up %s in %s: %w", ipvlanName, slotName, err)
+	}
+
+	// Enable SLAAC
+	sysctlBase := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", ipvlanName)
+	for _, kv := range [][2]string{
+		{"accept_ra", "2"},
+		{"autoconf", "1"},
+	} {
+		path := fmt.Sprintf("%s/%s", sysctlBase, kv[0])
+		if err := os.WriteFile(path, []byte(kv[1]), 0644); err != nil {
+			return fmt.Errorf("set %s=%s for %s: %w", kv[0], kv[1], slotName, err)
+		}
+	}
+
+	p.Log.Infof("slot %s: re-attached IPVLAN to %s", slotName, iface)
+	return nil
+}
+
 func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
 	entries, err := os.ReadDir("/var/run/netns")
 	if err != nil {

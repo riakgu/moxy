@@ -7,6 +7,10 @@
     "api": {
         "port": 8080
     },
+    "devices": {
+        "grace_period_seconds": 30,
+        "watcher_reconnect_max_seconds": 30
+    },
     "slots": {
         "max_slots_per_device": 250,
         "ip_check_host": "ip.moxy.my.id",

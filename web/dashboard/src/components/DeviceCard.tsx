@@ -18,6 +18,7 @@ const deviceStatusStyles: Record<string, { dot: string; text: string; class: str
   detected: { dot: 'bg-accent-purple animate-pulse-badge', text: 'Detected', class: 'text-accent-purple' },
   online: { dot: 'bg-accent-green', text: 'Online', class: 'text-accent-green' },
   setup: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Setting Up', class: 'text-accent-amber' },
+  disconnected: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Disconnected', class: 'text-accent-amber' },
   error: { dot: 'bg-accent-red', text: 'Error', class: 'text-accent-red' },
   offline: { dot: 'bg-text-muted', text: 'Offline', class: 'text-text-muted' },
 }
@@ -34,6 +35,8 @@ export default function DeviceCard({
 
   const isDetected = device.status === 'detected'
   const isOnline = device.status === 'online'
+  const isDisconnected = device.status === 'disconnected'
+  const isExpandable = isOnline || isDisconnected
   const status = deviceStatusStyles[device.status] ?? deviceStatusStyles.offline
 
   const handleSetup = async () => {
@@ -72,9 +75,9 @@ export default function DeviceCard({
     >
       {/* Header — clickable to expand (only if online) */}
       <button
-        onClick={() => isOnline && setExpanded(!expanded)}
+        onClick={() => isExpandable && setExpanded(!expanded)}
         className={`w-full px-5 py-4 flex items-center justify-between transition-colors text-left
-          ${isOnline ? 'cursor-pointer hover:bg-bg-surface-hover/30' : 'cursor-default'}`}
+          ${isExpandable ? 'cursor-pointer hover:bg-bg-surface-hover/30' : 'cursor-default'}`}
       >
         <div className="flex items-center gap-4">
           <span className="font-mono text-2xl font-semibold text-accent-cyan">{device.alias}</span>
@@ -91,7 +94,7 @@ export default function DeviceCard({
             <span className="font-mono text-sm text-text-secondary">
               {device.slot_count} slot{device.slot_count !== 1 ? 's' : ''}
             </span>
-            {isOnline && (
+            {isExpandable && (
               <span className={`text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}>
                 ▾
               </span>
@@ -177,7 +180,7 @@ export default function DeviceCard({
       </div>
 
       {/* Expandable slot table */}
-      {expanded && isOnline && (
+      {expanded && isExpandable && (
         <div className="animate-fade-in border-t border-border-subtle/50 px-5 py-3">
           <SlotTable
             slots={slots}

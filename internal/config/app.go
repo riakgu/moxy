@@ -79,8 +79,18 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
 	slotUC.Monitor = slotMonitor
 	ispProbe := netns.NewISPProbe(cfg.Logger)
+
+	// ADB device watcher (event-driven device monitoring)
+	adbWatcher := adb.NewADBWatcher(cfg.Logger, cfg.Viper.GetInt("devices.watcher_reconnect_max_seconds")*1000)
+	gracePeriod := time.Duration(cfg.Viper.GetInt("devices.grace_period_seconds")) * time.Second
+	if gracePeriod == 0 {
+		gracePeriod = 30 * time.Second
+	}
+
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
-		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe)
+		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
+		adbWatcher, gracePeriod)
+	deviceUC.Monitor = slotMonitor
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 
 	// Controllers

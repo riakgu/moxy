@@ -19,6 +19,7 @@ import (
 type SlotProvisioner interface {
 	CreateSlot(slotIndex int, iface string, dns64 string) error
 	DestroySlot(name string) error
+	ReattachSlot(slotName string, iface string) error
 	EnableNDPProxy(iface string) error
 	AddNDPProxyEntry(ipv6 string, iface string) error
 	RemoveNDPProxyEntry(ipv6 string, iface string) error

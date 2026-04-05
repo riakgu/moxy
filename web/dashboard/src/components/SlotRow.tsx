@@ -23,6 +23,7 @@ const statusStyles: Record<string, { dot: string; text: string; class: string }>
   healthy: { dot: 'bg-accent-green', text: 'Healthy', class: 'text-accent-green' },
   unhealthy: { dot: 'bg-accent-red', text: 'Unhealthy', class: 'text-accent-red' },
   discovering: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Discovering', class: 'text-accent-amber' },
+  suspended: { dot: 'bg-accent-amber', text: '⏸ Suspended', class: 'text-accent-amber' },
 }
 
 export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProps) {

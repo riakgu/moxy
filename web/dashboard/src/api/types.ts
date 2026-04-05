@@ -11,7 +11,7 @@ export interface Device {
   interface: string
   nameserver: string
   nat64_prefix: string
-  status: 'detected' | 'offline' | 'setup' | 'online' | 'error'
+  status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
   slot_count: number
 }
 
@@ -28,7 +28,7 @@ export interface Slot {
   asn: string
   org: string
   rtt: string
-  status: 'healthy' | 'unhealthy' | 'discovering'
+  status: 'healthy' | 'unhealthy' | 'discovering' | 'suspended'
   active_connections: number
   last_checked_at: number
   next_check_at: number
