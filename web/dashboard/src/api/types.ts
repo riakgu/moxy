@@ -7,12 +7,16 @@ export interface ApiResponse<T> {
 export interface Device {
   alias: string
   serial: string
+  model: string
+  brand: string
+  android_version: string
   carrier: string
   interface: string
   nameserver: string
   nat64_prefix: string
   status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
   slot_count: number
+  unique_ips: number
 }
 
 // Slot — matches model.SlotResponse

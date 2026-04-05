@@ -82,7 +82,11 @@ export default function DeviceCard({
         <div className="flex items-center gap-4">
           <span className="font-mono text-2xl font-semibold text-accent-cyan">{device.alias}</span>
           <span className="text-sm text-text-secondary">
-            {isDetected ? device.serial : (device.carrier || 'Unknown carrier')}
+            {isDetected
+              ? device.serial
+              : (device.model
+                  ? `${device.brand ? device.brand + ' ' : ''}${device.model}`
+                  : (device.carrier || 'Unknown carrier'))}
           </span>
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
@@ -94,6 +98,11 @@ export default function DeviceCard({
             <span className="font-mono text-sm text-text-secondary">
               {device.slot_count} slot{device.slot_count !== 1 ? 's' : ''}
             </span>
+            {device.unique_ips > 0 && (
+              <span className="font-mono text-sm text-accent-purple">
+                {device.unique_ips} IP{device.unique_ips !== 1 ? 's' : ''}
+              </span>
+            )}
             {isExpandable && (
               <span className={`text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}>
                 ▾
@@ -106,6 +115,12 @@ export default function DeviceCard({
       {/* Details — only for non-detected devices */}
       {!isDetected && (
         <div className="px-5 pb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted font-mono">
+          {device.carrier && (
+            <span>carrier: <span className="text-text-secondary">{device.carrier}</span></span>
+          )}
+          {device.android_version && (
+            <span>android: <span className="text-text-secondary">{device.android_version}</span></span>
+          )}
           <span>iface: <span className="text-text-secondary">{device.interface}</span></span>
           <span>serial: <span className="text-text-secondary">{device.serial}</span></span>
           {device.nameserver && (
