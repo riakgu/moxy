@@ -9,6 +9,7 @@ interface ProxyGeneratorProps {
 
 type Tier = 'shared' | 'device' | 'slot'
 type Protocol = 'socks5' | 'http'
+type IpVersion = 'ipv4' | 'ipv6'
 
 function extractDeviceIndex(alias: string): number {
   const match = alias.match(/^dev(\d+)$/)
@@ -20,12 +21,15 @@ function extractSlotIndex(name: string): number {
   return match ? parseInt(match[1], 10) : 0
 }
 
-const PROXY_PORT = 1080
-const SLOT_PORT_START = 10000
+const IPV4_PROXY_PORT = 1080
+const IPV4_SLOT_PORT_START = 10000
+const IPV6_PROXY_PORT = 2080
+const IPV6_SLOT_PORT_START = 20000
 
 export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) {
   const [tier, setTier] = useState<Tier>('shared')
   const [protocol, setProtocol] = useState<Protocol>('socks5')
+  const [ipVersion, setIpVersion] = useState<IpVersion>('ipv4')
   const [selectedDevice, setSelectedDevice] = useState('')
   const [selectedSlot, setSelectedSlot] = useState('')
 
@@ -35,16 +39,19 @@ export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) 
   const activeDevice = selectedDevice || devices[0]?.alias || ''
   const activeSlot = selectedSlot || slots[0]?.name || ''
 
+  const proxyPort = ipVersion === 'ipv6' ? IPV6_PROXY_PORT : IPV4_PROXY_PORT
+  const slotPortStart = ipVersion === 'ipv6' ? IPV6_SLOT_PORT_START : IPV4_SLOT_PORT_START
+
   const port = useMemo(() => {
     switch (tier) {
       case 'shared':
-        return PROXY_PORT
+        return proxyPort
       case 'device':
-        return PROXY_PORT + extractDeviceIndex(activeDevice)
+        return proxyPort + extractDeviceIndex(activeDevice)
       case 'slot':
-        return SLOT_PORT_START + extractSlotIndex(activeSlot)
+        return slotPortStart + extractSlotIndex(activeSlot)
     }
-  }, [tier, activeDevice, activeSlot])
+  }, [tier, activeDevice, activeSlot, proxyPort, slotPortStart])
 
   const connectionString = `${protocol}://${host}:${port}`
   const curlCommand = `curl -x ${connectionString} https://api.ipify.org`
@@ -52,9 +59,9 @@ export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) 
   // Bulk copy: all slot proxy strings (one per line)
   const allSlotProxies = useMemo(() => {
     return slots
-      .map((s) => `${protocol}://${host}:${SLOT_PORT_START + extractSlotIndex(s.name)}`)
+      .map((s) => `${protocol}://${host}:${slotPortStart + extractSlotIndex(s.name)}`)
       .join('\n')
-  }, [slots, protocol, host])
+  }, [slots, protocol, host, slotPortStart])
 
   // Warning check
   const warning = useMemo(() => {
@@ -100,6 +107,26 @@ export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) 
               >
                 <span className="block text-sm font-medium">{opt.label}</span>
                 <span className="block text-xs text-text-muted mt-0.5">{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* IP Version toggle */}
+        <div>
+          <p className="text-xs text-text-muted uppercase tracking-wider mb-2 font-medium">IP Version</p>
+          <div className="inline-flex rounded-lg overflow-hidden border border-border-subtle">
+            {(['ipv4', 'ipv6'] as IpVersion[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setIpVersion(v)}
+                className={`px-4 py-2 text-sm font-mono font-medium uppercase transition-colors cursor-pointer ${
+                  ipVersion === v
+                    ? 'bg-accent-cyan/15 text-accent-cyan'
+                    : 'bg-bg-surface text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                {v}
               </button>
             ))}
           </div>
@@ -211,7 +238,7 @@ export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) 
 
         {/* Port info */}
         <p className="text-xs text-text-muted font-mono">
-          Port {port} • Both SOCKS5 and HTTP work on the same port (auto-detected)
+          Port {port} • {ipVersion.toUpperCase()} • Both SOCKS5 and HTTP work on the same port (auto-detected)
         </p>
       </div>
     </div>
