@@ -17,10 +17,11 @@ import (
 )
 
 type SlotMonitorConfig struct {
-	FastInterval     time.Duration
-	SteadyInterval   time.Duration
-	RecoveryInterval time.Duration
-	FastTicks        int
+	FastInterval       time.Duration
+	SteadyInterval     time.Duration
+	RecoveryInterval   time.Duration
+	FastTicks          int
+	UnhealthyThreshold int // consecutive failures before marking unhealthy (default 3)
 }
 
 type SlotMonitorUseCase struct {
@@ -93,6 +94,11 @@ func (c *SlotMonitorUseCase) StopAll() {
 
 func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	fastTicks := c.Config.FastTicks
+	consecutiveFails := 0
+	threshold := c.Config.UnhealthyThreshold
+	if threshold <= 0 {
+		threshold = 3
+	}
 
 	// Initial burst: detect IP pair with metadata
 	c.burstDetect(name)
@@ -132,10 +138,15 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				if slot.Status == entity.SlotStatusSuspended {
 					continue
 				}
-				slot.Status = entity.SlotStatusUnhealthy
+				consecutiveFails++
 				slot.LastCheckedAt = time.Now().UnixMilli()
+				if consecutiveFails >= threshold {
+					slot.Status = entity.SlotStatusUnhealthy
+					c.Log.Warnf("monitor: %s unhealthy after %d consecutive failures", name, consecutiveFails)
+				} else {
+					c.Log.Debugf("monitor: %s check failed (%d/%d): %v", name, consecutiveFails, threshold, err)
+				}
 			}
-			c.Log.Warnf("monitor: %s check failed: %v", name, err)
 			continue
 		}
 
@@ -150,6 +161,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				c.burstDetect(name)
 				fastTicks = c.Config.FastTicks
 			} else {
+				consecutiveFails = 0
 				slot.LastCheckedAt = time.Now().UnixMilli()
 				slot.Status = entity.SlotStatusHealthy
 			}

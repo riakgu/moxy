@@ -57,9 +57,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Slot monitor (per-slot discovery goroutines)
 	monitorConfig := usecase.SlotMonitorConfig{
 		FastInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_fast_interval_seconds")) * time.Second,
-		SteadyInterval:   time.Duration(cfg.Viper.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
-		RecoveryInterval: time.Duration(cfg.Viper.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
-		FastTicks:        cfg.Viper.GetInt("slots.monitor_fast_ticks"),
+		SteadyInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
+		RecoveryInterval:   time.Duration(cfg.Viper.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
+		FastTicks:          cfg.Viper.GetInt("slots.monitor_fast_ticks"),
+		UnhealthyThreshold: cfg.Viper.GetInt("slots.monitor_unhealthy_threshold"),
 	}
 	if monitorConfig.FastInterval == 0 {
 		monitorConfig.FastInterval = 10 * time.Second
@@ -72,6 +73,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 	if monitorConfig.FastTicks == 0 {
 		monitorConfig.FastTicks = 6
+	}
+	if monitorConfig.UnhealthyThreshold == 0 {
+		monitorConfig.UnhealthyThreshold = 3
 	}
 	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
 	slotUC.SetMonitor(slotMonitor)

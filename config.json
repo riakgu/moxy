@@ -18,7 +18,8 @@
         "monitor_fast_interval_seconds": 10,
         "monitor_steady_interval_seconds": 60,
         "monitor_recovery_interval_seconds": 15,
-        "monitor_fast_ticks": 6
+        "monitor_fast_ticks": 6,
+        "monitor_unhealthy_threshold": 3
     },
     "server": {
         "shutdown_drain_seconds": 30
