@@ -2,6 +2,8 @@
     "proxy": {
         "port": 1080,
         "slot_port_start": 10000,
+        "ipv6_port": 2080,
+        "ipv6_slot_port_start": 20000,
         "source_ip_strategy": "round-robin"
     },
     "api": {

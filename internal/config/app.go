@@ -108,12 +108,18 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Must be created before controllers so we can inject it.
 	proxyPort := cfg.Viper.GetInt("proxy.port")
 	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
-	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart)
+	ipv6Port := cfg.Viper.GetInt("proxy.ipv6_port")
+	ipv6SlotPortStart := cfg.Viper.GetInt("proxy.ipv6_slot_port_start")
+	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
 
 	// Wire teardown callback — cleans up stale proxy listeners after background device teardown
 	deviceUC.OnTeardown = func() {
-		portHandler.SyncSlots(slotUC.GetSlotNames())
-		portHandler.SyncDevices(deviceUC.ListOnlineAliases())
+		slotNames := slotUC.GetSlotNames()
+		onlineAliases := deviceUC.ListOnlineAliases()
+		portHandler.SyncSlots(slotNames)
+		portHandler.SyncDevices(onlineAliases)
+		portHandler.SyncSlotsIPv6(slotNames)
+		portHandler.SyncDevicesIPv6(onlineAliases)
 	}
 
 	// Controllers

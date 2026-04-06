@@ -28,6 +28,7 @@ func main() {
 
 	// Start shared proxy port
 	b.PortHandler.StartShared()
+	b.PortHandler.StartSharedIPv6()
 
 	// Cleanup orphaned namespaces from previous runs
 	log.Info("cleaning up orphaned namespaces...")
