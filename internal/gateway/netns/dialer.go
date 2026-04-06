@@ -159,6 +159,9 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
 				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
 			}
+			d.Log.Debugf("ipv6-proxy: %s via %s → DNS64 fallback (%s)", host, slotName, resolved)
+		} else {
+			d.Log.Debugf("ipv6-proxy: %s via %s → native IPv6 (%s)", host, slotName, resolved)
 		}
 		host = resolved
 	}
