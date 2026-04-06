@@ -62,12 +62,15 @@ func (c *PortBasedHandler) StartShared() {
 		return c.proxyUC.Connect(slot.Name, targetAddr)
 	}
 	c.shared = NewMuxHandler(c.Log, connect)
+	if err := c.shared.Listen(addr); err != nil {
+		c.Log.WithError(err).Errorf("shared proxy failed to bind %s", addr)
+		return
+	}
 	go func() {
-		if err := c.shared.ListenAndServe(addr); err != nil {
-			c.Log.WithError(err).Errorf("shared proxy failed on %s", addr)
+		if err := c.shared.Serve(); err != nil {
+			c.Log.WithError(err).Errorf("shared proxy serve failed on %s", addr)
 		}
 	}()
-	c.Log.Infof("shared proxy on %s", addr)
 }
 
 // SyncDevices starts/stops device-level mux handlers.
@@ -115,9 +118,13 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 		}
 
 		handler := NewMuxHandler(c.Log, connect)
+		if err := handler.Listen(addr); err != nil {
+			c.Log.WithError(err).Warnf("device proxy for %s failed to bind %s", deviceAlias, addr)
+			continue
+		}
 		go func() {
-			if err := handler.ListenAndServe(addr); err != nil {
-				c.Log.WithError(err).Warnf("device proxy for %s failed on %s", deviceAlias, addr)
+			if err := handler.Serve(); err != nil {
+				c.Log.WithError(err).Warnf("device proxy for %s serve failed on %s", deviceAlias, addr)
 			}
 		}()
 
@@ -169,9 +176,13 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 		}
 
 		handler := NewMuxHandler(c.Log, connect)
+		if err := handler.Listen(addr); err != nil {
+			c.Log.WithError(err).Warnf("slot proxy for %s failed to bind %s", slotName, addr)
+			continue
+		}
 		go func() {
-			if err := handler.ListenAndServe(addr); err != nil {
-				c.Log.WithError(err).Warnf("slot proxy for %s failed on %s", slotName, addr)
+			if err := handler.Serve(); err != nil {
+				c.Log.WithError(err).Warnf("slot proxy for %s serve failed on %s", slotName, addr)
 			}
 		}()
 

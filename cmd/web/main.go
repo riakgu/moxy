@@ -41,22 +41,6 @@ func main() {
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	go b.DeviceUseCase.StartWatching(watchCtx)
 
-	// Safety-net port sync — keeps port listeners in sync.
-	// Will be removed when port race condition is redesigned with event-driven callbacks.
-	stopPortSync := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				b.PortHandler.SyncSlots(b.SlotUseCase.GetSlotNames())
-			case <-stopPortSync:
-				return
-			}
-		}
-	}()
-
 	// Start API listener
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 	go func() {
@@ -72,7 +56,6 @@ func main() {
 
 	log.Info("shutting down...")
 	watchCancel()
-	close(stopPortSync)
 	b.SlotMonitor.StopAll()
 
 	drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second

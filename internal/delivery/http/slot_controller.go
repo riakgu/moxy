@@ -6,19 +6,22 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 
+	"github.com/riakgu/moxy/internal/delivery/proxy"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 type SlotController struct {
-	UseCase *usecase.SlotUseCase
-	Log     *logrus.Logger
+	UseCase     *usecase.SlotUseCase
+	Log         *logrus.Logger
+	PortHandler *proxy.PortBasedHandler
 }
 
-func NewSlotController(useCase *usecase.SlotUseCase, log *logrus.Logger) *SlotController {
+func NewSlotController(useCase *usecase.SlotUseCase, log *logrus.Logger, portHandler *proxy.PortBasedHandler) *SlotController {
 	return &SlotController{
-		UseCase: useCase,
-		Log:     log,
+		UseCase:     useCase,
+		Log:         log,
+		PortHandler: portHandler,
 	}
 }
 
@@ -79,6 +82,10 @@ func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	if c.PortHandler != nil {
+		c.PortHandler.SyncSlots(c.UseCase.GetSlotNames())
+	}
+
 	return ctx.JSON(model.WebResponse[string]{
 		Data: "slot deleted",
 	})
@@ -94,4 +101,3 @@ func (c *SlotController) Cleanup(ctx *fiber.Ctx) error {
 		Data: model.CleanupResponse{Cleaned: cleaned},
 	})
 }
-

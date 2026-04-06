@@ -574,3 +574,17 @@ func (c *DeviceUseCase) drainSlot(name string, timeout time.Duration) int64 {
 		}
 	}
 }
+
+// ListOnlineAliases returns aliases of all devices with status "online".
+// Used by controllers to sync per-device proxy ports.
+func (c *DeviceUseCase) ListOnlineAliases() []string {
+	devices := c.DeviceRepo.ListAll()
+	var aliases []string
+	for _, d := range devices {
+		if d.Status == entity.DeviceStatusOnline {
+			aliases = append(aliases, d.Alias)
+		}
+	}
+	return aliases
+}
+

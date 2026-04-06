@@ -94,14 +94,15 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceUC.SetMonitor(slotMonitor)
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
 
-	// Controllers
-	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger)
-	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger)
-
 	// Port-based handler (shared + device + per-slot mux listeners)
+	// Must be created before controllers so we can inject it.
 	proxyPort := cfg.Viper.GetInt("proxy.port")
 	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
 	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart)
+
+	// Controllers
+	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger, portHandler, slotUC.GetSlotNames)
+	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger, portHandler)
 
 	// Routes
 	routeConfig := &route.RouteConfig{

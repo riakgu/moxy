@@ -36,17 +36,25 @@ func NewMuxHandler(log *logrus.Logger, connect ConnectFunc) *MuxHandler {
 	}
 }
 
-// ListenAndServe starts the mux listener on the given address.
-func (m *MuxHandler) ListenAndServe(addr string) error {
+// Listen binds the port. When this returns nil, the port is accepting connections.
+// Call Serve() in a goroutine after Listen succeeds.
+func (m *MuxHandler) Listen(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("mux listen: %w", err)
 	}
 	m.ln = ln
 	m.Log.Infof("mux proxy listening on %s (SOCKS5+HTTP)", addr)
+	return nil
+}
 
+// Serve runs the accept loop. Must call Listen() first.
+func (m *MuxHandler) Serve() error {
+	if m.ln == nil {
+		return fmt.Errorf("mux serve: listener not initialized — call Listen() first")
+	}
 	for {
-		conn, err := ln.Accept()
+		conn, err := m.ln.Accept()
 		if err != nil {
 			select {
 			case <-m.ctx.Done():
@@ -63,6 +71,15 @@ func (m *MuxHandler) ListenAndServe(addr string) error {
 			m.handleConn(conn)
 		}()
 	}
+}
+
+// ListenAndServe binds the port and runs the accept loop.
+// Convenience wrapper — for async usage, call Listen() then go Serve().
+func (m *MuxHandler) ListenAndServe(addr string) error {
+	if err := m.Listen(addr); err != nil {
+		return err
+	}
+	return m.Serve()
 }
 
 func (m *MuxHandler) handleConn(conn net.Conn) {
