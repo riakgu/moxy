@@ -28,6 +28,9 @@
         "cache_min_ttl_seconds": 30,
         "cache_max_ttl_seconds": 300
     },
+    "traffic": {
+        "max_tracked": 5000
+    },
     "server": {
         "shutdown_drain_seconds": 30
     },

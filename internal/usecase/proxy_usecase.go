@@ -22,20 +22,29 @@ type SlotDialer interface {
 }
 
 type ProxyUseCase struct {
-	Log        *logrus.Logger
-	SlotRepo   *repository.SlotRepository
-	DeviceRepo *repository.DeviceRepository
-	Dialer     SlotDialer
-	Strategy   SlotStrategy
+	Log         *logrus.Logger
+	SlotRepo    *repository.SlotRepository
+	DeviceRepo  *repository.DeviceRepository
+	Dialer      SlotDialer
+	Strategy    SlotStrategy
+	TrafficRepo *repository.TrafficRepository
 }
 
-func NewProxyUseCase(log *logrus.Logger, slotRepo *repository.SlotRepository, deviceRepo *repository.DeviceRepository, dialer SlotDialer, strategy SlotStrategy) *ProxyUseCase {
+func NewProxyUseCase(
+	log *logrus.Logger,
+	slotRepo *repository.SlotRepository,
+	deviceRepo *repository.DeviceRepository,
+	dialer SlotDialer,
+	strategy SlotStrategy,
+	trafficRepo *repository.TrafficRepository,
+) *ProxyUseCase {
 	return &ProxyUseCase{
-		Log:        log,
-		SlotRepo:   slotRepo,
-		DeviceRepo: deviceRepo,
-		Dialer:     dialer,
-		Strategy:   strategy,
+		Log:         log,
+		SlotRepo:    slotRepo,
+		DeviceRepo:  deviceRepo,
+		Dialer:      dialer,
+		Strategy:    strategy,
+		TrafficRepo: trafficRepo,
 	}
 }
 
@@ -54,18 +63,21 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)
 	}
 
+	// Traffic stats
+	host, port, _ := net.SplitHostPort(targetAddr)
+	deviceAlias := ""
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		deviceAlias = slot.DeviceAlias
+	}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv4"}
+	entry := c.TrafficRepo.Record(key)
+	atomic.AddInt64(&entry.ActiveConnections, 1)
+
 	tc := &trackedConn{
 		Conn:     conn,
 		slotName: slotName,
 		slotRepo: c.SlotRepo,
-	}
-
-	// Wire byte counters to parent device
-	if slot, ok := c.SlotRepo.Get(slotName); ok {
-		if device, ok := c.DeviceRepo.GetByAlias(slot.DeviceAlias); ok {
-			tc.deviceRx = &device.RxBytes
-			tc.deviceTx = &device.TxBytes
-		}
+		traffic:  entry,
 	}
 
 	return tc, nil
@@ -88,17 +100,21 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 		return nil, fmt.Errorf("dial-ipv6 %s via %s: %w", targetAddr, slotName, err)
 	}
 
+	// Traffic stats
+	host, port, _ := net.SplitHostPort(targetAddr)
+	deviceAlias := ""
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		deviceAlias = slot.DeviceAlias
+	}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv6"}
+	entry := c.TrafficRepo.Record(key)
+	atomic.AddInt64(&entry.ActiveConnections, 1)
+
 	tc := &trackedConn{
 		Conn:     conn,
 		slotName: slotName,
 		slotRepo: c.SlotRepo,
-	}
-
-	if slot, ok := c.SlotRepo.Get(slotName); ok {
-		if device, ok := c.DeviceRepo.GetByAlias(slot.DeviceAlias); ok {
-			tc.deviceRx = &device.RxBytes
-			tc.deviceTx = &device.TxBytes
-		}
+		traffic:  entry,
 	}
 
 	return tc, nil
@@ -123,23 +139,22 @@ type trackedConn struct {
 	net.Conn
 	slotName string
 	slotRepo *repository.SlotRepository
-	deviceRx *uint64 // points to &device.RxBytes for atomic counting
-	deviceTx *uint64 // points to &device.TxBytes for atomic counting
+	traffic  *entity.TrafficEntry
 	closed   bool
 }
 
 func (tc *trackedConn) Read(b []byte) (int, error) {
 	n, err := tc.Conn.Read(b)
-	if n > 0 && tc.deviceRx != nil {
-		atomic.AddUint64(tc.deviceRx, uint64(n))
+	if n > 0 && tc.traffic != nil {
+		atomic.AddUint64(&tc.traffic.RxBytes, uint64(n))
 	}
 	return n, err
 }
 
 func (tc *trackedConn) Write(b []byte) (int, error) {
 	n, err := tc.Conn.Write(b)
-	if n > 0 && tc.deviceTx != nil {
-		atomic.AddUint64(tc.deviceTx, uint64(n))
+	if n > 0 && tc.traffic != nil {
+		atomic.AddUint64(&tc.traffic.TxBytes, uint64(n))
 	}
 	return n, err
 }
@@ -148,6 +163,9 @@ func (tc *trackedConn) Close() error {
 	if !tc.closed {
 		tc.closed = true
 		tc.slotRepo.DecrementConnections(tc.slotName)
+		if tc.traffic != nil {
+			atomic.AddInt64(&tc.traffic.ActiveConnections, -1)
+		}
 	}
 	return tc.Conn.Close()
 }

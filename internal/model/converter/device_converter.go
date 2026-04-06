@@ -5,7 +5,7 @@ import (
 	"github.com/riakgu/moxy/internal/model"
 )
 
-func DeviceToResponse(device *entity.Device, slotCount int, uniqueIPs int) *model.DeviceResponse {
+func DeviceToResponse(device *entity.Device, slotCount int, uniqueIPs int, rx, tx uint64) *model.DeviceResponse {
 	return &model.DeviceResponse{
 		Alias:          device.Alias,
 		Serial:         device.Serial,
@@ -19,8 +19,8 @@ func DeviceToResponse(device *entity.Device, slotCount int, uniqueIPs int) *mode
 		Status:         device.Status,
 		SlotCount:      slotCount,
 		UniqueIPs:      uniqueIPs,
-		TxBytes:        device.TxBytes,
-		RxBytes:        device.RxBytes,
-		TotalBytes:     device.TxBytes + device.RxBytes,
+		TxBytes:        tx,
+		RxBytes:        rx,
+		TotalBytes:     tx + rx,
 	}
 }

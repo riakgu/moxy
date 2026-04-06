@@ -12,12 +12,13 @@ import (
 )
 
 type RouteConfig struct {
-	App              *fiber.App
-	DeviceController *httpdelivery.DeviceController
-	SlotController   *httpdelivery.SlotController
-	DNSController    *httpdelivery.DNSController
-	Log              *logrus.Logger
-	StaticFS         embed.FS
+	App               *fiber.App
+	DeviceController  *httpdelivery.DeviceController
+	SlotController    *httpdelivery.SlotController
+	DNSController     *httpdelivery.DNSController
+	TrafficController *httpdelivery.TrafficController
+	Log               *logrus.Logger
+	StaticFS          embed.FS
 }
 
 func (c *RouteConfig) Setup() {
@@ -42,6 +43,8 @@ func (c *RouteConfig) Setup() {
 	// DNS routes
 	api.Get("/dns/stats", c.DNSController.Stats)
 
+	// Traffic routes
+	api.Get("/traffic", c.TrafficController.List)
 
 	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{

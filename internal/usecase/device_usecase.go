@@ -14,7 +14,6 @@ import (
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/gateway/adb"
-	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
@@ -45,6 +44,7 @@ type DeviceUseCase struct {
 	GracePeriod   time.Duration
 	DrainTimeout  time.Duration
 	Monitor       *SlotMonitorUseCase
+	TrafficRepo   *repository.TrafficRepository
 	OnTeardown    func() // called after device teardown to sync proxy listeners
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
@@ -61,6 +61,7 @@ func NewDeviceUseCase(
 	watcher DeviceWatcher,
 	gracePeriod time.Duration,
 	drainTimeout time.Duration,
+	trafficRepo *repository.TrafficRepository,
 ) *DeviceUseCase {
 	return &DeviceUseCase{
 		Log:           log,
@@ -73,6 +74,7 @@ func NewDeviceUseCase(
 		Watcher:       watcher,
 		GracePeriod:   gracePeriod,
 		DrainTimeout:  drainTimeout,
+		TrafficRepo:   trafficRepo,
 		graceTimers:   make(map[string]*time.Timer),
 	}
 }
@@ -130,7 +132,8 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	for _, device := range c.DeviceRepo.ListAll() {
 		slotCount := c.SlotRepo.CountByDevice(device.Alias)
 		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
-		resp.Devices = append(resp.Devices, *converter.DeviceToResponse(device, slotCount, uniqueIPs))
+		rx, tx := c.TrafficRepo.TotalByDevice(device.Alias)
+		resp.Devices = append(resp.Devices, *converter.DeviceToResponse(device, slotCount, uniqueIPs, rx, tx))
 	}
 	if resp.Devices == nil {
 		resp.Devices = []model.DeviceResponse{}
@@ -174,8 +177,9 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
+	rx, tx := c.TrafficRepo.TotalByDevice(device.Alias)
 	return &model.SetupResponse{
-		Device:    *converter.DeviceToResponse(device, slotCount, uniqueIPs),
+		Device:    *converter.DeviceToResponse(device, slotCount, uniqueIPs, rx, tx),
 		Provision: provResp,
 	}, nil
 }
@@ -192,7 +196,8 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	for _, d := range devices {
 		slotCount := c.SlotRepo.CountByDevice(d.Alias)
 		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(d.Alias)
-		result = append(result, *converter.DeviceToResponse(d, slotCount, uniqueIPs))
+		rx, tx := c.TrafficRepo.TotalByDevice(d.Alias)
+		result = append(result, *converter.DeviceToResponse(d, slotCount, uniqueIPs, rx, tx))
 	}
 	return result, nil
 }
@@ -205,7 +210,8 @@ func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) 
 	}
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
-	return converter.DeviceToResponse(device, slotCount, uniqueIPs), nil
+	rx, tx := c.TrafficRepo.TotalByDevice(device.Alias)
+	return converter.DeviceToResponse(device, slotCount, uniqueIPs, rx, tx), nil
 }
 
 // Delete tears down a device and removes it from memory.
@@ -595,16 +601,4 @@ func (c *DeviceUseCase) ListOnlineAliases() []string {
 	return aliases
 }
 
-// refreshStats reads sysfs bandwidth counters for online devices.
-func (c *DeviceUseCase) refreshStats(device *entity.Device) {
-	if device.Status != entity.DeviceStatusOnline || device.Interface == "" {
-		return
-	}
-	rx, tx, err := netns.ReadInterfaceStats(device.Interface)
-	if err != nil {
-		return // non-fatal
-	}
-	device.RxBytes = rx
-	device.TxBytes = tx
-}
 

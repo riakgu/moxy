@@ -38,6 +38,11 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Repositories (all in-memory)
 	deviceRepo := repository.NewDeviceRepository(cfg.Logger)
 	slotRepo := repository.NewSlotRepository(cfg.Logger)
+	maxTracked := cfg.Viper.GetInt("traffic.max_tracked")
+	if maxTracked == 0 {
+		maxTracked = 5000
+	}
+	trafficRepo := repository.NewTrafficRepository(cfg.Logger, maxTracked)
 
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
@@ -100,9 +105,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
-		adbWatcher, gracePeriod, drainTimeout)
+		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
 	deviceUC.SetMonitor(slotMonitor)
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, deviceRepo, dialer, strategy)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
 
 	// Port-based handler (shared + device + per-slot mux listeners)
 	// Must be created before controllers so we can inject it.
@@ -130,14 +135,19 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	dnsUC := usecase.NewDNSUseCase(cfg.Logger, resolver)
 	dnsCtrl := httpdelivery.NewDNSController(dnsUC, cfg.Logger)
 
+	// Traffic
+	trafficUC := usecase.NewTrafficUseCase(cfg.Logger, trafficRepo)
+	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, cfg.Logger)
+
 	// Routes
 	routeConfig := &route.RouteConfig{
-		App:              cfg.Fiber,
-		DeviceController: deviceCtrl,
-		SlotController:   slotCtrl,
-		DNSController:    dnsCtrl,
-		Log:              cfg.Logger,
-		StaticFS:         cfg.StaticFS,
+		App:               cfg.Fiber,
+		DeviceController:  deviceCtrl,
+		SlotController:    slotCtrl,
+		DNSController:     dnsCtrl,
+		TrafficController: trafficCtrl,
+		Log:               cfg.Logger,
+		StaticFS:          cfg.StaticFS,
 	}
 
 	return &BootstrapResult{
