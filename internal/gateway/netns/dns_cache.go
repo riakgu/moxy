@@ -59,6 +59,12 @@ type dnsEntry struct {
 	expiresAt time.Time
 }
 
+// negativeEntry is stored as ipv6 value to indicate "no native AAAA exists"
+const negativeEntry = "NXAAAA"
+
+// negativeCacheTTL is how long to cache "no native AAAA" results
+const negativeCacheTTL = 60 * time.Second
+
 // NewCachingResolver creates a new CachingResolver with the given config.
 // Zero-value config fields are replaced with sensible defaults.
 func NewCachingResolver(log *logrus.Logger, config CacheConfig) *CachingResolver {
@@ -246,4 +252,135 @@ func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) 
 	}
 
 	return "", 0, fmt.Errorf("no AAAA or A record for %s via %s", hostname, nameserver)
+}
+
+// ResolveNative resolves a hostname to a genuine IPv6 address (not DNS64-synthesized).
+// Uses a separate cache key space ("native") to avoid collisions with DNS64 results.
+// Caches negative results (no native AAAA) for 60s to avoid repeated failed lookups.
+// Must be called while inside the target network namespace.
+func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix string) (string, error) {
+	key := deviceCacheKey{Nameserver: nameserver, NAT64Prefix: "native"}
+
+	cr.mu.Lock()
+	dc := cr.caches[key]
+	if dc == nil {
+		dc = &deviceCache{
+			entries: make(map[string]*list.Element),
+			order:   list.New(),
+		}
+		cr.caches[key] = dc
+	}
+
+	// Check cache
+	if elem, ok := dc.entries[hostname]; ok {
+		entry := elem.Value.(*dnsEntry)
+		if time.Now().Before(entry.expiresAt) {
+			dc.order.MoveToFront(elem)
+			atomic.AddInt64(&dc.hits, 1)
+			ipv6 := entry.ipv6
+			cr.mu.Unlock()
+			if ipv6 == negativeEntry {
+				return "", fmt.Errorf("no native AAAA for %s (cached)", hostname)
+			}
+			return ipv6, nil
+		}
+		dc.order.Remove(elem)
+		delete(dc.entries, hostname)
+	}
+	atomic.AddInt64(&dc.misses, 1)
+	cr.mu.Unlock()
+
+	// Cache miss — resolve natively
+	ipv6, ttl, err := cr.resolveDNSNative(hostname, nameserver, nat64Prefix)
+
+	// Determine what to cache
+	cacheValue := ipv6
+	if err != nil {
+		// Negative cache: remember "no native AAAA" to avoid repeated lookups
+		cacheValue = negativeEntry
+		ttl = negativeCacheTTL
+	} else {
+		// Clamp TTL for positive results
+		if ttl < cr.config.MinTTL {
+			ttl = cr.config.MinTTL
+		}
+		if ttl > cr.config.MaxTTL {
+			ttl = cr.config.MaxTTL
+		}
+	}
+
+	// Store in cache
+	cr.mu.Lock()
+	dc = cr.caches[key]
+	if dc != nil {
+		if elem, ok := dc.entries[hostname]; ok {
+			dc.order.Remove(elem)
+			delete(dc.entries, hostname)
+		}
+
+		entry := &dnsEntry{
+			hostname:  hostname,
+			ipv6:      cacheValue,
+			expiresAt: time.Now().Add(ttl),
+		}
+		elem := dc.order.PushFront(entry)
+		dc.entries[hostname] = elem
+
+		for dc.order.Len() > cr.config.MaxEntriesPerDevice {
+			oldest := dc.order.Back()
+			if oldest != nil {
+				oldEntry := oldest.Value.(*dnsEntry)
+				dc.order.Remove(oldest)
+				delete(dc.entries, oldEntry.hostname)
+			}
+		}
+	}
+	cr.mu.Unlock()
+
+	if err != nil {
+		return "", err
+	}
+	return ipv6, nil
+}
+
+// resolveDNSNative queries for real AAAA records (not DNS64-synthesized).
+// Filters out any AAAA starting with the NAT64 prefix.
+// Returns error if no genuine AAAA found.
+func (cr *CachingResolver) resolveDNSNative(hostname, nameserver, nat64Prefix string) (string, time.Duration, error) {
+	fqdn := dns.Fqdn(hostname)
+
+	msg := new(dns.Msg)
+	msg.SetQuestion(fqdn, dns.TypeAAAA)
+	msg.RecursionDesired = true
+
+	client := &dns.Client{
+		Net:     "udp6",
+		Timeout: 5 * time.Second,
+	}
+
+	serverAddr := net.JoinHostPort(nameserver, "53")
+	resp, _, err := client.Exchange(msg, serverAddr)
+	if err != nil {
+		return "", 0, fmt.Errorf("native DNS query %s via %s: %w", hostname, nameserver, err)
+	}
+
+	if resp.Rcode != dns.RcodeSuccess {
+		return "", 0, fmt.Errorf("native DNS query %s via %s: rcode %s", hostname, nameserver, dns.RcodeToString[resp.Rcode])
+	}
+
+	// Find first AAAA that is NOT a DNS64-synthesized address
+	for _, ans := range resp.Answer {
+		if aaaa, ok := ans.(*dns.AAAA); ok {
+			ip := aaaa.AAAA.String()
+			if strings.Contains(ip, ":") && !strings.HasPrefix(ip, nat64Prefix) {
+				ttl := time.Duration(ans.Header().Ttl) * time.Second
+				if ttl == 0 {
+					ttl = cr.config.MinTTL
+				}
+				return ip, ttl, nil
+			}
+		}
+	}
+
+	return "", 0, fmt.Errorf("no native AAAA record for %s (all results are DNS64-synthesized or empty)", hostname)
 }
