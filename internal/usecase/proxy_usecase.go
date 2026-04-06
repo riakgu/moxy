@@ -71,6 +71,39 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	return tc, nil
 }
 
+// ConnectIPv6 connects through a slot preferring native IPv6.
+// Falls back to NAT64 if destination has no IPv6.
+func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn, error) {
+	c.SlotRepo.IncrementConnections(slotName)
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+	}
+
+	nameserver, nat64Prefix := c.getSlotConfig(slotName)
+
+	conn, err := c.Dialer.DialIPv6(slotName, targetAddr, nameserver, nat64Prefix)
+	if err != nil {
+		c.SlotRepo.DecrementConnections(slotName)
+		c.Log.Warnf("proxy-ipv6: dial %s via %s failed: %v", targetAddr, slotName, err)
+		return nil, fmt.Errorf("dial-ipv6 %s via %s: %w", targetAddr, slotName, err)
+	}
+
+	tc := &trackedConn{
+		Conn:     conn,
+		slotName: slotName,
+		slotRepo: c.SlotRepo,
+	}
+
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		if device, ok := c.DeviceRepo.GetByAlias(slot.DeviceAlias); ok {
+			tc.deviceRx = &device.RxBytes
+			tc.deviceTx = &device.TxBytes
+		}
+	}
+
+	return tc, nil
+}
+
 // SelectSlot picks a slot from the given candidates using the configured strategy.
 func (c *ProxyUseCase) SelectSlot(slots []*entity.Slot) (*entity.Slot, error) {
 	if len(slots) == 0 {
