@@ -102,7 +102,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod, drainTimeout)
 	deviceUC.SetMonitor(slotMonitor)
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, dialer, strategy)
+	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, deviceRepo, dialer, strategy)
 
 	// Port-based handler (shared + device + per-slot mux listeners)
 	// Must be created before controllers so we can inject it.

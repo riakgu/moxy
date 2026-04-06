@@ -13,23 +13,28 @@ import (
 	"github.com/riakgu/moxy/internal/repository"
 )
 
+// Ensure trackedConn implements io.Reader and io.Writer explicitly
+// so proxy libraries use our byte-counting Read/Write methods.
+
 type SlotDialer interface {
 	Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
 }
 
 type ProxyUseCase struct {
-	Log      *logrus.Logger
-	SlotRepo *repository.SlotRepository
-	Dialer   SlotDialer
-	Strategy SlotStrategy
+	Log        *logrus.Logger
+	SlotRepo   *repository.SlotRepository
+	DeviceRepo *repository.DeviceRepository
+	Dialer     SlotDialer
+	Strategy   SlotStrategy
 }
 
-func NewProxyUseCase(log *logrus.Logger, slotRepo *repository.SlotRepository, dialer SlotDialer, strategy SlotStrategy) *ProxyUseCase {
+func NewProxyUseCase(log *logrus.Logger, slotRepo *repository.SlotRepository, deviceRepo *repository.DeviceRepository, dialer SlotDialer, strategy SlotStrategy) *ProxyUseCase {
 	return &ProxyUseCase{
-		Log:      log,
-		SlotRepo: slotRepo,
-		Dialer:   dialer,
-		Strategy: strategy,
+		Log:        log,
+		SlotRepo:   slotRepo,
+		DeviceRepo: deviceRepo,
+		Dialer:     dialer,
+		Strategy:   strategy,
 	}
 }
 
@@ -48,11 +53,21 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)
 	}
 
-	return &trackedConn{
+	tc := &trackedConn{
 		Conn:     conn,
 		slotName: slotName,
 		slotRepo: c.SlotRepo,
-	}, nil
+	}
+
+	// Wire byte counters to parent device
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		if device, ok := c.DeviceRepo.GetByAlias(slot.DeviceAlias); ok {
+			tc.deviceRx = &device.RxBytes
+			tc.deviceTx = &device.TxBytes
+		}
+	}
+
+	return tc, nil
 }
 
 // SelectSlot picks a slot from the given candidates using the configured strategy.
@@ -74,7 +89,25 @@ type trackedConn struct {
 	net.Conn
 	slotName string
 	slotRepo *repository.SlotRepository
+	deviceRx *uint64 // points to &device.RxBytes for atomic counting
+	deviceTx *uint64 // points to &device.TxBytes for atomic counting
 	closed   bool
+}
+
+func (tc *trackedConn) Read(b []byte) (int, error) {
+	n, err := tc.Conn.Read(b)
+	if n > 0 && tc.deviceRx != nil {
+		atomic.AddUint64(tc.deviceRx, uint64(n))
+	}
+	return n, err
+}
+
+func (tc *trackedConn) Write(b []byte) (int, error) {
+	n, err := tc.Conn.Write(b)
+	if n > 0 && tc.deviceTx != nil {
+		atomic.AddUint64(tc.deviceTx, uint64(n))
+	}
+	return n, err
 }
 
 func (tc *trackedConn) Close() error {

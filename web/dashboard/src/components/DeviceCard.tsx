@@ -137,11 +137,9 @@ export default function DeviceCard({
           {device.nat64_prefix && (
             <span>nat64: <span className="text-text-secondary">{device.nat64_prefix}</span></span>
           )}
-          {device.total_bytes > 0 && (
-            <span>data: <span className="text-accent-amber">{formatBytes(device.total_bytes)}</span>
-              <span className="text-text-muted"> (↑{formatBytes(device.tx_bytes)} ↓{formatBytes(device.rx_bytes)})</span>
-            </span>
-          )}
+          <span>data: <span className="text-accent-amber">{formatBytes(device.total_bytes)}</span>
+            <span className="text-text-muted"> (↑{formatBytes(device.tx_bytes)} ↓{formatBytes(device.rx_bytes)})</span>
+          </span>
         </div>
       )}
 
