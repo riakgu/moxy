@@ -117,7 +117,7 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 	cr.mu.Unlock()
 
 	// Cache miss — resolve via DNS64
-	ipv6, ttl, err := cr.resolveDNS(hostname, nameserver)
+	ipv6, ttl, err := cr.resolveDNS(hostname, nameserver, nat64Prefix)
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +185,7 @@ func (cr *CachingResolver) Stats() []DeviceCacheStats {
 // resolveDNS queries the DNS64 nameserver for AAAA records using miekg/dns.
 // Returns the first IPv6 address and the response TTL.
 // Must be called while inside the target network namespace.
-func (cr *CachingResolver) resolveDNS(hostname, nameserver string) (string, time.Duration, error) {
+func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) (string, time.Duration, error) {
 	// Ensure hostname is FQDN for DNS wire format
 	fqdn := dns.Fqdn(hostname)
 
@@ -222,5 +222,28 @@ func (cr *CachingResolver) resolveDNS(hostname, nameserver string) (string, time
 		}
 	}
 
-	return "", 0, fmt.Errorf("no AAAA record for %s via DNS64 %s", hostname, nameserver)
+	// Fallback: carrier DNS64 failed to synthesize AAAA — query A record and manually synthesize NAT64 address
+	msgA := new(dns.Msg)
+	msgA.SetQuestion(fqdn, dns.TypeA)
+	msgA.RecursionDesired = true
+
+	respA, _, errA := client.Exchange(msgA, serverAddr)
+	if errA == nil && respA.Rcode == dns.RcodeSuccess {
+		for _, ans := range respA.Answer {
+			if a, ok := ans.(*dns.A); ok {
+				v4 := a.A.To4()
+				if v4 != nil {
+					synthesized := fmt.Sprintf("%s%02x%02x:%02x%02x", nat64Prefix, v4[0], v4[1], v4[2], v4[3])
+					ttl := time.Duration(ans.Header().Ttl) * time.Second
+					if ttl == 0 {
+						ttl = cr.config.MinTTL
+					}
+					cr.log.Debugf("DNS64 fallback: synthesized %s → %s for %s", hostname, synthesized, nameserver)
+					return synthesized, ttl, nil
+				}
+			}
+		}
+	}
+
+	return "", 0, fmt.Errorf("no AAAA or A record for %s via %s", hostname, nameserver)
 }
