@@ -17,6 +17,9 @@ export interface Device {
   status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
   slot_count: number
   unique_ips: number
+  tx_bytes: number
+  rx_bytes: number
+  total_bytes: number
 }
 
 // Slot — matches model.SlotResponse

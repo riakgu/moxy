@@ -20,4 +20,6 @@ type Device struct {
 	Nameserver     string
 	NAT64Prefix    string
 	Status         string
+	TxBytes        uint64
+	RxBytes        uint64
 }

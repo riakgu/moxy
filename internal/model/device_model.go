@@ -18,6 +18,9 @@ type DeviceResponse struct {
 	Status         string `json:"status"`
 	SlotCount      int    `json:"slot_count"`
 	UniqueIPs      int    `json:"unique_ips"`
+	TxBytes        uint64 `json:"tx_bytes"`
+	RxBytes        uint64 `json:"rx_bytes"`
+	TotalBytes     uint64 `json:"total_bytes"`
 }
 
 type ScanResponse struct {

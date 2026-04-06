@@ -19,5 +19,8 @@ func DeviceToResponse(device *entity.Device, slotCount int, uniqueIPs int) *mode
 		Status:         device.Status,
 		SlotCount:      slotCount,
 		UniqueIPs:      uniqueIPs,
+		TxBytes:        device.TxBytes,
+		RxBytes:        device.RxBytes,
+		TotalBytes:     device.TxBytes + device.RxBytes,
 	}
 }

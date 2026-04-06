@@ -23,6 +23,14 @@ const deviceStatusStyles: Record<string, { dot: string; text: string; class: str
   offline: { dot: 'bg-text-muted', text: 'Offline', class: 'text-text-muted' },
 }
 
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const value = bytes / Math.pow(1024, i)
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`
+}
+
 export default function DeviceCard({
   device, slots, onProvision, onDeleteDevice, onSetupDevice,
   onChangeSlotIP, onDeleteSlot, host, animationDelay,
@@ -85,8 +93,8 @@ export default function DeviceCard({
             {isDetected
               ? device.serial
               : (device.model
-                  ? `${device.brand ? device.brand + ' ' : ''}${device.model}`
-                  : (device.carrier || 'Unknown carrier'))}
+                ? `${device.brand ? device.brand + ' ' : ''}${device.model}`
+                : (device.carrier || 'Unknown carrier'))}
           </span>
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
@@ -128,6 +136,11 @@ export default function DeviceCard({
           )}
           {device.nat64_prefix && (
             <span>nat64: <span className="text-text-secondary">{device.nat64_prefix}</span></span>
+          )}
+          {device.total_bytes > 0 && (
+            <span>data: <span className="text-accent-amber">{formatBytes(device.total_bytes)}</span>
+              <span className="text-text-muted"> (↑{formatBytes(device.tx_bytes)} ↓{formatBytes(device.rx_bytes)})</span>
+            </span>
           )}
         </div>
       )}

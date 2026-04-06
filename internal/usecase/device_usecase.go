@@ -14,6 +14,7 @@ import (
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/gateway/adb"
+	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
@@ -188,6 +189,7 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	devices := c.DeviceRepo.ListAll()
 	result := make([]model.DeviceResponse, 0, len(devices))
 	for _, d := range devices {
+		c.refreshStats(d)
 		slotCount := c.SlotRepo.CountByDevice(d.Alias)
 		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(d.Alias)
 		result = append(result, *converter.DeviceToResponse(d, slotCount, uniqueIPs))
@@ -201,6 +203,7 @@ func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) 
 	if !ok {
 		return nil, fmt.Errorf("device %s not found", alias)
 	}
+	c.refreshStats(device)
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
 	return converter.DeviceToResponse(device, slotCount, uniqueIPs), nil
@@ -586,5 +589,18 @@ func (c *DeviceUseCase) ListOnlineAliases() []string {
 		}
 	}
 	return aliases
+}
+
+// refreshStats reads sysfs bandwidth counters for online devices.
+func (c *DeviceUseCase) refreshStats(device *entity.Device) {
+	if device.Status != entity.DeviceStatusOnline || device.Interface == "" {
+		return
+	}
+	rx, tx, err := netns.ReadInterfaceStats(device.Interface)
+	if err != nil {
+		return // non-fatal
+	}
+	device.RxBytes = rx
+	device.TxBytes = tx
 }
 
