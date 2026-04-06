@@ -45,6 +45,7 @@ type DeviceUseCase struct {
 	GracePeriod   time.Duration
 	DrainTimeout  time.Duration
 	Monitor       *SlotMonitorUseCase
+	OnTeardown    func() // called after device teardown to sync proxy listeners
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
 }
@@ -551,6 +552,11 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	c.Log.Infof("device %s: teardown complete — removed %d slots", device.Alias, removed)
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
+
+	// Notify delivery layer to clean up stale proxy listeners
+	if c.OnTeardown != nil {
+		c.OnTeardown()
+	}
 }
 
 // drainSlot waits for a slot's active connections to reach 0.

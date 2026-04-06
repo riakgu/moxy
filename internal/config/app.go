@@ -110,6 +110,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
 	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart)
 
+	// Wire teardown callback — cleans up stale proxy listeners after background device teardown
+	deviceUC.OnTeardown = func() {
+		portHandler.SyncSlots(slotUC.GetSlotNames())
+		portHandler.SyncDevices(deviceUC.ListOnlineAliases())
+	}
+
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger, portHandler, slotUC.GetSlotNames)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger, portHandler)
