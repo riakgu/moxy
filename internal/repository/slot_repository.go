@@ -28,9 +28,9 @@ func NewSlotRepository(log *logrus.Logger) *SlotRepository {
 	}
 }
 
-// NextSlotIndex returns a globally unique slot index (0, 1, 2, ...).
+// NextSlotIndex returns a globally unique slot index (1, 2, 3, ...).
 func (r *SlotRepository) NextSlotIndex() int {
-	return int(atomic.AddUint64(&r.slotSeq, 1) - 1)
+	return int(atomic.AddUint64(&r.slotSeq, 1))
 }
 
 // Put inserts or replaces a slot in the store.
