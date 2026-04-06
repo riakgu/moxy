@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -16,14 +15,15 @@ import (
 )
 
 // SetnsDialer dials targets through network namespaces using the setns(2) syscall.
-// Stateless — all ISP config (nameserver, NAT64 prefix) is provided per call.
+// Uses CachingResolver for DNS64 lookups with per-device caching.
 type SetnsDialer struct {
-	Log *logrus.Logger
+	Log      *logrus.Logger
+	Resolver *CachingResolver
 }
 
-// NewSetnsDialer creates a new SetnsDialer.
-func NewSetnsDialer(log *logrus.Logger) *SetnsDialer {
-	return &SetnsDialer{Log: log}
+// NewSetnsDialer creates a new SetnsDialer with the given CachingResolver.
+func NewSetnsDialer(log *logrus.Logger, resolver *CachingResolver) *SetnsDialer {
+	return &SetnsDialer{Log: log, Resolver: resolver}
 }
 
 // toNAT64 converts an IPv4 address to its NAT64 representation using the provided prefix.
@@ -76,9 +76,9 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 
 	// --- Inside namespace: resolve (if needed) + connect ---
 
-	// If host is a domain name, resolve via DNS64 inside the namespace
+	// If host is a domain name, resolve via DNS64 inside the namespace (cached)
 	if ip == nil {
-		resolved, err := resolveDNS64(host, nameserver)
+		resolved, err := d.Resolver.Resolve(host, nameserver, nat64Prefix)
 		if err != nil {
 			// Restore host namespace before returning error
 			unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
@@ -107,31 +107,3 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 	return conn, nil
 }
 
-// resolveDNS64 resolves a hostname to an IPv6 address using the given DNS64 server.
-// Must be called while the thread is inside the target namespace.
-func resolveDNS64(hostname string, dnsServer string) (string, error) {
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return net.DialTimeout("udp6", net.JoinHostPort(dnsServer, "53"), 5*time.Second)
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	ips, err := resolver.LookupHost(ctx, hostname)
-	if err != nil {
-		return "", fmt.Errorf("lookup %s: %w", hostname, err)
-	}
-
-	// Pick first IPv6 from results
-	for _, ip := range ips {
-		parsed := net.ParseIP(ip)
-		if parsed != nil && strings.Contains(ip, ":") {
-			return parsed.String(), nil
-		}
-	}
-
-	return "", fmt.Errorf("no AAAA record for %s via DNS64", hostname)
-}

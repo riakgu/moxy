@@ -15,6 +15,7 @@ type RouteConfig struct {
 	App              *fiber.App
 	DeviceController *httpdelivery.DeviceController
 	SlotController   *httpdelivery.SlotController
+	DNSController    *httpdelivery.DNSController
 	Log              *logrus.Logger
 	StaticFS         embed.FS
 }
@@ -37,6 +38,9 @@ func (c *RouteConfig) Setup() {
 	api.Get("/slots/:slotName", c.SlotController.Get)
 	api.Post("/slots/:slotName/changeip", c.SlotController.ChangeIP)
 	api.Delete("/slots/:slotName", c.SlotController.Delete)
+
+	// DNS routes
+	api.Get("/dns/stats", c.DNSController.Stats)
 
 
 	// Static files (dashboard)

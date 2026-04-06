@@ -26,6 +26,15 @@ type Socks5Handler struct {
 	cancel context.CancelFunc
 }
 
+// passthroughResolver is a no-op DNS resolver for go-socks5.
+// It returns nil IP so that the FQDN passes through to our Dial function,
+// where the CachingResolver handles DNS resolution with caching.
+type passthroughResolver struct{}
+
+func (r passthroughResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
+	return ctx, nil, nil
+}
+
 // NewSocks5Handler creates a new SOCKS5 proxy handler.
 func NewSocks5Handler(
 	log *logrus.Logger,
@@ -37,6 +46,7 @@ func NewSocks5Handler(
 		socks5.WithDial(func(dialCtx context.Context, network, addr string) (net.Conn, error) {
 			return connect(dialCtx, addr)
 		}),
+		socks5.WithResolver(passthroughResolver{}),
 		socks5.WithAuthMethods([]socks5.Authenticator{
 			socks5.NoAuthAuthenticator{},
 		}),

@@ -43,7 +43,13 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	adbGateway := adb.NewADBGateway(cfg.Logger)
 	provisioner := netns.NewProvisioner(cfg.Logger)
 	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetString("slots.ip_check_host"))
-	dialer := netns.NewSetnsDialer(cfg.Logger)
+	// DNS cache
+	resolver := netns.NewCachingResolver(cfg.Logger, netns.CacheConfig{
+		MaxEntriesPerDevice: cfg.Viper.GetInt("dns.cache_max_entries_per_device"),
+		MinTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
+		MaxTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
+	})
+	dialer := netns.NewSetnsDialer(cfg.Logger, resolver)
 
 	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
@@ -108,11 +114,16 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger, portHandler, slotUC.GetSlotNames)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger, portHandler)
 
+	// DNS
+	dnsUC := usecase.NewDNSUseCase(cfg.Logger, resolver)
+	dnsCtrl := httpdelivery.NewDNSController(dnsUC, cfg.Logger)
+
 	// Routes
 	routeConfig := &route.RouteConfig{
 		App:              cfg.Fiber,
 		DeviceController: deviceCtrl,
 		SlotController:   slotCtrl,
+		DNSController:    dnsCtrl,
 		Log:              cfg.Logger,
 		StaticFS:         cfg.StaticFS,
 	}
