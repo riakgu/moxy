@@ -19,6 +19,17 @@ function countdownTime(timestampMs: number, now: number): string {
   return `${minutes}m ${seconds % 60}s`
 }
 
+function timeAgo(timestampMs: number, now: number): string {
+  if (!timestampMs) return 'Never'
+  const diffMs = now - timestampMs
+  if (diffMs < 60_000) return 'just now'
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 const statusStyles: Record<string, { dot: string; text: string; class: string }> = {
   healthy: { dot: 'bg-accent-green', text: 'Healthy', class: 'text-accent-green' },
   unhealthy: { dot: 'bg-accent-red', text: 'Unhealthy', class: 'text-accent-red' },
@@ -77,6 +88,9 @@ export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProp
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
           {status.text}
         </span>
+      </td>
+      <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
+        {timeAgo(slot.last_used_at, now)}
       </td>
       <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
         {countdownTime(slot.next_check_at, now)}

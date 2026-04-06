@@ -23,5 +23,6 @@ type Slot struct {
 	ActiveConnections int64
 	LastCheckedAt     int64
 	NextCheckAt       int64
+	LastUsedAt        int64
 	MonitorState      string
 }

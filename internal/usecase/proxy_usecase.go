@@ -3,6 +3,8 @@ package usecase
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -33,6 +35,9 @@ func NewProxyUseCase(log *logrus.Logger, slotRepo *repository.SlotRepository, di
 
 func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, error) {
 	c.SlotRepo.IncrementConnections(slotName)
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+	}
 
 	nameserver, nat64Prefix := c.getSlotConfig(slotName)
 

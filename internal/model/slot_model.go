@@ -16,6 +16,7 @@ type SlotResponse struct {
 	ActiveConnections int64  `json:"active_connections"`
 	LastCheckedAt     int64  `json:"last_checked_at"`
 	NextCheckAt       int64  `json:"next_check_at"`
+	LastUsedAt        int64  `json:"last_used_at"`
 	MonitorState      string `json:"monitor_state"`
 }
 

@@ -22,6 +22,7 @@ func SlotToResponse(slot *entity.Slot) *model.SlotResponse {
 		ActiveConnections: slot.ActiveConnections,
 		LastCheckedAt:     slot.LastCheckedAt,
 		NextCheckAt:       slot.NextCheckAt,
+		LastUsedAt:        slot.LastUsedAt,
 		MonitorState:      slot.MonitorState,
 	}
 }

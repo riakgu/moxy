@@ -39,6 +39,7 @@ export interface Slot {
   active_connections: number
   last_checked_at: number
   next_check_at: number
+  last_used_at: number
   monitor_state: string
 }
 
