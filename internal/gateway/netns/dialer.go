@@ -107,3 +107,76 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 	return conn, nil
 }
 
+// DialIPv6 connects to addr through the slot's namespace, preferring native IPv6.
+// Resolution order for domains:
+//  1. Try native AAAA (real IPv6, not DNS64-synthesized)
+//  2. Fall back to DNS64/NAT64 if no native AAAA exists
+//
+// Raw IPv4 addresses are converted to NAT64. Raw IPv6 addresses dial directly.
+func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+
+	ip := net.ParseIP(host)
+
+	// Raw IPv4 → NAT64 (fallback, same as Dial)
+	if ip != nil && ip.To4() != nil {
+		host = toNAT64(ip, nat64Prefix)
+	}
+
+	// Raw IPv6 → use directly (no resolution needed)
+	// For domains, we resolve below inside the namespace
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	origNs, err := os.Open("/proc/self/ns/net")
+	if err != nil {
+		return nil, fmt.Errorf("open host namespace: %w", err)
+	}
+	defer origNs.Close()
+
+	targetNs, err := os.Open("/var/run/netns/" + slotName)
+	if err != nil {
+		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer targetNs.Close()
+
+	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
+		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
+	}
+
+	// Inside namespace: resolve (if domain) + connect
+	if ip == nil {
+		// Try native AAAA first
+		resolved, nativeErr := d.Resolver.ResolveNative(host, nameserver, nat64Prefix)
+		if nativeErr != nil {
+			// Fallback to DNS64
+			resolved, err = d.Resolver.Resolve(host, nameserver, nat64Prefix)
+			if err != nil {
+				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
+			}
+		}
+		host = resolved
+	}
+
+	target := net.JoinHostPort(host, port)
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, dialErr := dialer.DialContext(context.Background(), "tcp6", target)
+
+	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
+	}
+
+	if dialErr != nil {
+		return nil, fmt.Errorf("dial %s via %s: %w", addr, slotName, dialErr)
+	}
+
+	return conn, nil
+}

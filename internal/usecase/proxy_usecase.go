@@ -18,6 +18,7 @@ import (
 
 type SlotDialer interface {
 	Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
+	DialIPv6(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
 }
 
 type ProxyUseCase struct {
