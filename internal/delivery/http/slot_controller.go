@@ -83,7 +83,9 @@ func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 	}
 
 	if c.PortHandler != nil {
-		c.PortHandler.SyncSlots(c.UseCase.GetSlotNames())
+		slotNames := c.UseCase.GetSlotNames()
+		c.PortHandler.SyncSlots(slotNames)
+		c.PortHandler.SyncSlotsIPv6(slotNames)
 	}
 
 	return ctx.JSON(model.WebResponse[string]{

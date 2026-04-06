@@ -27,8 +27,12 @@ func (c *DeviceController) syncPorts() {
 	if c.PortHandler == nil {
 		return
 	}
-	c.PortHandler.SyncSlots(c.GetSlotNames())
-	c.PortHandler.SyncDevices(c.DeviceUC.ListOnlineAliases())
+	slotNames := c.GetSlotNames()
+	onlineAliases := c.DeviceUC.ListOnlineAliases()
+	c.PortHandler.SyncSlots(slotNames)
+	c.PortHandler.SyncDevices(onlineAliases)
+	c.PortHandler.SyncSlotsIPv6(slotNames)
+	c.PortHandler.SyncDevicesIPv6(onlineAliases)
 }
 
 func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
