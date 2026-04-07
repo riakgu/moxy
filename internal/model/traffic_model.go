@@ -1,6 +1,5 @@
 package model
 
-// TrafficEntryResponse is the API response for a single traffic entry.
 type TrafficEntryResponse struct {
 	Domain            string `json:"domain"`
 	Port              string `json:"port"`
@@ -14,7 +13,6 @@ type TrafficEntryResponse struct {
 	LastSeenAt        int64  `json:"last_seen_at"`
 }
 
-// TrafficListResponse is the API response for the traffic list endpoint.
 type TrafficListResponse struct {
 	Entries      []TrafficEntryResponse `json:"entries"`
 	TotalEntries int                    `json:"total_entries"`

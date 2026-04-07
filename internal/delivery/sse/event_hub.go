@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/usecase"
 )
 
 // Event represents a published state change.
@@ -26,8 +26,7 @@ type EventHub struct {
 	done       chan struct{}
 }
 
-// Ensure EventHub implements entity.EventPublisher.
-var _ entity.EventPublisher = (*EventHub)(nil)
+var _ usecase.EventPublisher = (*EventHub)(nil)
 
 func NewEventHub(log *logrus.Logger, maxClients int) *EventHub {
 	if maxClients <= 0 {

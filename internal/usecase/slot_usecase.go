@@ -44,7 +44,7 @@ type SlotUseCase struct {
 	Provisioner SlotProvisioner
 	MaxSlots    int
 	Monitor     *SlotMonitorUseCase
-	EventPub    entity.EventPublisher
+	EventPub    EventPublisher
 }
 
 func NewSlotUseCase(

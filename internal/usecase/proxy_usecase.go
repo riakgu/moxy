@@ -29,7 +29,7 @@ type ProxyUseCase struct {
 	Dialer      SlotDialer
 	Strategy    SlotStrategy
 	TrafficRepo *repository.TrafficRepository
-	EventPub    entity.EventPublisher
+	EventPub    EventPublisher
 }
 
 func NewProxyUseCase(

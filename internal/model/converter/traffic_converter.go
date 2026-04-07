@@ -5,7 +5,6 @@ import (
 	"github.com/riakgu/moxy/internal/model"
 )
 
-// TrafficEntryToResponse converts a TrafficEntry entity to an API response.
 func TrafficEntryToResponse(entry *entity.TrafficEntry) model.TrafficEntryResponse {
 	return model.TrafficEntryResponse{
 		Domain:            entry.Domain,

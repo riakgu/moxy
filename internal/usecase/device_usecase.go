@@ -45,7 +45,7 @@ type DeviceUseCase struct {
 	DrainTimeout  time.Duration
 	Monitor       *SlotMonitorUseCase
 	TrafficRepo   *repository.TrafficRepository
-	EventPub      entity.EventPublisher
+	EventPub      EventPublisher
 	OnTeardown    func() // called after device teardown to sync proxy listeners
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex

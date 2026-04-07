@@ -38,8 +38,7 @@ type ISPProbeResult struct {
 	NAT64Prefix string `json:"nat64_prefix"`
 }
 
-// DeviceEvent represents a device connect/disconnect event from the ADB watcher.
 type DeviceEvent struct {
 	Serial string
-	Status string // "connected" or "disconnected"
+	Status string
 }

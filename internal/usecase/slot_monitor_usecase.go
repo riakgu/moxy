@@ -31,7 +31,7 @@ type SlotMonitorUseCase struct {
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
 	Config      SlotMonitorConfig
-	EventPub    entity.EventPublisher
+	EventPub    EventPublisher
 
 	mu    sync.Mutex
 	slots map[string]context.CancelFunc
