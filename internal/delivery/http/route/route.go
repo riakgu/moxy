@@ -19,6 +19,7 @@ type RouteConfig struct {
 	SlotController    *httpdelivery.SlotController
 	DNSController     *httpdelivery.DNSController
 	TrafficController *httpdelivery.TrafficController
+	ConfigController  *httpdelivery.ConfigController
 	SSEHandler        *sse.SSEHandler
 	Log               *slog.Logger
 	StaticFS          embed.FS
@@ -49,6 +50,11 @@ func (c *RouteConfig) Setup() {
 
 	// Traffic routes
 	api.Get("/traffic", c.TrafficController.List)
+
+	// Config routes
+	api.Get("/config", c.ConfigController.Get)
+	api.Put("/config", c.ConfigController.Update)
+	api.Post("/restart", c.ConfigController.Restart)
 
 	// SSE event stream
 	api.Get("/events", c.SSEHandler.Stream)

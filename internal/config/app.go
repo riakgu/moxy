@@ -178,6 +178,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
 
+	// Config
+	configCtrl := httpdelivery.NewConfigController(
+		cfg.Logger.With("component", "config"),
+		"config.json",
+	)
+
 	// SSE handler
 	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
 	sseHeartbeat := cfg.Viper.GetInt("sse.heartbeat_seconds")
@@ -199,6 +205,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		SlotController:    slotCtrl,
 		DNSController:     dnsCtrl,
 		TrafficController: trafficCtrl,
+		ConfigController:  configCtrl,
 		SSEHandler:        sseHandler,
 		Log:               cfg.Logger.With("component", "api"),
 		StaticFS:          cfg.StaticFS,

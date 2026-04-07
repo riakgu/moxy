@@ -75,3 +75,52 @@ export interface LogEntry {
   component?: string
   attrs?: Record<string, string>
 }
+
+// Config — mirrors config.json structure
+export interface MoxyConfig {
+  proxy: {
+    port: number
+    slot_port_start: number
+    ipv6_port: number
+    ipv6_slot_port_start: number
+    source_ip_strategy: string
+  }
+  api: {
+    port: number
+  }
+  devices: {
+    grace_period_seconds: number
+    watcher_reconnect_max_seconds: number
+    drain_timeout_seconds: number
+  }
+  slots: {
+    max_slots_per_device: number
+    ip_check_host: string
+    monitor_fast_interval_seconds: number
+    monitor_steady_interval_seconds: number
+    monitor_recovery_interval_seconds: number
+    monitor_fast_ticks: number
+    monitor_unhealthy_threshold: number
+  }
+  dns: {
+    cache_max_entries_per_device: number
+    cache_min_ttl_seconds: number
+    cache_max_ttl_seconds: number
+  }
+  traffic: {
+    max_tracked: number
+  }
+  sse: {
+    debounce_ms: number
+    heartbeat_seconds: number
+    max_clients: number
+  }
+  server: {
+    shutdown_drain_seconds: number
+  }
+  log: {
+    level: string
+    format: string
+    ring_buffer_size?: number
+  }
+}
