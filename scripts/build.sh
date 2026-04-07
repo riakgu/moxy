@@ -42,7 +42,7 @@ echo "    npm: $(npm --version)"
 # ── 2. Build React dashboard ─────────────────────────────────────────────────
 echo "==> [2/3] Building dashboard"
 cd "${PROJECT_ROOT}/web/dashboard"
-npm ci --silent
+npm install --silent
 npm run build
 
 # ── 3. Cross-compile Go binary ───────────────────────────────────────────────

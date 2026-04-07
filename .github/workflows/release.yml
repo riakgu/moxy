@@ -30,7 +30,7 @@ jobs:
       - name: Build dashboard
         working-directory: web/dashboard
         run: |
-          npm ci
+          npm install
           npm run build
 
       - name: Build binaries
