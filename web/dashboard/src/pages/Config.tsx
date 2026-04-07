@@ -80,6 +80,7 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
       { key: 'debounce_ms', label: 'Debounce (ms)', type: 'number', min: 100, description: 'Event coalescing window for SSE push', readonly: true },
       { key: 'heartbeat_seconds', label: 'Heartbeat (s)', type: 'number', min: 5, description: 'SSE keepalive ping interval', readonly: true },
       { key: 'max_clients', label: 'Max Clients', type: 'number', min: 1, description: 'Maximum concurrent SSE connections', readonly: true },
+      { key: 'traffic_snapshot_limit', label: 'Traffic Snapshot Limit', type: 'number', min: 10, description: 'Max traffic entries pushed via SSE (REST returns all)', readonly: true },
     ],
   },
   {

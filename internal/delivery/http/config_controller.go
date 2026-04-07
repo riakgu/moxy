@@ -138,9 +138,10 @@ type TrafficConfig struct {
 }
 
 type SSEConfig struct {
-	DebounceMs       int `json:"debounce_ms"`
-	HeartbeatSeconds int `json:"heartbeat_seconds"`
-	MaxClients       int `json:"max_clients"`
+	DebounceMs             int `json:"debounce_ms"`
+	HeartbeatSeconds       int `json:"heartbeat_seconds"`
+	MaxClients             int `json:"max_clients"`
+	TrafficSnapshotLimit   int `json:"traffic_snapshot_limit"`
 }
 
 type ServerConfig struct {
@@ -240,6 +241,9 @@ func (cfg *MoxyConfig) Validate() map[string]string {
 	}
 	if cfg.SSE.MaxClients < 1 {
 		errs["sse.max_clients"] = "must be >= 1"
+	}
+	if cfg.SSE.TrafficSnapshotLimit < 10 {
+		errs["sse.traffic_snapshot_limit"] = "must be >= 10"
 	}
 
 	// Server

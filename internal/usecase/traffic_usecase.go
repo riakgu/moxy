@@ -22,17 +22,47 @@ func NewTrafficUseCase(log *slog.Logger, repo *repository.TrafficRepository) *Tr
 	}
 }
 
-// List returns all traffic entries sorted by connection count descending.
+// List returns all traffic entries sorted by connection count descending,
+// including summary totals computed from all entries.
 func (uc *TrafficUseCase) List() *model.TrafficListResponse {
-	entries := uc.Repo.List()
+	return uc.buildResponse(-1)
+}
 
+// ListTop returns traffic entries capped to the top N by connection count.
+// Summary totals are computed from ALL entries (not just top N).
+// If n <= 0, returns all entries.
+func (uc *TrafficUseCase) ListTop(n int) *model.TrafficListResponse {
+	return uc.buildResponse(n)
+}
+
+// buildResponse builds the response, optionally capping entries to top N.
+// Summary totals always reflect all entries.
+func (uc *TrafficUseCase) buildResponse(limit int) *model.TrafficListResponse {
+	entries := uc.Repo.List() // already sorted by ConnectionCount desc
+
+	// Compute summaries from ALL entries
+	var totalConn, totalActive int64
+	var totalTx, totalRx uint64
 	responses := make([]model.TrafficEntryResponse, 0, len(entries))
 	for _, e := range entries {
+		totalConn += e.ConnectionCount
+		totalActive += e.ActiveConnections
+		totalTx += e.TxBytes
+		totalRx += e.RxBytes
 		responses = append(responses, converter.TrafficEntryToResponse(e))
 	}
 
+	// Cap entries if limit is set
+	if limit > 0 && len(responses) > limit {
+		responses = responses[:limit]
+	}
+
 	return &model.TrafficListResponse{
-		Entries:      responses,
-		TotalEntries: len(responses),
+		Entries:          responses,
+		TotalEntries:     len(entries),
+		TotalConnections: totalConn,
+		TotalActive:      totalActive,
+		TotalTxBytes:     totalTx,
+		TotalRxBytes:     totalRx,
 	}
 }

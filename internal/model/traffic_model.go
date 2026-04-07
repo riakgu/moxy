@@ -14,6 +14,10 @@ type TrafficEntryResponse struct {
 }
 
 type TrafficListResponse struct {
-	Entries      []TrafficEntryResponse `json:"entries"`
-	TotalEntries int                    `json:"total_entries"`
+	Entries          []TrafficEntryResponse `json:"entries"`
+	TotalEntries     int                    `json:"total_entries"`
+	TotalConnections int64                  `json:"total_connections"`
+	TotalActive      int64                  `json:"total_active"`
+	TotalTxBytes     uint64                 `json:"total_tx_bytes"`
+	TotalRxBytes     uint64                 `json:"total_rx_bytes"`
 }

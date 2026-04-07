@@ -145,6 +145,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
 	deviceUC.SetMonitor(slotMonitor)
 	deviceUC.EventPub = hub
+	// Traffic (must be before proxyUC so it can be injected)
+	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
+
 	proxyUC := usecase.NewProxyUseCase(proxyLog, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
 	proxyUC.EventPub = hub
 
@@ -174,8 +177,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	dnsUC := usecase.NewDNSUseCase(dnsLog, resolver)
 	dnsCtrl := httpdelivery.NewDNSController(dnsUC, dnsLog)
 
-	// Traffic
-	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
 
 	// Config
@@ -187,6 +188,15 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// SSE handler
 	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
 	sseHeartbeat := cfg.Viper.GetInt("sse.heartbeat_seconds")
+	sseTrafficLimit := cfg.Viper.GetInt("sse.traffic_snapshot_limit")
+	if sseTrafficLimit == 0 {
+		sseTrafficLimit = 100
+	}
+
+	// Inject traffic snapshot config into proxyUC
+	proxyUC.TrafficUC = trafficUC
+	proxyUC.SnapshotLimit = sseTrafficLimit
+
 	sseSnapshot := func() (*sse.InitPayload, error) {
 		devices, err := deviceUC.List()
 		if err != nil {
@@ -194,7 +204,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		}
 		slots := slotUC.ListAll()
 		logs := ringHandler.GetRecent()
-		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs}, nil
+		traffic := trafficUC.ListTop(sseTrafficLimit)
+		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs, Traffic: traffic}, nil
 	}
 	sseHandler := sse.NewSSEHandler(hub, sseLog, sseSnapshot, sseDebounce, sseHeartbeat)
 

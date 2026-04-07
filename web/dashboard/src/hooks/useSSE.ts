@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Device, Slot, LogEntry } from '../api/types'
+import type { Device, Slot, LogEntry, TrafficList } from '../api/types'
 
 interface SSEState {
   devices: Device[]
   slots: Slot[]
   logs: LogEntry[]
+  traffic: TrafficList | null
   connected: boolean
   error: string | null
 }
@@ -15,6 +16,7 @@ export function useSSE(): SSEState {
   const [devices, setDevices] = useState<Device[]>([])
   const [slots, setSlots] = useState<Slot[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [traffic, setTraffic] = useState<TrafficList | null>(null)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -24,10 +26,11 @@ export function useSSE(): SSEState {
     esRef.current = es
 
     es.addEventListener('init', (e: MessageEvent) => {
-      const data = JSON.parse(e.data) as { devices: Device[]; slots: Slot[]; logs?: LogEntry[] }
+      const data = JSON.parse(e.data) as { devices: Device[]; slots: Slot[]; logs?: LogEntry[]; traffic?: TrafficList }
       setDevices(data.devices || [])
       setSlots(data.slots || [])
       setLogs(data.logs || [])
+      setTraffic(data.traffic || null)
       setConnected(true)
       setError(null)
     })
@@ -81,6 +84,11 @@ export function useSSE(): SSEState {
       })
     })
 
+    es.addEventListener('traffic_snapshot', (e: MessageEvent) => {
+      const data = JSON.parse(e.data) as TrafficList
+      setTraffic(data)
+    })
+
     es.onopen = () => {
       setConnected(true)
       setError(null)
@@ -98,5 +106,5 @@ export function useSSE(): SSEState {
     }
   }, [])
 
-  return { devices, slots, logs, connected, error }
+  return { devices, slots, logs, traffic, connected, error }
 }

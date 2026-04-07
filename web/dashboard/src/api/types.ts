@@ -114,6 +114,7 @@ export interface MoxyConfig {
     debounce_ms: number
     heartbeat_seconds: number
     max_clients: number
+    traffic_snapshot_limit: number
   }
   server: {
     shutdown_drain_seconds: number
@@ -123,4 +124,28 @@ export interface MoxyConfig {
     format: string
     ring_buffer_size?: number
   }
+}
+
+// Traffic — matches model.TrafficEntryResponse
+export interface TrafficEntry {
+  domain: string
+  port: string
+  device_alias: string
+  protocol: string
+  connection_count: number
+  active_connections: number
+  tx_bytes: number
+  rx_bytes: number
+  first_seen_at: number
+  last_seen_at: number
+}
+
+// TrafficList — matches model.TrafficListResponse
+export interface TrafficList {
+  entries: TrafficEntry[]
+  total_entries: number
+  total_connections: number
+  total_active: number
+  total_tx_bytes: number
+  total_rx_bytes: number
 }

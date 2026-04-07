@@ -34,7 +34,8 @@
     "sse": {
         "debounce_ms": 1000,
         "heartbeat_seconds": 30,
-        "max_clients": 10
+        "max_clients": 10,
+        "traffic_snapshot_limit": 100
     },
     "server": {
         "shutdown_drain_seconds": 30

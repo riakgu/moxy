@@ -22,13 +22,15 @@ type SlotDialer interface {
 }
 
 type ProxyUseCase struct {
-	Log         *slog.Logger
-	SlotRepo    *repository.SlotRepository
-	DeviceRepo  *repository.DeviceRepository
-	Dialer      SlotDialer
-	Strategy    SlotStrategy
-	TrafficRepo *repository.TrafficRepository
-	EventPub    EventPublisher
+	Log           *slog.Logger
+	SlotRepo      *repository.SlotRepository
+	DeviceRepo    *repository.DeviceRepository
+	Dialer        SlotDialer
+	Strategy      SlotStrategy
+	TrafficRepo   *repository.TrafficRepository
+	EventPub      EventPublisher
+	TrafficUC     *TrafficUseCase
+	SnapshotLimit int
 }
 
 func NewProxyUseCase(
@@ -79,6 +81,11 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
 
+	// Publish traffic snapshot (debounced by EventHub)
+	if c.EventPub != nil && c.TrafficUC != nil {
+		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+	}
+
 	tc := &trackedConn{
 		Conn:     conn,
 		slotName: slotName,
@@ -120,6 +127,11 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv6"}
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
+
+	// Publish traffic snapshot (debounced by EventHub)
+	if c.EventPub != nil && c.TrafficUC != nil {
+		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+	}
 
 	tc := &trackedConn{
 		Conn:     conn,
