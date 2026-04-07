@@ -13,6 +13,7 @@ import (
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
 	"github.com/riakgu/moxy/internal/delivery/http/route"
 	"github.com/riakgu/moxy/internal/delivery/proxy"
+	"github.com/riakgu/moxy/internal/delivery/sse"
 	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/repository"
@@ -32,6 +33,7 @@ type BootstrapResult struct {
 	SlotMonitor   *usecase.SlotMonitorUseCase
 	PortHandler   *proxy.PortBasedHandler
 	RouteConfig   *route.RouteConfig
+	EventHub      *sse.EventHub
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
@@ -43,6 +45,13 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		maxTracked = 5000
 	}
 	trafficRepo := repository.NewTrafficRepository(cfg.Logger, maxTracked)
+
+	// SSE Event Hub
+	sseMaxClients := cfg.Viper.GetInt("sse.max_clients")
+	if sseMaxClients == 0 {
+		sseMaxClients = 10
+	}
+	hub := sse.NewEventHub(cfg.Logger, sseMaxClients)
 
 	// Gateways
 	adbGateway := adb.NewADBGateway(cfg.Logger)
@@ -90,6 +99,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
 	slotUC.SetMonitor(slotMonitor)
+
+	// Inject EventPublisher into usecases
+	slotUC.EventPub = hub
+	slotMonitor.EventPub = hub
 	ispProbe := netns.NewISPProbe(cfg.Logger)
 
 	// ADB device watcher (event-driven device monitoring)
@@ -107,7 +120,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
 	deviceUC.SetMonitor(slotMonitor)
+	deviceUC.EventPub = hub
 	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
+	proxyUC.EventPub = hub
 
 	// Port-based handler (shared + device + per-slot mux listeners)
 	// Must be created before controllers so we can inject it.
@@ -139,6 +154,19 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	trafficUC := usecase.NewTrafficUseCase(cfg.Logger, trafficRepo)
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, cfg.Logger)
 
+	// SSE handler
+	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
+	sseHeartbeat := cfg.Viper.GetInt("sse.heartbeat_seconds")
+	sseSnapshot := func() (*sse.InitPayload, error) {
+		devices, err := deviceUC.List()
+		if err != nil {
+			return nil, err
+		}
+		slots := slotUC.ListAll()
+		return &sse.InitPayload{Devices: devices, Slots: slots}, nil
+	}
+	sseHandler := sse.NewSSEHandler(hub, cfg.Logger, sseSnapshot, sseDebounce, sseHeartbeat)
+
 	// Routes
 	routeConfig := &route.RouteConfig{
 		App:               cfg.Fiber,
@@ -146,6 +174,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		SlotController:    slotCtrl,
 		DNSController:     dnsCtrl,
 		TrafficController: trafficCtrl,
+		SSEHandler:        sseHandler,
 		Log:               cfg.Logger,
 		StaticFS:          cfg.StaticFS,
 	}
@@ -156,5 +185,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		SlotMonitor:   slotMonitor,
 		PortHandler:   portHandler,
 		RouteConfig:   routeConfig,
+		EventHub:      hub,
 	}
 }

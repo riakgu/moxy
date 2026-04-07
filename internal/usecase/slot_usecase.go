@@ -44,6 +44,7 @@ type SlotUseCase struct {
 	Provisioner SlotProvisioner
 	MaxSlots    int
 	Monitor     *SlotMonitorUseCase
+	EventPub    entity.EventPublisher
 }
 
 func NewSlotUseCase(
@@ -66,6 +67,26 @@ func NewSlotUseCase(
 // Must be called after construction to break the circular dependency.
 func (c *SlotUseCase) SetMonitor(m *SlotMonitorUseCase) {
 	c.Monitor = m
+}
+
+// publishSlot publishes the current state of a slot as a slot_updated event.
+func (c *SlotUseCase) publishSlot(name string) {
+	if c.EventPub == nil {
+		return
+	}
+	slot, ok := c.SlotRepo.Get(name)
+	if !ok {
+		return
+	}
+	c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+}
+
+// publishSlotRemoved publishes a slot_removed event.
+func (c *SlotUseCase) publishSlotRemoved(name string) {
+	if c.EventPub == nil {
+		return
+	}
+	c.EventPub.Publish("slot_removed", map[string]string{"name": name})
 }
 
 func (c *SlotUseCase) GetSlotNames() []string {
@@ -189,6 +210,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		c.Monitor.StopSlot(request.SlotName)
 		c.Monitor.StartSlot(request.SlotName)
 	}
+	c.publishSlot(request.SlotName)
 
 	response := converter.SlotToResponse(slot)
 	if c.Log != nil {
@@ -261,6 +283,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 			Status:      entity.SlotStatusDiscovering,
 		})
 		createdNames = append(createdNames, slotName)
+		c.publishSlot(slotName)
 		created++
 	}
 
@@ -313,6 +336,7 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 	ipv6 := slot.IPv6Address
 	iface := slot.Interface
 	c.SlotRepo.Delete(slotName)
+	c.publishSlotRemoved(slotName)
 
 	if ipv6 != "" && iface != "" {
 		if err := c.Provisioner.RemoveNDPProxyEntry(ipv6, iface); err != nil {

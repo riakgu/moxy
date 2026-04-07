@@ -18,7 +18,7 @@
         "max_slots_per_device": 250,
         "ip_check_host": "ip.moxy.my.id",
         "monitor_fast_interval_seconds": 10,
-        "monitor_steady_interval_seconds": 60,
+        "monitor_steady_interval_seconds": 120,
         "monitor_recovery_interval_seconds": 15,
         "monitor_fast_ticks": 6,
         "monitor_unhealthy_threshold": 3
@@ -30,6 +30,11 @@
     },
     "traffic": {
         "max_tracked": 5000
+    },
+    "sse": {
+        "debounce_ms": 1000,
+        "heartbeat_seconds": 30,
+        "max_clients": 10
     },
     "server": {
         "shutdown_drain_seconds": 30

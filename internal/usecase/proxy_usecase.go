@@ -10,6 +10,7 @@ import (
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
+	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 )
 
@@ -28,6 +29,7 @@ type ProxyUseCase struct {
 	Dialer      SlotDialer
 	Strategy    SlotStrategy
 	TrafficRepo *repository.TrafficRepository
+	EventPub    entity.EventPublisher
 }
 
 func NewProxyUseCase(
@@ -52,6 +54,9 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	c.SlotRepo.IncrementConnections(slotName)
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
 		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+		if c.EventPub != nil {
+			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+		}
 	}
 
 	nameserver, nat64Prefix := c.getSlotConfig(slotName)
@@ -89,6 +94,9 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 	c.SlotRepo.IncrementConnections(slotName)
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
 		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+		if c.EventPub != nil {
+			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+		}
 	}
 
 	nameserver, nat64Prefix := c.getSlotConfig(slotName)

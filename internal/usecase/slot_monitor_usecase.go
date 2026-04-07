@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 )
 
@@ -30,6 +31,7 @@ type SlotMonitorUseCase struct {
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
 	Config      SlotMonitorConfig
+	EventPub    entity.EventPublisher
 
 	mu    sync.Mutex
 	slots map[string]context.CancelFunc
@@ -140,9 +142,13 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				}
 				consecutiveFails++
 				slot.LastCheckedAt = time.Now().UnixMilli()
+				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 				if consecutiveFails >= threshold {
 					slot.Status = entity.SlotStatusUnhealthy
 					c.Log.Warnf("monitor: %s unhealthy after %d consecutive failures", name, consecutiveFails)
+					if c.EventPub != nil {
+						c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+					}
 				} else {
 					c.Log.Debugf("monitor: %s check failed (%d/%d): %v", name, consecutiveFails, threshold, err)
 				}
@@ -163,7 +169,11 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			} else {
 				consecutiveFails = 0
 				slot.LastCheckedAt = time.Now().UnixMilli()
+				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 				slot.Status = entity.SlotStatusHealthy
+				if c.EventPub != nil {
+					c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+				}
 			}
 		}
 
@@ -236,6 +246,10 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 
 	// Update IPv6
 	c.updateIPv6Helper(slot, ipv6)
+
+	if c.EventPub != nil {
+		c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+	}
 }
 
 func (c *SlotMonitorUseCase) updateSlotStatus(name string, status string) {

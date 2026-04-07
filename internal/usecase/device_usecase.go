@@ -45,6 +45,7 @@ type DeviceUseCase struct {
 	DrainTimeout  time.Duration
 	Monitor       *SlotMonitorUseCase
 	TrafficRepo   *repository.TrafficRepository
+	EventPub      entity.EventPublisher
 	OnTeardown    func() // called after device teardown to sync proxy listeners
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
@@ -85,6 +86,26 @@ func (c *DeviceUseCase) SetMonitor(m *SlotMonitorUseCase) {
 	c.Monitor = m
 }
 
+// publishDevice publishes the current state of a device as a device_updated event.
+func (c *DeviceUseCase) publishDevice(alias string) {
+	if c.EventPub == nil {
+		return
+	}
+	resp, err := c.GetByAlias(alias)
+	if err != nil {
+		return
+	}
+	c.EventPub.Publish("device_updated", resp)
+}
+
+// publishDeviceRemoved publishes a device_removed event.
+func (c *DeviceUseCase) publishDeviceRemoved(alias string) {
+	if c.EventPub == nil {
+		return
+	}
+	c.EventPub.Publish("device_removed", map[string]string{"alias": alias})
+}
+
 // Scan discovers ADB devices and registers new ones as "detected".
 // No setup or provisioning — use Setup(alias) for that.
 func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
@@ -111,6 +132,7 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 			Status: entity.DeviceStatusDetected,
 		}
 		c.DeviceRepo.Put(device)
+		c.publishDevice(device.Alias)
 	}
 
 	// Teardown disconnected phones (guarded by c.mu to prevent race with grace timer)
@@ -155,11 +177,13 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 
 	device.Status = entity.DeviceStatusSetup
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 
 	if err := c.setup(ctx, device); err != nil {
 		c.Log.WithError(err).Warnf("setup: failed for %s (%s)", device.Alias, device.Serial)
 		device.Status = entity.DeviceStatusError
 		c.DeviceRepo.Put(device)
+		c.publishDevice(device.Alias)
 		return nil, err
 	}
 
@@ -222,6 +246,7 @@ func (c *DeviceUseCase) Delete(alias string) error {
 	}
 	c.teardownDevice(device)
 	c.DeviceRepo.Delete(device.Serial)
+	c.publishDeviceRemoved(alias)
 	return nil
 }
 
@@ -289,6 +314,7 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 		if device.Status == entity.DeviceStatusOffline || device.Status == entity.DeviceStatusError {
 			device.Status = entity.DeviceStatusDetected
 			c.DeviceRepo.Put(device)
+			c.publishDevice(device.Alias)
 			c.Log.Infof("device watcher: %s (%s) re-appeared — reset to detected",
 				device.Alias, serial)
 		}
@@ -302,6 +328,7 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 		Status: entity.DeviceStatusDetected,
 	}
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 	c.Log.Infof("device watcher: new device %s (%s) detected", device.Alias, serial)
 }
 
@@ -316,6 +343,7 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 	c.suspendDeviceSlots(device.Alias)
 	device.Status = entity.DeviceStatusDisconnected
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 
 	// Start grace timer
 	alias := device.Alias
@@ -376,6 +404,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 	c.Log.Infof("device watcher: %s smart reconnect complete (%d/%d slots re-attached)",
 		device.Alias, reattached, len(slotNames))
 }
@@ -534,6 +563,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 	return nil
 }
 
@@ -558,6 +588,7 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	c.Log.Infof("device %s: teardown complete — removed %d slots", device.Alias, removed)
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
+	c.publishDevice(device.Alias)
 
 	// Notify delivery layer to clean up stale proxy listeners
 	if c.OnTeardown != nil {

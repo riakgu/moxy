@@ -26,6 +26,9 @@ func main() {
 
 	b.RouteConfig.Setup()
 
+	// Start SSE event hub
+	go b.EventHub.Run()
+
 	// Start shared proxy port
 	b.PortHandler.StartShared()
 	b.PortHandler.StartSharedIPv6()
@@ -58,6 +61,7 @@ func main() {
 	log.Info("shutting down...")
 	watchCancel()
 	b.SlotMonitor.StopAll()
+	b.EventHub.Shutdown()
 
 	drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)

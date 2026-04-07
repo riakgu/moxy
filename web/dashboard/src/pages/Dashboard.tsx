@@ -1,6 +1,5 @@
-import { useState, useCallback } from 'react'
-import { useDevices } from '../hooks/useDevices'
-import { useSlots } from '../hooks/useSlots'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSSE } from '../hooks/useSSE'
 import { scanDevices, setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot, cleanupOrphans } from '../api/slots'
@@ -17,13 +16,21 @@ interface Toast {
 let toastId = 0
 
 export default function Dashboard() {
-  const { data: devices, loading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices()
-  const { data: slots, loading: slotsLoading, error: slotsError, refetch: refetchSlots } = useSlots()
+  const { devices, slots, connected, error: sseError } = useSSE()
   const [scanning, setScanning] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
 
   const host = window.location.hostname || 'localhost'
+
+  // Auto-scan on first page load to detect connected devices
+  const hasScanned = useRef(false)
+  useEffect(() => {
+    if (!hasScanned.current) {
+      hasScanned.current = true
+      scanDevices().catch(() => {}) // non-critical
+    }
+  }, [])
 
   const addToast = useCallback((message: string, type: 'success' | 'error') => {
     const id = ++toastId
@@ -33,15 +40,10 @@ export default function Dashboard() {
     }, 3000)
   }, [])
 
-  const refetchAll = useCallback(async () => {
-    await Promise.all([refetchDevices(), refetchSlots()])
-  }, [refetchDevices, refetchSlots])
-
   const handleScan = async () => {
     setScanning(true)
     try {
       const result = await scanDevices()
-      await refetchAll()
       addToast(`Scan complete: ${result.discovered} new device${result.discovered !== 1 ? 's' : ''} detected`, 'success')
     } catch (e) {
       addToast(`Scan failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
@@ -53,13 +55,11 @@ export default function Dashboard() {
   const handleSetupDevice = async (alias: string) => {
     try {
       const result = await setupDevice(alias)
-      await refetchAll()
       const msg = result.provision
         ? `${alias} online — ${result.provision.created} slot provisioned`
         : `${alias} online`
       addToast(msg, 'success')
     } catch (e) {
-      await refetchAll()
       addToast(`Setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
@@ -68,7 +68,6 @@ export default function Dashboard() {
     setCleaningUp(true)
     try {
       const result = await cleanupOrphans()
-      await refetchAll()
       addToast(
         result.cleaned > 0
           ? `Cleaned ${result.cleaned} orphaned namespace${result.cleaned !== 1 ? 's' : ''}`
@@ -85,7 +84,6 @@ export default function Dashboard() {
   const handleProvision = async (alias: string, count: number) => {
     try {
       const result = await provisionDevice(alias, count)
-      await refetchAll()
       addToast(`Provisioned ${result.created} slots for ${alias} (${result.unique_ips} unique IPs)`, 'success')
     } catch (e) {
       addToast(`Provision failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
@@ -95,7 +93,6 @@ export default function Dashboard() {
   const handleDeleteDevice = async (alias: string) => {
     try {
       await deleteDevice(alias)
-      await refetchAll()
       addToast(`Deleted ${alias}`, 'success')
     } catch (e) {
       addToast(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
@@ -105,7 +102,6 @@ export default function Dashboard() {
   const handleChangeSlotIP = async (name: string) => {
     try {
       await changeSlotIP(name)
-      await refetchSlots()
       addToast(`IP changed for ${name}`, 'success')
     } catch (e) {
       addToast(`Change IP failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
@@ -115,15 +111,14 @@ export default function Dashboard() {
   const handleDeleteSlot = async (name: string) => {
     try {
       await deleteSlot(name)
-      await refetchAll()
       addToast(`Deleted ${name}`, 'success')
     } catch (e) {
       addToast(`Delete slot failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
-  const loading = devicesLoading && slotsLoading
-  const error = devicesError && slotsError ? `${devicesError}` : null
+  const loading = !connected && devices.length === 0 && slots.length === 0
+  const error = sseError
 
   return (
     <div className="space-y-8">
@@ -152,6 +147,12 @@ export default function Dashboard() {
           </h1>
           <p className="text-sm text-text-muted mt-1">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
+            <span
+              className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${
+                connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
+              }`}
+              title={connected ? 'Connected' : 'Reconnecting...'}
+            />
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -206,7 +207,6 @@ export default function Dashboard() {
       {!loading && error && (
         <div className="bg-accent-red/10 border border-accent-red/20 rounded-lg px-5 py-4">
           <p className="font-mono text-sm text-accent-red">{error}</p>
-          <p className="text-xs text-text-muted mt-1">Backend may be offline. Dashboard will retry every 10s.</p>
         </div>
       )}
 

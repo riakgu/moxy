@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
+	"github.com/riakgu/moxy/internal/delivery/sse"
 )
 
 type RouteConfig struct {
@@ -17,6 +18,7 @@ type RouteConfig struct {
 	SlotController    *httpdelivery.SlotController
 	DNSController     *httpdelivery.DNSController
 	TrafficController *httpdelivery.TrafficController
+	SSEHandler        *sse.SSEHandler
 	Log               *logrus.Logger
 	StaticFS          embed.FS
 }
@@ -45,6 +47,9 @@ func (c *RouteConfig) Setup() {
 
 	// Traffic routes
 	api.Get("/traffic", c.TrafficController.List)
+
+	// SSE event stream
+	api.Get("/events", c.SSEHandler.Stream)
 
 	// Static files (dashboard)
 	c.App.Use("/", filesystem.New(filesystem.Config{
