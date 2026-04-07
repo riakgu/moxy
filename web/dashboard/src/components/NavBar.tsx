@@ -2,8 +2,7 @@ import { NavLink } from 'react-router-dom'
 
 const navLinks = [
   { to: '/', label: 'Dashboard' },
-  // Future: { to: '/config', label: 'Config' },
-  // Future: { to: '/logs', label: 'Logs' },
+  { to: '/logs', label: 'Logs' },
 ]
 
 export default function NavBar() {

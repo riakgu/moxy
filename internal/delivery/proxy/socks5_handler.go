@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"log/slog"
 
-	"github.com/sirupsen/logrus"
 	"github.com/things-go/go-socks5"
 )
 
@@ -19,7 +19,7 @@ type ConnectFunc func(ctx context.Context, addr string) (net.Conn, error)
 // Socks5Handler wraps things-go/go-socks5 with graceful shutdown.
 type Socks5Handler struct {
 	server *socks5.Server
-	Log    *logrus.Logger
+	Log    *slog.Logger
 	ln     net.Listener
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -37,7 +37,7 @@ func (r passthroughResolver) Resolve(ctx context.Context, name string) (context.
 
 // NewSocks5Handler creates a new SOCKS5 proxy handler.
 func NewSocks5Handler(
-	log *logrus.Logger,
+	log *slog.Logger,
 	connect ConnectFunc,
 ) *Socks5Handler {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -68,7 +68,7 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 		return fmt.Errorf("socks5 listen: %w", err)
 	}
 	c.ln = ln
-	c.Log.Infof("SOCKS5 proxy listening on %s", addr)
+	c.Log.Info("socks5 listener started", "addr", addr)
 
 	for {
 		conn, err := ln.Accept()
@@ -78,7 +78,7 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 				return nil
 			default:
 			}
-			c.Log.WithError(err).Error("socks5 accept failed")
+			c.Log.Error("socks5 accept failed", "error", err)
 			continue
 		}
 
@@ -86,7 +86,7 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 		go func() {
 			defer c.wg.Done()
 			if err := c.server.ServeConn(conn); err != nil {
-				c.Log.WithError(err).Warn("socks5 connection ended with error")
+				c.Log.Warn("socks5 connection error", "error", err)
 			}
 		}()
 	}
@@ -98,7 +98,7 @@ func (c *Socks5Handler) ServeConn(conn net.Conn) {
 	go func() {
 		defer c.wg.Done()
 		if err := c.server.ServeConn(conn); err != nil {
-			c.Log.WithError(err).Warn("socks5 connection ended with error")
+			c.Log.Warn("socks5 connection error", "error", err)
 		}
 	}()
 }
@@ -124,11 +124,11 @@ func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 	}
 }
 
-// socks5Logger forwards SOCKS5 library errors to logrus.
+// socks5Logger forwards SOCKS5 library errors to slog.
 type socks5Logger struct {
-	log *logrus.Logger
+	log *slog.Logger
 }
 
 func (l socks5Logger) Errorf(format string, args ...interface{}) {
-	l.log.Warnf("socks5: "+format, args...)
+	l.log.Warn(fmt.Sprintf("socks5: "+format, args...))
 }

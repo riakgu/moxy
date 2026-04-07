@@ -1,7 +1,7 @@
 package usecase
 
 import (
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
@@ -10,12 +10,12 @@ import (
 
 // TrafficUseCase provides traffic stats operations.
 type TrafficUseCase struct {
-	Log  *logrus.Logger
+	Log  *slog.Logger
 	Repo *repository.TrafficRepository
 }
 
 // NewTrafficUseCase creates a new TrafficUseCase.
-func NewTrafficUseCase(log *logrus.Logger, repo *repository.TrafficRepository) *TrafficUseCase {
+func NewTrafficUseCase(log *slog.Logger, repo *repository.TrafficRepository) *TrafficUseCase {
 	return &TrafficUseCase{
 		Log:  log,
 		Repo: repo,

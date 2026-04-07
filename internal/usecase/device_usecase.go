@@ -9,8 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/gateway/adb"
@@ -33,7 +32,7 @@ type DeviceWatcher interface {
 }
 
 type DeviceUseCase struct {
-	Log           *logrus.Logger
+	Log           *slog.Logger
 	DeviceRepo    *repository.DeviceRepository
 	ADB           *adb.ADBGateway
 	Provisioner   SlotProvisioner
@@ -52,7 +51,7 @@ type DeviceUseCase struct {
 }
 
 func NewDeviceUseCase(
-	log *logrus.Logger,
+	log *slog.Logger,
 	deviceRepo *repository.DeviceRepository,
 	adbGW *adb.ADBGateway,
 	provisioner SlotProvisioner,
@@ -144,7 +143,7 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 				timer.Stop()
 				delete(c.graceTimers, device.Serial)
 			}
-			c.Log.Warnf("scan: device %s (%s) disconnected — tearing down", device.Alias, device.Serial)
+			c.Log.Warn("device disconnected", "device", device.Alias, "serial", device.Serial)
 			c.teardownDevice(device)
 			c.mu.Unlock()
 		}
@@ -180,7 +179,7 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 	c.publishDevice(device.Alias)
 
 	if err := c.setup(ctx, device); err != nil {
-		c.Log.WithError(err).Warnf("setup: failed for %s (%s)", device.Alias, device.Serial)
+		c.Log.Warn("setup failed", "device", device.Alias, "serial", device.Serial, "error", err)
 		device.Status = entity.DeviceStatusError
 		c.DeviceRepo.Put(device)
 		c.publishDevice(device.Alias)
@@ -194,7 +193,7 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 		device.Nameserver, device.NAT64Prefix,
 	)
 	if provErr != nil {
-		c.Log.WithError(provErr).Warnf("setup: provision failed for %s", device.Alias)
+		c.Log.Warn("auto-provision failed", "device", device.Alias, "error", provErr)
 	} else {
 		provResp = prov
 	}
@@ -273,16 +272,16 @@ func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.Pro
 // This replaces the old CheckHealth() polling approach.
 func (c *DeviceUseCase) StartWatching(ctx context.Context) {
 	events := c.Watcher.Watch(ctx)
-	c.Log.Info("device watcher: started")
+	c.Log.Info("watcher started")
 	for {
 		select {
 		case <-ctx.Done():
 			c.cancelAllGraceTimers()
-			c.Log.Info("device watcher: stopped")
+			c.Log.Info("watcher stopped")
 			return
 		case event, ok := <-events:
 			if !ok {
-				c.Log.Warn("device watcher: event channel closed")
+				c.Log.Warn("event channel closed")
 				return
 			}
 			c.mu.Lock()
@@ -303,7 +302,7 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	if timer, ok := c.graceTimers[serial]; ok {
 		timer.Stop()
 		delete(c.graceTimers, serial)
-		c.Log.Infof("device watcher: %s reconnected within grace period", serial)
+		c.Log.Info("reconnected within grace", "serial", serial)
 		c.smartReconnect(serial)
 		return
 	}
@@ -315,8 +314,7 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 			device.Status = entity.DeviceStatusDetected
 			c.DeviceRepo.Put(device)
 			c.publishDevice(device.Alias)
-			c.Log.Infof("device watcher: %s (%s) re-appeared — reset to detected",
-				device.Alias, serial)
+			c.Log.Info("device re-appeared", "device", device.Alias, "serial", serial)
 		}
 		return
 	}
@@ -329,7 +327,7 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	}
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
-	c.Log.Infof("device watcher: new device %s (%s) detected", device.Alias, serial)
+	c.Log.Info("device detected", "device", device.Alias, "serial", serial)
 }
 
 // handleDisconnect handles a device being removed from USB.
@@ -351,13 +349,11 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		delete(c.graceTimers, serial)
-		c.Log.Warnf("device watcher: grace expired for %s (%s) — tearing down",
-			alias, serial)
+		c.Log.Warn("grace period expired", "device", alias, "serial", serial)
 		c.teardownDevice(device)
 	})
 	c.graceTimers[serial] = timer
-	c.Log.Infof("device watcher: %s (%s) disconnected — %s grace started",
-		device.Alias, serial, c.GracePeriod)
+	c.Log.Info("grace period started", "device", device.Alias, "serial", serial, "duration", c.GracePeriod.String())
 }
 
 // smartReconnect attempts lightweight recovery after a transient USB disconnect.
@@ -370,8 +366,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	// 1. Verify interface came back
 	iface, err := c.ADB.DetectInterfaceForSerial(serial)
 	if err != nil {
-		c.Log.Warnf("device watcher: %s reconnected but interface not found: %v — full teardown",
-			device.Alias, err)
+		c.Log.Warn("reconnect failed, interface not found", "device", device.Alias, "error", err)
 		c.teardownDevice(device)
 		return
 	}
@@ -382,7 +377,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	reattached := 0
 	for _, name := range slotNames {
 		if err := c.Provisioner.ReattachSlot(name, iface); err != nil {
-			c.Log.Warnf("device watcher: re-attach %s failed: %v", name, err)
+			c.Log.Warn("slot re-attach failed", "slot", name, "error", err)
 			c.SlotRepo.SetStatus(name, entity.SlotStatusUnhealthy)
 			continue
 		}
@@ -405,8 +400,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
-	c.Log.Infof("device watcher: %s smart reconnect complete (%d/%d slots re-attached)",
-		device.Alias, reattached, len(slotNames))
+	c.Log.Info("smart reconnect complete", "device", device.Alias, "reattached", reattached, "total", len(slotNames))
 }
 
 // suspendDeviceSlots marks all slots for a device as suspended.
@@ -499,7 +493,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 				}
 				ip := ipNet.IP
 				if ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsLinkLocalUnicast() {
-					c.Log.Infof("device %s: global IPv6 found: %s", device.Alias, ip)
+					c.Log.Info("global ipv6 found", "device", device.Alias, "ip", ip.String())
 					return nil
 				}
 			}
@@ -507,16 +501,16 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 		}},
 		{"isp_probed", func() error {
 			if c.ISPProber == nil {
-				c.Log.Warnf("device %s: ISP prober not available", device.Alias)
+				c.Log.Warn("isp prober not available", "device", device.Alias)
 				return nil
 			}
 
 			// Read carrier-assigned DNS from the phone (most reliable source)
 			adbDNS, err := c.ADB.GetDNSServers(device.Serial)
 			if err != nil {
-				c.Log.Warnf("device %s: ADB DNS discovery failed: %v", device.Alias, err)
+				c.Log.Warn("adb dns discovery failed", "device", device.Alias, "error", err)
 			} else if len(adbDNS) > 0 {
-				c.Log.Infof("device %s: ADB DNS servers: %v", device.Alias, adbDNS)
+				c.Log.Info("adb dns servers found", "device", device.Alias, "servers", adbDNS)
 			}
 
 			result, err := c.ISPProber.Probe(adbDNS)
@@ -525,8 +519,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			}
 			device.Nameserver = result.Nameserver
 			device.NAT64Prefix = result.NAT64Prefix
-			c.Log.Infof("device %s: ISP probe ns=%s prefix=%s",
-				device.Alias, result.Nameserver, result.NAT64Prefix)
+			c.Log.Info("isp probe complete", "device", device.Alias, "nameserver", result.Nameserver, "nat64_prefix", result.NAT64Prefix)
 			return nil
 		}},
 		{"carrier_detected", func() error {
@@ -550,7 +543,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		c.Log.Infof("device %s: running step %s", device.Alias, step.Name)
+		c.Log.Info("setup step started", "device", device.Alias, "step", step.Name)
 		if err := step.Fn(); err != nil {
 			return fmt.Errorf("step %s: %w", step.Name, err)
 		}
@@ -558,7 +551,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 
 	// Enable NDP proxy on the interface
 	if err := c.Provisioner.EnableNDPProxy(device.Interface); err != nil {
-		c.Log.Warnf("device %s: enable NDP proxy on %s failed: %v", device.Alias, device.Interface, err)
+		c.Log.Warn("enable ndp proxy failed", "device", device.Alias, "interface", device.Interface, "error", err)
 	}
 
 	device.Status = entity.DeviceStatusOnline
@@ -576,16 +569,15 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 		// Wait for active connections to drain
 		if c.DrainTimeout > 0 {
 			if remaining := c.drainSlot(name, c.DrainTimeout); remaining > 0 {
-				c.Log.Warnf("teardown %s: forcing destroy of %s with %d active connections",
-					device.Alias, name, remaining)
+				c.Log.Warn("forcing slot destroy", "device", device.Alias, "slot", name, "active_connections", remaining)
 			}
 		}
 		if err := c.Provisioner.DestroySlot(name); err != nil {
-			c.Log.WithError(err).Warnf("teardown %s: failed to destroy %s", device.Alias, name)
+			c.Log.Warn("slot destroy failed", "device", device.Alias, "slot", name, "error", err)
 		}
 	}
 	removed := c.SlotRepo.DeleteByDevice(device.Alias)
-	c.Log.Infof("device %s: teardown complete — removed %d slots", device.Alias, removed)
+	c.Log.Info("teardown complete", "device", device.Alias, "slots_removed", removed)
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)

@@ -7,22 +7,21 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 )
 
 // TrafficRepository is an in-memory, thread-safe store for per-destination traffic stats.
 type TrafficRepository struct {
-	Log        *logrus.Logger
+	Log        *slog.Logger
 	mu         sync.RWMutex
 	entries    map[entity.TrafficKey]*entity.TrafficEntry
 	maxEntries int
 }
 
 // NewTrafficRepository creates a new traffic stats repository.
-func NewTrafficRepository(log *logrus.Logger, maxEntries int) *TrafficRepository {
+func NewTrafficRepository(log *slog.Logger, maxEntries int) *TrafficRepository {
 	if maxEntries <= 0 {
 		maxEntries = 5000
 	}
@@ -132,6 +131,6 @@ func (r *TrafficRepository) evictLowest() {
 
 	if lowestCount >= 0 {
 		delete(r.entries, lowestKey)
-		r.Log.Debugf("traffic: evicted %s:%s (count=%d) — at capacity", lowestKey.Domain, lowestKey.Port, lowestCount)
+		r.Log.Debug("entry evicted", "domain", lowestKey.Domain, "port", lowestKey.Port, "connections", lowestCount)
 	}
 }

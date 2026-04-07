@@ -10,8 +10,7 @@ import (
 	"net"
 	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/model"
 )
@@ -20,12 +19,12 @@ import (
 // the track-devices protocol and emits DeviceEvent on a channel when
 // devices connect or disconnect.
 type ADBWatcher struct {
-	Log            *logrus.Logger
+	Log            *slog.Logger
 	MaxReconnectMs int
 }
 
 // NewADBWatcher creates a new ADB device watcher.
-func NewADBWatcher(log *logrus.Logger, maxReconnectMs int) *ADBWatcher {
+func NewADBWatcher(log *slog.Logger, maxReconnectMs int) *ADBWatcher {
 	if maxReconnectMs <= 0 {
 		maxReconnectMs = 30000
 	}
@@ -51,7 +50,7 @@ func (w *ADBWatcher) Watch(ctx context.Context) <-chan model.DeviceEvent {
 			if ctx.Err() != nil {
 				return // context cancelled — clean shutdown
 			}
-			w.Log.Warnf("adb watcher: connection lost: %v — reconnecting in %s", err, backoff)
+			w.Log.Warn("connection lost, reconnecting", "error", err, "backoff", backoff.String())
 
 			select {
 			case <-ctx.Done():
@@ -103,7 +102,7 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 		return fmt.Errorf("ADB rejected track-devices: %s", string(resp))
 	}
 
-	w.Log.Info("adb watcher: connected, tracking devices")
+	w.Log.Info("connected, tracking devices")
 
 	prev := make(map[string]string) // serial → status
 

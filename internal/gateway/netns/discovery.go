@@ -14,18 +14,18 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"log/slog"
 
-	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
 
 type Discovery struct {
-	Log         *logrus.Logger
+	Log         *slog.Logger
 	IPCheckHost string
 }
 
-func NewDiscovery(log *logrus.Logger, ipCheckHost string) *Discovery {
+func NewDiscovery(log *slog.Logger, ipCheckHost string) *Discovery {
 	return &Discovery{
 		Log:         log,
 		IPCheckHost: ipCheckHost,
@@ -100,7 +100,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		}
 	}
 	if conn == nil {
-		d.Log.Warnf("discovery: %s DNS returned %d addrs: %v (last dial err: %v)", slotName, len(ips), ips, err)
+		d.Log.Warn("discovery dns returned no reachable address", "slot", slotName, "addrs", len(ips), "error", err)
 		return nil, fmt.Errorf("no reachable address for %s in %s: %v", d.IPCheckHost, slotName, err)
 	}
 	defer conn.Close()

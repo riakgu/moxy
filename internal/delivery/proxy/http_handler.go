@@ -8,20 +8,20 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"log/slog"
 
 	"github.com/elazarl/goproxy"
-	"github.com/sirupsen/logrus"
 )
 
 // HttpProxyHandler wraps elazarl/goproxy with graceful shutdown.
 type HttpProxyHandler struct {
-	Log    *logrus.Logger
+	Log    *slog.Logger
 	server *http.Server
 }
 
 // NewHttpProxyHandler creates a new HTTP proxy handler.
 func NewHttpProxyHandler(
-	log *logrus.Logger,
+	log *slog.Logger,
 	connect ConnectFunc,
 ) *HttpProxyHandler {
 	proxy := goproxy.NewProxyHttpServer()
@@ -49,7 +49,7 @@ func NewHttpProxyHandler(
 // ListenAndServe starts the HTTP proxy on the given address.
 func (c *HttpProxyHandler) ListenAndServe(addr string) error {
 	c.server.Addr = addr
-	c.Log.Infof("HTTP proxy listening on %s", addr)
+	c.Log.Info("http proxy listener started", "addr", addr)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

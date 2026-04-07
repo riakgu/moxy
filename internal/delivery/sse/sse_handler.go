@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/model"
 )
@@ -20,12 +20,13 @@ type SnapshotFunc func() (*InitPayload, error)
 type InitPayload struct {
 	Devices []model.DeviceResponse `json:"devices"`
 	Slots   []model.SlotResponse   `json:"slots"`
+	Logs    []LogEntry             `json:"logs,omitempty"`
 }
 
 // SSEHandler serves the GET /api/events endpoint.
 type SSEHandler struct {
 	hub          *EventHub
-	log          *logrus.Logger
+	log          *slog.Logger
 	snapshot     SnapshotFunc
 	debounceMs   int
 	heartbeatSec int
@@ -33,7 +34,7 @@ type SSEHandler struct {
 
 func NewSSEHandler(
 	hub *EventHub,
-	log *logrus.Logger,
+	log *slog.Logger,
 	snapshot SnapshotFunc,
 	debounceMs int,
 	heartbeatSec int,
@@ -73,7 +74,7 @@ func (h *SSEHandler) Stream(c *fiber.Ctx) error {
 			writeSSE(w, "init", snap)
 			w.Flush()
 		} else {
-			h.log.WithError(err).Warn("sse: failed to build init snapshot")
+			h.log.Warn("failed to build init snapshot", "error", err)
 		}
 
 		debounceInterval := time.Duration(h.debounceMs) * time.Millisecond

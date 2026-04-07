@@ -1,7 +1,7 @@
 package usecase
 
 import (
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
@@ -9,12 +9,12 @@ import (
 
 // DNSUseCase provides DNS cache operations.
 type DNSUseCase struct {
-	Log      *logrus.Logger
+	Log      *slog.Logger
 	Resolver *netns.CachingResolver
 }
 
 // NewDNSUseCase creates a new DNSUseCase.
-func NewDNSUseCase(log *logrus.Logger, resolver *netns.CachingResolver) *DNSUseCase {
+func NewDNSUseCase(log *slog.Logger, resolver *netns.CachingResolver) *DNSUseCase {
 	return &DNSUseCase{
 		Log:      log,
 		Resolver: resolver,

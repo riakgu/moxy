@@ -1,8 +1,9 @@
 package http
 
 import (
+	"log/slog"
+
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
@@ -11,11 +12,11 @@ import (
 // TrafficController handles traffic stats API endpoints.
 type TrafficController struct {
 	UseCase *usecase.TrafficUseCase
-	Log     *logrus.Logger
+	Log     *slog.Logger
 }
 
 // NewTrafficController creates a new TrafficController.
-func NewTrafficController(useCase *usecase.TrafficUseCase, log *logrus.Logger) *TrafficController {
+func NewTrafficController(useCase *usecase.TrafficUseCase, log *slog.Logger) *TrafficController {
 	return &TrafficController{
 		UseCase: useCase,
 		Log:     log,

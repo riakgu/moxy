@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useSSE } from '../hooks/useSSE'
+import { useOutletContext } from 'react-router-dom'
+import type { Device, Slot } from '../api/types'
 import { scanDevices, setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot, cleanupOrphans } from '../api/slots'
@@ -15,8 +16,15 @@ interface Toast {
 
 let toastId = 0
 
+interface DashboardContext {
+  devices: Device[]
+  slots: Slot[]
+  connected: boolean
+  error: string | null
+}
+
 export default function Dashboard() {
-  const { devices, slots, connected, error: sseError } = useSSE()
+  const { devices, slots, connected, error: sseError } = useOutletContext<DashboardContext>()
   const [scanning, setScanning] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -28,7 +36,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!hasScanned.current) {
       hasScanned.current = true
-      scanDevices().catch(() => {}) // non-critical
+      scanDevices().catch(() => { }) // non-critical
     }
   }, [])
 
@@ -84,7 +92,7 @@ export default function Dashboard() {
   const handleProvision = async (alias: string, count: number) => {
     try {
       const result = await provisionDevice(alias, count)
-      addToast(`Provisioned ${result.created} slots for ${alias} (${result.unique_ips} unique IPs)`, 'success')
+      addToast(`Provisioned ${result.created} slots for ${alias}`, 'success')
     } catch (e) {
       addToast(`Provision failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
@@ -128,11 +136,10 @@ export default function Dashboard() {
           <div
             key={toast.id}
             className={`animate-toast-in px-4 py-2.5 rounded-lg shadow-lg font-mono text-xs
-              border backdrop-blur-sm max-w-sm ${
-              toast.type === 'success'
+              border backdrop-blur-sm max-w-sm ${toast.type === 'success'
                 ? 'bg-accent-green/15 border-accent-green/30 text-accent-green'
                 : 'bg-accent-red/15 border-accent-red/30 text-accent-red'
-            }`}
+              }`}
           >
             {toast.type === 'success' ? '✓' : '✗'} {toast.message}
           </div>
@@ -148,9 +155,8 @@ export default function Dashboard() {
           <p className="text-sm text-text-muted mt-1">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
             <span
-              className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${
-                connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
-              }`}
+              className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
+                }`}
               title={connected ? 'Connected' : 'Reconnecting...'}
             />
           </p>

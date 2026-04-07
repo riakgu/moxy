@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 )
@@ -14,11 +13,11 @@ import (
 type DeviceRepository struct {
 	mu       sync.RWMutex
 	devices  map[string]*entity.Device // keyed by serial
-	log      *logrus.Logger
+	log      *slog.Logger
 	aliasSeq uint64
 }
 
-func NewDeviceRepository(log *logrus.Logger) *DeviceRepository {
+func NewDeviceRepository(log *slog.Logger) *DeviceRepository {
 	return &DeviceRepository{
 		devices: make(map[string]*entity.Device),
 		log:     log,

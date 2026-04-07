@@ -5,8 +5,7 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
@@ -23,7 +22,7 @@ type SlotDialer interface {
 }
 
 type ProxyUseCase struct {
-	Log         *logrus.Logger
+	Log         *slog.Logger
 	SlotRepo    *repository.SlotRepository
 	DeviceRepo  *repository.DeviceRepository
 	Dialer      SlotDialer
@@ -33,7 +32,7 @@ type ProxyUseCase struct {
 }
 
 func NewProxyUseCase(
-	log *logrus.Logger,
+	log *slog.Logger,
 	slotRepo *repository.SlotRepository,
 	deviceRepo *repository.DeviceRepository,
 	dialer SlotDialer,
@@ -64,9 +63,11 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	conn, err := c.Dialer.Dial(slotName, targetAddr, nameserver, nat64Prefix)
 	if err != nil {
 		c.SlotRepo.DecrementConnections(slotName)
-		c.Log.Warnf("proxy: dial %s via %s failed: %v", targetAddr, slotName, err)
+		c.Log.Warn("dial failed", "slot", slotName, "target", targetAddr, "error", err)
 		return nil, fmt.Errorf("dial %s via %s: %w", targetAddr, slotName, err)
 	}
+
+	c.Log.Debug("connection established", "slot", slotName, "target", targetAddr, "protocol", "ipv4")
 
 	// Traffic stats
 	host, port, _ := net.SplitHostPort(targetAddr)
@@ -104,9 +105,11 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 	conn, err := c.Dialer.DialIPv6(slotName, targetAddr, nameserver, nat64Prefix)
 	if err != nil {
 		c.SlotRepo.DecrementConnections(slotName)
-		c.Log.Warnf("proxy-ipv6: dial %s via %s failed: %v", targetAddr, slotName, err)
+		c.Log.Warn("dial failed", "slot", slotName, "target", targetAddr, "protocol", "ipv6", "error", err)
 		return nil, fmt.Errorf("dial-ipv6 %s via %s: %w", targetAddr, slotName, err)
 	}
+
+	c.Log.Debug("connection established", "slot", slotName, "target", targetAddr, "protocol", "ipv6")
 
 	// Traffic stats
 	host, port, _ := net.SplitHostPort(targetAddr)

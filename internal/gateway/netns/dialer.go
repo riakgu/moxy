@@ -9,20 +9,20 @@ import (
 	"os"
 	"runtime"
 	"time"
+	"log/slog"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
 // SetnsDialer dials targets through network namespaces using the setns(2) syscall.
 // Uses CachingResolver for DNS64 lookups with per-device caching.
 type SetnsDialer struct {
-	Log      *logrus.Logger
+	Log      *slog.Logger
 	Resolver *CachingResolver
 }
 
 // NewSetnsDialer creates a new SetnsDialer with the given CachingResolver.
-func NewSetnsDialer(log *logrus.Logger, resolver *CachingResolver) *SetnsDialer {
+func NewSetnsDialer(log *slog.Logger, resolver *CachingResolver) *SetnsDialer {
 	return &SetnsDialer{Log: log, Resolver: resolver}
 }
 
@@ -159,9 +159,9 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
 				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
 			}
-			d.Log.Debugf("ipv6-proxy: %s via %s → DNS64 fallback (%s)", host, slotName, resolved)
+			d.Log.Debug("dns64 fallback used", "host", host, "slot", slotName, "resolved", resolved)
 		} else {
-			d.Log.Debugf("ipv6-proxy: %s via %s → native IPv6 (%s)", host, slotName, resolved)
+			d.Log.Debug("native ipv6 resolved", "host", host, "slot", slotName, "resolved", resolved)
 		}
 		host = resolved
 	}

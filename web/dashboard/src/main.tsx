@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App'
 import Dashboard from './pages/Dashboard'
+import Logs from './pages/Logs'
 import './index.css'
 
 createRoot(document.getElementById('root')!).render(
@@ -11,6 +12,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route element={<App />}>
           <Route index element={<Dashboard />} />
+          <Route path="logs" element={<Logs />} />
         </Route>
       </Routes>
     </BrowserRouter>

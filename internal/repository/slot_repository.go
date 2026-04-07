@@ -5,8 +5,7 @@ package repository
 import (
 	"sync"
 	"sync/atomic"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 )
@@ -14,14 +13,14 @@ import (
 // SlotRepository is an in-memory, thread-safe store for slot entities.
 // It acts as the repository layer for slots (which have no database persistence).
 type SlotRepository struct {
-	Log     *logrus.Logger
+	Log     *slog.Logger
 	mu      sync.RWMutex
 	slots   map[string]*entity.Slot
 	slotSeq uint64
 }
 
 // NewSlotRepository creates a new in-memory slot repository.
-func NewSlotRepository(log *logrus.Logger) *SlotRepository {
+func NewSlotRepository(log *slog.Logger) *SlotRepository {
 	return &SlotRepository{
 		Log:   log,
 		slots: make(map[string]*entity.Slot),

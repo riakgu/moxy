@@ -8,14 +8,13 @@ import (
 	"io"
 	"net"
 	"sync"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 // MuxHandler auto-detects SOCKS5 vs HTTP by peeking at the first byte.
 // SOCKS5 starts with 0x05 (version), HTTP starts with ASCII (CONNECT, GET...).
 type MuxHandler struct {
-	Log    *logrus.Logger
+	Log    *slog.Logger
 	socks5 *Socks5Handler
 	http   *HttpProxyHandler
 	ln     net.Listener
@@ -25,7 +24,7 @@ type MuxHandler struct {
 }
 
 // NewMuxHandler creates a mux handler that delegates to socks5/http based on first byte.
-func NewMuxHandler(log *logrus.Logger, connect ConnectFunc) *MuxHandler {
+func NewMuxHandler(log *slog.Logger, connect ConnectFunc) *MuxHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MuxHandler{
 		Log:    log,
@@ -44,7 +43,7 @@ func (m *MuxHandler) Listen(addr string) error {
 		return fmt.Errorf("mux listen: %w", err)
 	}
 	m.ln = ln
-	m.Log.Infof("mux proxy listening on %s (SOCKS5+HTTP)", addr)
+	m.Log.Info("listener started", "addr", addr, "protocols", "SOCKS5+HTTP")
 	return nil
 }
 
@@ -61,7 +60,7 @@ func (m *MuxHandler) Serve() error {
 				return nil
 			default:
 			}
-			m.Log.WithError(err).Error("mux accept failed")
+			m.Log.Error("accept failed", "error", err)
 			continue
 		}
 

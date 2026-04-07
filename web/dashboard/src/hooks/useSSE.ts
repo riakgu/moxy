@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Device, Slot } from '../api/types'
+import type { Device, Slot, LogEntry } from '../api/types'
 
 interface SSEState {
   devices: Device[]
   slots: Slot[]
+  logs: LogEntry[]
   connected: boolean
   error: string | null
 }
 
+const MAX_LOG_ENTRIES = 2000
+
 export function useSSE(): SSEState {
   const [devices, setDevices] = useState<Device[]>([])
   const [slots, setSlots] = useState<Slot[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -20,9 +24,10 @@ export function useSSE(): SSEState {
     esRef.current = es
 
     es.addEventListener('init', (e: MessageEvent) => {
-      const data = JSON.parse(e.data) as { devices: Device[]; slots: Slot[] }
+      const data = JSON.parse(e.data) as { devices: Device[]; slots: Slot[]; logs?: LogEntry[] }
       setDevices(data.devices || [])
       setSlots(data.slots || [])
+      setLogs(data.logs || [])
       setConnected(true)
       setError(null)
     })
@@ -65,6 +70,17 @@ export function useSSE(): SSEState {
       setSlots((prev) => prev.filter((s) => s.name !== name))
     })
 
+    es.addEventListener('log_entry', (e: MessageEvent) => {
+      const entry = JSON.parse(e.data) as LogEntry
+      setLogs((prev) => {
+        const next = [...prev, entry]
+        if (next.length > MAX_LOG_ENTRIES) {
+          return next.slice(next.length - MAX_LOG_ENTRIES)
+        }
+        return next
+      })
+    })
+
     es.onopen = () => {
       setConnected(true)
       setError(null)
@@ -82,5 +98,5 @@ export function useSSE(): SSEState {
     }
   }, [])
 
-  return { devices, slots, connected, error }
+  return { devices, slots, logs, connected, error }
 }

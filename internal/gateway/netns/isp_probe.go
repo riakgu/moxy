@@ -7,8 +7,7 @@ import (
 	"fmt"
 	"net"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/model"
 )
@@ -31,11 +30,11 @@ var dns64Fallbacks = []string{
 // It tests DNS64 capability on candidates provided by the caller (from ADB)
 // and falls back to public DNS64 servers.
 type ISPProbe struct {
-	Log *logrus.Logger
+	Log *slog.Logger
 }
 
 // NewISPProbe creates a new ISPProbe.
-func NewISPProbe(log *logrus.Logger) *ISPProbe {
+func NewISPProbe(log *slog.Logger) *ISPProbe {
 	return &ISPProbe{Log: log}
 }
 
@@ -55,10 +54,10 @@ func (p *ISPProbe) Probe(hintDNS []string) (*model.ISPProbeResult, error) {
 	for _, ns := range candidates {
 		prefix, err := p.discoverNAT64Prefix(ns)
 		if err != nil {
-			p.Log.Debugf("isp-probe: DNS64 test failed on %s: %v", ns, err)
+			p.Log.Debug("dns64 test failed", "nameserver", ns, "error", err)
 			continue
 		}
-		p.Log.Infof("isp-probe: DNS64 verified on %s with prefix %s", ns, prefix)
+		p.Log.Info("dns64 verified", "nameserver", ns, "prefix", prefix)
 		return &model.ISPProbeResult{
 			Nameserver:  ns,
 			NAT64Prefix: prefix,

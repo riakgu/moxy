@@ -208,3 +208,18 @@ body::before {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-secondary);
 }
+
+/* Log viewer scroll container */
+.log-scroll-container {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  will-change: transform;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-muted) transparent;
+}
+
+/* Log entry row optimization */
+.log-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
+}

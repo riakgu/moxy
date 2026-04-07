@@ -2,9 +2,9 @@ package http
 
 import (
 	"errors"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/delivery/proxy"
 	"github.com/riakgu/moxy/internal/model"
@@ -13,12 +13,12 @@ import (
 
 type DeviceController struct {
 	DeviceUC     *usecase.DeviceUseCase
-	Log          *logrus.Logger
+	Log          *slog.Logger
 	PortHandler  *proxy.PortBasedHandler
 	GetSlotNames func() []string
 }
 
-func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *logrus.Logger, portHandler *proxy.PortBasedHandler, getSlotNames func() []string) *DeviceController {
+func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *slog.Logger, portHandler *proxy.PortBasedHandler, getSlotNames func() []string) *DeviceController {
 	return &DeviceController{DeviceUC: deviceUC, Log: log, PortHandler: portHandler, GetSlotNames: getSlotNames}
 }
 

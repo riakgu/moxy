@@ -2,9 +2,9 @@ package http
 
 import (
 	"errors"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/delivery/proxy"
 	"github.com/riakgu/moxy/internal/model"
@@ -13,11 +13,11 @@ import (
 
 type SlotController struct {
 	UseCase     *usecase.SlotUseCase
-	Log         *logrus.Logger
+	Log         *slog.Logger
 	PortHandler *proxy.PortBasedHandler
 }
 
-func NewSlotController(useCase *usecase.SlotUseCase, log *logrus.Logger, portHandler *proxy.PortBasedHandler) *SlotController {
+func NewSlotController(useCase *usecase.SlotUseCase, log *slog.Logger, portHandler *proxy.PortBasedHandler) *SlotController {
 	return &SlotController{
 		UseCase:     useCase,
 		Log:         log,

@@ -9,8 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -20,7 +19,7 @@ import (
 // - Device-level (load-balanced across one device's slots)
 // - Per-slot (specific IP)
 type PortBasedHandler struct {
-	Log           *logrus.Logger
+	Log           *slog.Logger
 	proxyUC       *usecase.ProxyUseCase
 	proxyPort     int // shared + device-level base port
 	slotStart     int // per-slot base port
@@ -37,7 +36,7 @@ type PortBasedHandler struct {
 
 // NewPortBasedHandler creates a new port-based handler.
 func NewPortBasedHandler(
-	log *logrus.Logger,
+	log *slog.Logger,
 	proxyUC *usecase.ProxyUseCase,
 	proxyPort int,
 	slotStart int,
@@ -74,12 +73,12 @@ func (c *PortBasedHandler) StartShared() {
 	}
 	c.shared = NewMuxHandler(c.Log, connect)
 	if err := c.shared.Listen(addr); err != nil {
-		c.Log.WithError(err).Errorf("shared proxy failed to bind %s", addr)
+		c.Log.Error("shared proxy bind failed", "addr", addr, "error", err)
 		return
 	}
 	go func() {
 		if err := c.shared.Serve(); err != nil {
-			c.Log.WithError(err).Errorf("shared proxy serve failed on %s", addr)
+			c.Log.Error("shared proxy serve failed", "addr", addr, "error", err)
 		}
 	}()
 }
@@ -100,12 +99,12 @@ func (c *PortBasedHandler) StartSharedIPv6() {
 	}
 	c.ipv6Shared = NewMuxHandler(c.Log, connect)
 	if err := c.ipv6Shared.Listen(addr); err != nil {
-		c.Log.WithError(err).Errorf("shared IPv6 proxy failed to bind %s", addr)
+		c.Log.Error("shared ipv6 proxy bind failed", "addr", addr, "error", err)
 		return
 	}
 	go func() {
 		if err := c.ipv6Shared.Serve(); err != nil {
-			c.Log.WithError(err).Errorf("shared IPv6 proxy serve failed on %s", addr)
+			c.Log.Error("shared ipv6 proxy serve failed", "addr", addr, "error", err)
 		}
 	}()
 }
@@ -126,7 +125,7 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 	// Stop removed devices
 	for alias, handler := range c.devices {
 		if !desired[alias] {
-			c.Log.Infof("stopping device proxy for %s", alias)
+			c.Log.Info("device proxy stopped", "device", alias)
 			handler.Shutdown(context.Background())
 			delete(c.devices, alias)
 		}
@@ -156,17 +155,17 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 
 		handler := NewMuxHandler(c.Log, connect)
 		if err := handler.Listen(addr); err != nil {
-			c.Log.WithError(err).Warnf("device proxy for %s failed to bind %s", deviceAlias, addr)
+			c.Log.Warn("device proxy bind failed", "device", deviceAlias, "addr", addr, "error", err)
 			continue
 		}
 		go func() {
 			if err := handler.Serve(); err != nil {
-				c.Log.WithError(err).Warnf("device proxy for %s serve failed on %s", deviceAlias, addr)
+				c.Log.Warn("device proxy serve failed", "device", deviceAlias, "addr", addr, "error", err)
 			}
 		}()
 
 		c.devices[alias] = handler
-		c.Log.Infof("device proxy: %s → port %d", alias, port)
+		c.Log.Info("device proxy started", "device", alias, "port", port)
 	}
 }
 
@@ -185,7 +184,7 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 
 	for alias, handler := range c.ipv6Devices {
 		if !desired[alias] {
-			c.Log.Infof("stopping IPv6 device proxy for %s", alias)
+			c.Log.Info("ipv6 device proxy stopped", "device", alias)
 			handler.Shutdown(context.Background())
 			delete(c.ipv6Devices, alias)
 		}
@@ -214,17 +213,17 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 
 		handler := NewMuxHandler(c.Log, connect)
 		if err := handler.Listen(addr); err != nil {
-			c.Log.WithError(err).Warnf("IPv6 device proxy for %s failed to bind %s", deviceAlias, addr)
+			c.Log.Warn("ipv6 device proxy bind failed", "device", deviceAlias, "addr", addr, "error", err)
 			continue
 		}
 		go func() {
 			if err := handler.Serve(); err != nil {
-				c.Log.WithError(err).Warnf("IPv6 device proxy for %s serve failed on %s", deviceAlias, addr)
+				c.Log.Warn("ipv6 device proxy serve failed", "device", deviceAlias, "addr", addr, "error", err)
 			}
 		}()
 
 		c.ipv6Devices[alias] = handler
-		c.Log.Infof("IPv6 device proxy: %s → port %d", alias, port)
+		c.Log.Info("ipv6 device proxy started", "device", alias, "port", port)
 	}
 }
 
@@ -245,7 +244,7 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	// Stop removed slots
 	for name, handler := range c.slots {
 		if !desired[name] {
-			c.Log.Infof("stopping slot proxy for %s", name)
+			c.Log.Info("slot proxy stopped", "slot", name)
 			handler.Shutdown(context.Background())
 			delete(c.slots, name)
 		}
@@ -272,17 +271,17 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 
 		handler := NewMuxHandler(c.Log, connect)
 		if err := handler.Listen(addr); err != nil {
-			c.Log.WithError(err).Warnf("slot proxy for %s failed to bind %s", slotName, addr)
+			c.Log.Warn("slot proxy bind failed", "slot", slotName, "addr", addr, "error", err)
 			continue
 		}
 		go func() {
 			if err := handler.Serve(); err != nil {
-				c.Log.WithError(err).Warnf("slot proxy for %s serve failed on %s", slotName, addr)
+				c.Log.Warn("slot proxy serve failed", "slot", slotName, "addr", addr, "error", err)
 			}
 		}()
 
 		c.slots[name] = handler
-		c.Log.Infof("slot proxy: %s → port %d", name, port)
+		c.Log.Info("slot proxy started", "slot", name, "port", port)
 	}
 }
 
@@ -302,7 +301,7 @@ func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 
 	for name, handler := range c.ipv6Slots {
 		if !desired[name] {
-			c.Log.Infof("stopping IPv6 slot proxy for %s", name)
+			c.Log.Info("ipv6 slot proxy stopped", "slot", name)
 			handler.Shutdown(context.Background())
 			delete(c.ipv6Slots, name)
 		}
@@ -328,17 +327,17 @@ func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 
 		handler := NewMuxHandler(c.Log, connect)
 		if err := handler.Listen(addr); err != nil {
-			c.Log.WithError(err).Warnf("IPv6 slot proxy for %s failed to bind %s", slotName, addr)
+			c.Log.Warn("ipv6 slot proxy bind failed", "slot", slotName, "addr", addr, "error", err)
 			continue
 		}
 		go func() {
 			if err := handler.Serve(); err != nil {
-				c.Log.WithError(err).Warnf("IPv6 slot proxy for %s serve failed on %s", slotName, addr)
+				c.Log.Warn("ipv6 slot proxy serve failed", "slot", slotName, "addr", addr, "error", err)
 			}
 		}()
 
 		c.ipv6Slots[name] = handler
-		c.Log.Infof("IPv6 slot proxy: %s → port %d", name, port)
+		c.Log.Info("ipv6 slot proxy started", "slot", name, "port", port)
 	}
 }
 

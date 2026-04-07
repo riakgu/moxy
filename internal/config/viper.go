@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/sirupsen/logrus"
+	"log/slog"
 	"github.com/spf13/viper"
 )
 
@@ -14,7 +14,7 @@ func NewViper() *viper.Viper {
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		logrus.Warnf("config file not found, using defaults and env vars: %v", err)
+		slog.Warn("config file not found, using defaults and env vars", "error", err)
 	}
 
 	return v

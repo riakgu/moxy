@@ -67,3 +67,11 @@ export interface SetupResponse {
   provision?: ProvisionResponse
 }
 
+// LogEntry — matches sse.LogEntry
+export interface LogEntry {
+  time: number
+  level: string
+  msg: string
+  component?: string
+  attrs?: Record<string, string>
+}

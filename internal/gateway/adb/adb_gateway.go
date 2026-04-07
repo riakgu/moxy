@@ -9,15 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 )
 
 type ADBGateway struct {
-	Log *logrus.Logger
+	Log *slog.Logger
 }
 
-func NewADBGateway(log *logrus.Logger) *ADBGateway {
+func NewADBGateway(log *slog.Logger) *ADBGateway {
 	return &ADBGateway{Log: log}
 }
 
@@ -198,7 +197,7 @@ func (g *ADBGateway) DetectInterfaceForSerial(serial string) (string, error) {
 
 		usbSerial, err := g.readUSBSerial(name)
 		if err != nil {
-			g.Log.Debugf("skip %s: %v", name, err)
+			g.Log.Debug("skip interface", "interface", name, "error", err)
 			continue
 		}
 		if usbSerial == serial {

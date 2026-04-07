@@ -7,8 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
@@ -38,7 +37,7 @@ type SlotDiscovery interface {
 const slaacWaitDuration = 5 * time.Second
 
 type SlotUseCase struct {
-	Log         *logrus.Logger
+	Log         *slog.Logger
 	SlotRepo    *repository.SlotRepository
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
@@ -48,7 +47,7 @@ type SlotUseCase struct {
 }
 
 func NewSlotUseCase(
-	log *logrus.Logger,
+	log *slog.Logger,
 	slotRepo *repository.SlotRepository,
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
@@ -192,16 +191,12 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	}
 
 	slot.Status = entity.SlotStatusDiscovering
-	if c.Log != nil {
-		c.Log.Infof("recycling slot %s (index %d)", request.SlotName, slotIndex)
-	}
+	c.Log.Info("recycling slot", "slot", request.SlotName, "index", slotIndex)
 
 	newIPv4, _, err := c.rerollSlotNamespace(request.SlotName, slotIndex, slot.Interface, slot.Nameserver)
 	if err != nil {
 		slot.Status = entity.SlotStatusUnhealthy
-		if c.Log != nil {
-			c.Log.Warnf("slot %s: recycle failed: %v", request.SlotName, err)
-		}
+		c.Log.Warn("recycle failed", "slot", request.SlotName, "error", err)
 		return nil, err
 	}
 
@@ -213,9 +208,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	c.publishSlot(request.SlotName)
 
 	response := converter.SlotToResponse(slot)
-	if c.Log != nil {
-		c.Log.Infof("slot %s recycled: IPv4=%s", request.SlotName, newIPv4)
-	}
+	c.Log.Info("slot recycled", "slot", request.SlotName, "ipv4", newIPv4)
 	return response, nil
 }
 
@@ -232,9 +225,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	existingCount := c.SlotRepo.CountByDevice(deviceAlias)
 
 	if existingCount >= count {
-		if c.Log != nil {
-			c.Log.Infof("already have %d slots for %s (requested %d), skipping creation", existingCount, deviceAlias, count)
-		}
+		c.Log.Info("slots sufficient, skipping", "device", deviceAlias, "existing", existingCount, "requested", count)
 		return &model.ProvisionResponse{
 			Created: 0,
 			Failed:  0,
@@ -245,9 +236,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	// Check max slots limit
 	target := count
 	if c.MaxSlots > 0 && target > c.MaxSlots {
-		if c.Log != nil {
-			c.Log.Warnf("capping target to %d slots (max %d)", c.MaxSlots, c.MaxSlots)
-		}
+		c.Log.Warn("slot count capped", "max", c.MaxSlots)
 		target = c.MaxSlots
 	}
 
@@ -263,13 +252,9 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	for i := 0; i < toCreate; i++ {
 		idx := c.SlotRepo.NextSlotIndex()
 		slotName := fmt.Sprintf("slot%d", idx)
-		if c.Log != nil {
-			c.Log.Infof("provisioning %s (%d/%d)", slotName, i+1, toCreate)
-		}
+		c.Log.Info("provisioning slot", "slot", slotName, "progress", fmt.Sprintf("%d/%d", i+1, toCreate))
 		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
-			if c.Log != nil {
-				c.Log.WithError(err).Errorf("failed to provision %s", slotName)
-			}
+			c.Log.Error("provision failed", "slot", slotName, "error", err)
 			failed++
 			continue
 		}
@@ -340,9 +325,7 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 
 	if ipv6 != "" && iface != "" {
 		if err := c.Provisioner.RemoveNDPProxyEntry(ipv6, iface); err != nil {
-			if c.Log != nil {
-				c.Log.Warnf("remove NDP proxy for %s: %v", slotName, err)
-			}
+			c.Log.Warn("ndp proxy removal failed", "slot", slotName, "error", err)
 		}
 	}
 
@@ -350,9 +333,7 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 		return fmt.Errorf("destroy %s: %w", slotName, err)
 	}
 
-	if c.Log != nil {
-		c.Log.Infof("slot %s destroyed", slotName)
-	}
+	c.Log.Info("slot destroyed", "slot", slotName)
 	return nil
 }
 

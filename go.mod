@@ -7,7 +7,6 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/google/uuid v1.6.0
 	github.com/miekg/dns v1.1.72
-	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
 	github.com/things-go/go-socks5 v0.1.1
 	github.com/vishvananda/netlink v1.3.1

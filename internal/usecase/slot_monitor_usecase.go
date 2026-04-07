@@ -9,8 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
+	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model/converter"
@@ -26,7 +25,7 @@ type SlotMonitorConfig struct {
 }
 
 type SlotMonitorUseCase struct {
-	Log         *logrus.Logger
+	Log         *slog.Logger
 	SlotRepo    *repository.SlotRepository
 	Discovery   SlotDiscovery
 	Provisioner SlotProvisioner
@@ -38,7 +37,7 @@ type SlotMonitorUseCase struct {
 }
 
 func NewSlotMonitorUseCase(
-	log *logrus.Logger,
+	log *slog.Logger,
 	slotRepo *repository.SlotRepository,
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
@@ -67,7 +66,7 @@ func (c *SlotMonitorUseCase) StartSlot(name string) {
 	c.slots[name] = cancel
 
 	go c.monitorSlot(ctx, name)
-	c.Log.Debugf("monitor: started for %s", name)
+	c.Log.Debug("monitor started", "slot", name)
 }
 
 // StopSlot cancels the monitor goroutine for the given slot.
@@ -78,7 +77,7 @@ func (c *SlotMonitorUseCase) StopSlot(name string) {
 	if cancel, ok := c.slots[name]; ok {
 		cancel()
 		delete(c.slots, name)
-		c.Log.Debugf("monitor: stopped for %s", name)
+		c.Log.Debug("monitor stopped", "slot", name)
 	}
 }
 
@@ -91,7 +90,7 @@ func (c *SlotMonitorUseCase) StopAll() {
 		cancel()
 		delete(c.slots, name)
 	}
-	c.Log.Info("monitor: all slot monitors stopped")
+	c.Log.Info("all monitors stopped")
 }
 
 func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
@@ -145,12 +144,12 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 				if consecutiveFails >= threshold {
 					slot.Status = entity.SlotStatusUnhealthy
-					c.Log.Warnf("monitor: %s unhealthy after %d consecutive failures", name, consecutiveFails)
+					c.Log.Warn("slot unhealthy", "slot", name, "consecutive_failures", consecutiveFails)
 					if c.EventPub != nil {
 						c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 					}
 				} else {
-					c.Log.Debugf("monitor: %s check failed (%d/%d): %v", name, consecutiveFails, threshold, err)
+					c.Log.Debug("check failed", "slot", name, "failures", consecutiveFails, "threshold", threshold, "error", err)
 				}
 			}
 			continue
@@ -162,8 +161,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				continue
 			}
 			if !containsIP(slot.PublicIPv4s, ip) {
-				c.Log.Infof("monitor: %s unknown IP %s (not in pair %v) — re-detecting",
-					name, ip, slot.PublicIPv4s)
+				c.Log.Info("unknown ip detected", "slot", name, "ip", ip, "known_pair", slot.PublicIPv4s)
 				c.burstDetect(name)
 				fastTicks = c.Config.FastTicks
 			} else {
@@ -194,7 +192,7 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 	for i := 0; i < 5; i++ {
 		gotIP, gotCity, gotASN, gotOrg, gotRTT, err := c.Discovery.ResolveSlotIPInfo(name)
 		if err != nil {
-			c.Log.Warnf("monitor: %s burst check %d failed: %v", name, i+1, err)
+			c.Log.Warn("burst check failed", "slot", name, "attempt", i+1, "error", err)
 			continue
 		}
 		// Store metadata from first successful response
@@ -224,7 +222,7 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 
 	if len(ips) == 0 {
 		slot.Status = entity.SlotStatusUnhealthy
-		c.Log.Warnf("monitor: %s pair detection failed", name)
+		c.Log.Warn("pair detection failed", "slot", name)
 		return
 	}
 
@@ -232,9 +230,9 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 	oldPair := pairKey(slot.PublicIPv4s)
 	newPair := pairKey(ips)
 	if oldPair != "" && oldPair != newPair {
-		c.Log.Infof("monitor: %s pair rebuilt [%s] → [%s]", name, oldPair, newPair)
+		c.Log.Info("ip pair rebuilt", "slot", name, "old_pair", oldPair, "new_pair", newPair)
 	} else if oldPair == "" {
-		c.Log.Infof("monitor: %s pair discovered [%s]", name, newPair)
+		c.Log.Info("ip pair discovered", "slot", name, "pair", newPair)
 	}
 
 	slot.PublicIPv4s = ips
@@ -277,7 +275,7 @@ func (c *SlotMonitorUseCase) updateIPv6Helper(slot *entity.Slot, ipv6 string) {
 			c.Provisioner.RemoveNDPProxyEntry(oldIPv6, slot.Interface)
 		}
 		if err := c.Provisioner.AddNDPProxyEntry(ipv6, slot.Interface); err != nil {
-			c.Log.Warnf("monitor: NDP proxy for %s failed: %v", slot.Name, err)
+			c.Log.Warn("ndp proxy failed", "slot", slot.Name, "error", err)
 		}
 	}
 }

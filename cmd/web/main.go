@@ -34,11 +34,11 @@ func main() {
 	b.PortHandler.StartSharedIPv6()
 
 	// Cleanup orphaned namespaces from previous runs
-	log.Info("cleaning up orphaned namespaces...")
+	log.Info("cleaning up orphaned namespaces")
 	if cleaned, err := b.SlotUseCase.CleanupOrphans(); err != nil {
-		log.WithError(err).Warn("namespace cleanup failed")
+		log.Warn("namespace cleanup failed", "error", err)
 	} else if cleaned > 0 {
-		log.Infof("cleaned %d orphaned namespaces", cleaned)
+		log.Info("orphaned namespaces cleaned", "count", cleaned)
 	}
 
 	// Event-driven device watcher (replaces old CheckHealth polling)
@@ -49,7 +49,8 @@ func main() {
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 	go func() {
 		if err := app.Listen(apiAddr); err != nil {
-			log.WithError(err).Fatal("API listener failed")
+			log.Error("api listener failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -58,7 +59,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info("shutting down...")
+	log.Info("shutdown initiated")
 	watchCancel()
 	b.SlotMonitor.StopAll()
 	b.EventHub.Shutdown()
@@ -67,15 +68,16 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 
-	log.Info("stopping proxy listeners...")
+	log.Info("stopping proxy listeners")
 	if err := b.PortHandler.Shutdown(ctx); err != nil {
-		log.WithError(err).Warn("proxy shutdown: some connections did not drain in time")
+		log.Warn("proxy shutdown incomplete", "error", err)
 	}
 
 	// Stop API/dashboard
 	if err := app.ShutdownWithTimeout(drainTimeout); err != nil {
-		log.WithError(err).Error("API shutdown error")
+		log.Error("api shutdown failed", "error", err)
 	}
 
 	log.Info("moxy stopped")
+
 }

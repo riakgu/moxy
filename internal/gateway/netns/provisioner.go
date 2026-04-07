@@ -9,18 +9,18 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"log/slog"
 
-	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
 )
 
 type Provisioner struct {
-	Log *logrus.Logger
+	Log *slog.Logger
 }
 
-func NewProvisioner(log *logrus.Logger) *Provisioner {
+func NewProvisioner(log *slog.Logger) *Provisioner {
 	return &Provisioner{Log: log}
 }
 
@@ -42,7 +42,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 	// Always restore host namespace on exit
 	defer func() {
 		if err := netns.Set(hostNs); err != nil {
-			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
+			p.Log.Error("failed to restore host namespace", "error", err)
 		}
 	}()
 
@@ -53,7 +53,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		if !os.IsExist(err) {
 			return fmt.Errorf("create namespace %s: %w", name, err)
 		}
-		p.Log.Debugf("slot %s: namespace already exists, reusing", name)
+		p.Log.Debug("namespace exists, reusing", "slot", name)
 		newNs, err = netns.GetFromName(name)
 		if err != nil {
 			return fmt.Errorf("open existing namespace %s: %w", name, err)
@@ -86,7 +86,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		if !os.IsExist(err) {
 			return fmt.Errorf("create IPVLAN %s: %w", ipvlanName, err)
 		}
-		p.Log.Debugf("slot %s: IPVLAN %s already exists, reusing", name, ipvlanName)
+		p.Log.Debug("ipvlan exists, reusing", "slot", name, "ipvlan", ipvlanName)
 	}
 
 	// Re-fetch the link to get its index
@@ -141,7 +141,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 		return fmt.Errorf("set DNS64 for %s: %w", name, err)
 	}
 
-	p.Log.Debugf("slot %s: provisioned successfully", name)
+	p.Log.Debug("slot provisioned", "slot", name)
 	return nil
 }
 
@@ -198,7 +198,7 @@ func (p *Provisioner) AddNDPProxyEntry(ipv6 string, iface string) error {
 		}
 		return fmt.Errorf("add NDP proxy for %s on %s: %w", ipv6, iface, err)
 	}
-	p.Log.Debugf("NDP proxy entry added: %s on %s", ipv6, iface)
+	p.Log.Debug("ndp proxy added", "ipv6", ipv6, "interface", iface)
 	return nil
 }
 
@@ -221,7 +221,7 @@ func (p *Provisioner) RemoveNDPProxyEntry(ipv6 string, iface string) error {
 		// Idempotent: ignore if not found
 		return nil
 	}
-	p.Log.Debugf("NDP proxy entry removed: %s on %s", ipv6, iface)
+	p.Log.Debug("ndp proxy removed", "ipv6", ipv6, "interface", iface)
 	return nil
 }
 
@@ -252,7 +252,7 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 	defer hostNs.Close()
 	defer func() {
 		if err := netns.Set(hostNs); err != nil {
-			p.Log.Errorf("CRITICAL: failed to restore host namespace: %v", err)
+			p.Log.Error("failed to restore host namespace", "error", err)
 		}
 	}()
 
@@ -339,7 +339,7 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 		}
 	}
 
-	p.Log.Infof("slot %s: re-attached IPVLAN to %s", slotName, iface)
+	p.Log.Info("slot re-attached", "slot", slotName, "interface", iface)
 	return nil
 }
 
@@ -380,10 +380,10 @@ func (p *Provisioner) CleanupNamespaces(keep []string) (int, error) {
 			continue
 		}
 		if err := p.DestroySlot(name); err != nil {
-			p.Log.Warnf("cleanup: failed to delete namespace %s: %v", name, err)
+			p.Log.Warn("namespace cleanup failed", "slot", name, "error", err)
 			continue
 		}
-		p.Log.Infof("cleanup: deleted orphaned namespace %s", name)
+		p.Log.Info("orphaned namespace deleted", "slot", name)
 		cleaned++
 	}
 	return cleaned, nil

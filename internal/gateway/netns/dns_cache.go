@@ -10,9 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"log/slog"
 
 	"github.com/miekg/dns"
-	"github.com/sirupsen/logrus"
 )
 
 // CacheConfig holds DNS cache configuration.
@@ -35,7 +35,7 @@ type DeviceCacheStats struct {
 // Keyed by (nameserver, NAT64Prefix) so devices sharing the same ISP config share a cache.
 // Thread-safe. Must be called while the OS thread is inside the target network namespace.
 type CachingResolver struct {
-	log    *logrus.Logger
+	log    *slog.Logger
 	config CacheConfig
 	mu     sync.Mutex
 	caches map[deviceCacheKey]*deviceCache
@@ -67,7 +67,7 @@ const negativeCacheTTL = 60 * time.Second
 
 // NewCachingResolver creates a new CachingResolver with the given config.
 // Zero-value config fields are replaced with sensible defaults.
-func NewCachingResolver(log *logrus.Logger, config CacheConfig) *CachingResolver {
+func NewCachingResolver(log *slog.Logger, config CacheConfig) *CachingResolver {
 	if config.MaxEntriesPerDevice <= 0 {
 		config.MaxEntriesPerDevice = 10000
 	}
@@ -244,7 +244,7 @@ func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) 
 					if ttl == 0 {
 						ttl = cr.config.MinTTL
 					}
-					cr.log.Debugf("DNS64 fallback: synthesized %s → %s for %s", hostname, synthesized, nameserver)
+					cr.log.Debug("dns64 fallback synthesized", "hostname", hostname, "ipv6", synthesized, "nameserver", nameserver)
 					return synthesized, ttl, nil
 				}
 			}

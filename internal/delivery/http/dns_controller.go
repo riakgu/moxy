@@ -1,8 +1,9 @@
 package http
 
 import (
+	"log/slog"
+
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
@@ -11,11 +12,11 @@ import (
 // DNSController handles DNS-related API endpoints.
 type DNSController struct {
 	UseCase *usecase.DNSUseCase
-	Log     *logrus.Logger
+	Log     *slog.Logger
 }
 
 // NewDNSController creates a new DNSController.
-func NewDNSController(useCase *usecase.DNSUseCase, log *logrus.Logger) *DNSController {
+func NewDNSController(useCase *usecase.DNSUseCase, log *slog.Logger) *DNSController {
 	return &DNSController{
 		UseCase: useCase,
 		Log:     log,

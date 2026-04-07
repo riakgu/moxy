@@ -5,9 +5,9 @@ package config
 import (
 	"embed"
 	"time"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
@@ -22,7 +22,7 @@ import (
 
 type BootstrapConfig struct {
 	Viper    *viper.Viper
-	Logger   *logrus.Logger
+	Logger   *slog.Logger
 	Fiber    *fiber.App
 	StaticFS embed.FS
 }
@@ -34,42 +34,66 @@ type BootstrapResult struct {
 	PortHandler   *proxy.PortBasedHandler
 	RouteConfig   *route.RouteConfig
 	EventHub      *sse.EventHub
+	RingHandler   *sse.RingHandler
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
+	// Ring buffer for log streaming
+	ringSize := cfg.Viper.GetInt("log.ring_buffer_size")
+	if ringSize == 0 {
+		ringSize = 1000
+	}
+	level := parseLevel(cfg.Viper.GetString("log.level"))
+	ringHandler := sse.NewRingHandler(ringSize, level)
+
+	// Recreate logger with ring handler
+	cfg.Logger = NewLoggerWithRing(cfg.Viper, ringHandler)
+
+	// Component child loggers
+	deviceLog := cfg.Logger.With("component", "device")
+	slotLog := cfg.Logger.With("component", "slot")
+	monitorLog := cfg.Logger.With("component", "slot.monitor")
+	proxyLog := cfg.Logger.With("component", "proxy")
+	dnsLog := cfg.Logger.With("component", "dns")
+	trafficLog := cfg.Logger.With("component", "traffic")
+	adbLog := cfg.Logger.With("component", "adb")
+	netnsLog := cfg.Logger.With("component", "netns")
+	sseLog := cfg.Logger.With("component", "sse")
+
 	// Repositories (all in-memory)
-	deviceRepo := repository.NewDeviceRepository(cfg.Logger)
-	slotRepo := repository.NewSlotRepository(cfg.Logger)
+	deviceRepo := repository.NewDeviceRepository(deviceLog)
+	slotRepo := repository.NewSlotRepository(slotLog)
 	maxTracked := cfg.Viper.GetInt("traffic.max_tracked")
 	if maxTracked == 0 {
 		maxTracked = 5000
 	}
-	trafficRepo := repository.NewTrafficRepository(cfg.Logger, maxTracked)
+	trafficRepo := repository.NewTrafficRepository(trafficLog, maxTracked)
 
 	// SSE Event Hub
 	sseMaxClients := cfg.Viper.GetInt("sse.max_clients")
 	if sseMaxClients == 0 {
 		sseMaxClients = 10
 	}
-	hub := sse.NewEventHub(cfg.Logger, sseMaxClients)
+	hub := sse.NewEventHub(sseLog, sseMaxClients)
+	ringHandler.SetHub(hub)
 
 	// Gateways
-	adbGateway := adb.NewADBGateway(cfg.Logger)
-	provisioner := netns.NewProvisioner(cfg.Logger)
-	discovery := netns.NewDiscovery(cfg.Logger, cfg.Viper.GetString("slots.ip_check_host"))
+	adbGateway := adb.NewADBGateway(adbLog)
+	provisioner := netns.NewProvisioner(netnsLog)
+	discovery := netns.NewDiscovery(netnsLog, cfg.Viper.GetString("slots.ip_check_host"))
 	// DNS cache
-	resolver := netns.NewCachingResolver(cfg.Logger, netns.CacheConfig{
+	resolver := netns.NewCachingResolver(dnsLog, netns.CacheConfig{
 		MaxEntriesPerDevice: cfg.Viper.GetInt("dns.cache_max_entries_per_device"),
 		MinTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
 		MaxTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
 	})
-	dialer := netns.NewSetnsDialer(cfg.Logger, resolver)
+	dialer := netns.NewSetnsDialer(netnsLog, resolver)
 
 	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
 	strategy := usecase.NewSlotStrategy(cfg.Viper.GetString("proxy.source_ip_strategy"))
 	slotUC := usecase.NewSlotUseCase(
-		cfg.Logger, slotRepo, discovery,
+		slotLog, slotRepo, discovery,
 		provisioner,
 		maxSlots,
 	)
@@ -97,16 +121,16 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	if monitorConfig.UnhealthyThreshold == 0 {
 		monitorConfig.UnhealthyThreshold = 3
 	}
-	slotMonitor := usecase.NewSlotMonitorUseCase(cfg.Logger, slotRepo, discovery, provisioner, monitorConfig)
+	slotMonitor := usecase.NewSlotMonitorUseCase(monitorLog, slotRepo, discovery, provisioner, monitorConfig)
 	slotUC.SetMonitor(slotMonitor)
 
 	// Inject EventPublisher into usecases
 	slotUC.EventPub = hub
 	slotMonitor.EventPub = hub
-	ispProbe := netns.NewISPProbe(cfg.Logger)
+	ispProbe := netns.NewISPProbe(netnsLog)
 
 	// ADB device watcher (event-driven device monitoring)
-	adbWatcher := adb.NewADBWatcher(cfg.Logger, cfg.Viper.GetInt("devices.watcher_reconnect_max_seconds")*1000)
+	adbWatcher := adb.NewADBWatcher(adbLog, cfg.Viper.GetInt("devices.watcher_reconnect_max_seconds")*1000)
 	gracePeriod := time.Duration(cfg.Viper.GetInt("devices.grace_period_seconds")) * time.Second
 	if gracePeriod == 0 {
 		gracePeriod = 30 * time.Second
@@ -116,12 +140,12 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		drainTimeout = 10 * time.Second
 	}
 
-	deviceUC := usecase.NewDeviceUseCase(cfg.Logger,
+	deviceUC := usecase.NewDeviceUseCase(deviceLog,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
 	deviceUC.SetMonitor(slotMonitor)
 	deviceUC.EventPub = hub
-	proxyUC := usecase.NewProxyUseCase(cfg.Logger, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
+	proxyUC := usecase.NewProxyUseCase(proxyLog, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
 	proxyUC.EventPub = hub
 
 	// Port-based handler (shared + device + per-slot mux listeners)
@@ -130,7 +154,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
 	ipv6Port := cfg.Viper.GetInt("proxy.ipv6_port")
 	ipv6SlotPortStart := cfg.Viper.GetInt("proxy.ipv6_slot_port_start")
-	portHandler := proxy.NewPortBasedHandler(cfg.Logger, proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
+	portHandler := proxy.NewPortBasedHandler(proxyLog, proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
 
 	// Wire teardown callback — cleans up stale proxy listeners after background device teardown
 	deviceUC.OnTeardown = func() {
@@ -143,16 +167,16 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 
 	// Controllers
-	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, cfg.Logger, portHandler, slotUC.GetSlotNames)
-	slotCtrl := httpdelivery.NewSlotController(slotUC, cfg.Logger, portHandler)
+	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, deviceLog, portHandler, slotUC.GetSlotNames)
+	slotCtrl := httpdelivery.NewSlotController(slotUC, slotLog, portHandler)
 
 	// DNS
-	dnsUC := usecase.NewDNSUseCase(cfg.Logger, resolver)
-	dnsCtrl := httpdelivery.NewDNSController(dnsUC, cfg.Logger)
+	dnsUC := usecase.NewDNSUseCase(dnsLog, resolver)
+	dnsCtrl := httpdelivery.NewDNSController(dnsUC, dnsLog)
 
 	// Traffic
-	trafficUC := usecase.NewTrafficUseCase(cfg.Logger, trafficRepo)
-	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, cfg.Logger)
+	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
+	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
 
 	// SSE handler
 	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
@@ -163,9 +187,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 			return nil, err
 		}
 		slots := slotUC.ListAll()
-		return &sse.InitPayload{Devices: devices, Slots: slots}, nil
+		logs := ringHandler.GetRecent()
+		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs}, nil
 	}
-	sseHandler := sse.NewSSEHandler(hub, cfg.Logger, sseSnapshot, sseDebounce, sseHeartbeat)
+	sseHandler := sse.NewSSEHandler(hub, sseLog, sseSnapshot, sseDebounce, sseHeartbeat)
 
 	// Routes
 	routeConfig := &route.RouteConfig{
@@ -175,7 +200,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		DNSController:     dnsCtrl,
 		TrafficController: trafficCtrl,
 		SSEHandler:        sseHandler,
-		Log:               cfg.Logger,
+		Log:               cfg.Logger.With("component", "api"),
 		StaticFS:          cfg.StaticFS,
 	}
 
@@ -186,5 +211,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		PortHandler:   portHandler,
 		RouteConfig:   routeConfig,
 		EventHub:      hub,
+		RingHandler:   ringHandler,
 	}
 }

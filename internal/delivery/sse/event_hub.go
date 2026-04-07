@@ -2,9 +2,9 @@ package sse
 
 import (
 	"sync"
+	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -17,7 +17,7 @@ type Event struct {
 
 // EventHub is an in-process pub/sub hub that fans out events to SSE clients.
 type EventHub struct {
-	log        *logrus.Logger
+	log        *slog.Logger
 	publishCh  chan Event
 	clients    map[string]chan Event
 	mu         sync.RWMutex
@@ -28,7 +28,7 @@ type EventHub struct {
 
 var _ usecase.EventPublisher = (*EventHub)(nil)
 
-func NewEventHub(log *logrus.Logger, maxClients int) *EventHub {
+func NewEventHub(log *slog.Logger, maxClients int) *EventHub {
 	if maxClients <= 0 {
 		maxClients = 10
 	}
@@ -57,7 +57,7 @@ func (h *EventHub) Run() {
 				select {
 				case ch <- evt:
 				default:
-					h.log.Warnf("sse: dropping event for slow client %s", id)
+					h.log.Warn("dropping event for slow client", "client_id", id)
 				}
 			}
 			h.mu.RUnlock()
@@ -87,7 +87,7 @@ func (h *EventHub) Subscribe() (string, chan Event) {
 	id := uuid.NewString()
 	ch := make(chan Event, h.bufSize)
 	h.clients[id] = ch
-	h.log.Infof("sse: client %s connected (%d total)", id, len(h.clients))
+	h.log.Info("client connected", "client_id", id, "client_count", len(h.clients))
 	return id, ch
 }
 
@@ -99,7 +99,7 @@ func (h *EventHub) Unsubscribe(id string) {
 	if ch, ok := h.clients[id]; ok {
 		close(ch)
 		delete(h.clients, id)
-		h.log.Infof("sse: client %s disconnected (%d remaining)", id, len(h.clients))
+		h.log.Info("client disconnected", "client_id", id, "client_count", len(h.clients))
 	}
 }
 
@@ -114,7 +114,7 @@ func (h *EventHub) Shutdown() {
 		close(ch)
 		delete(h.clients, id)
 	}
-	h.log.Info("sse: hub shut down")
+	h.log.Info("hub shut down")
 }
 
 // ClientCount returns the current number of connected clients.

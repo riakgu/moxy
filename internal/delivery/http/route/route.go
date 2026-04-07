@@ -3,12 +3,13 @@ package route
 import (
 	"embed"
 	"net/http"
+	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/sirupsen/logrus"
 
 	httpdelivery "github.com/riakgu/moxy/internal/delivery/http"
+	"github.com/riakgu/moxy/internal/delivery/http/middleware"
 	"github.com/riakgu/moxy/internal/delivery/sse"
 )
 
@@ -19,12 +20,13 @@ type RouteConfig struct {
 	DNSController     *httpdelivery.DNSController
 	TrafficController *httpdelivery.TrafficController
 	SSEHandler        *sse.SSEHandler
-	Log               *logrus.Logger
+	Log               *slog.Logger
 	StaticFS          embed.FS
 }
 
 func (c *RouteConfig) Setup() {
 	api := c.App.Group("/api")
+	api.Use(middleware.RequestLogger(c.Log))
 
 	// Device routes — static routes BEFORE :alias wildcard
 	api.Get("/devices/adb", c.DeviceController.ListADB)
