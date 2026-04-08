@@ -167,7 +167,10 @@ export default function Dashboard() {
           <p className="text-sm text-text-muted mt-1">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
             {(() => {
-              const uniqueIPs = new Set(slots.flatMap(s => s.public_ipv4s).filter(Boolean)).size
+              const uniqueIPs = new Set(
+                slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
+                     .filter(p => p !== '')
+              ).size
               return uniqueIPs > 0 ? ` · ${uniqueIPs} unique IP${uniqueIPs !== 1 ? 's' : ''}` : ''
             })()}
             <span

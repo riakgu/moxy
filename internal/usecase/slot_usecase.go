@@ -282,14 +282,19 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		}
 	}
 
-	// Count unique IPs
-	ipSet := make(map[string]bool)
+	// Count unique IP pairs (exit points)
+	pairSet := make(map[string]bool)
 	for _, s := range c.SlotRepo.ListAll() {
 		if s.Status == entity.SlotStatusHealthy {
+			sorted := make([]string, 0, len(s.PublicIPv4s))
 			for _, ip := range s.PublicIPv4s {
 				if ip != "" {
-					ipSet[ip] = true
+					sorted = append(sorted, ip)
 				}
+			}
+			if len(sorted) > 0 {
+				sort.Strings(sorted)
+				pairSet[strings.Join(sorted, ",")] = true
 			}
 		}
 	}
@@ -298,7 +303,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		Created:   created,
 		Failed:    failed,
 		Total:     existingCount + created,
-		UniqueIPs: len(ipSet),
+		UniqueIPs: len(pairSet),
 	}, nil
 }
 

@@ -127,11 +127,17 @@ export default function DeviceCard({
             <span className="font-mono text-sm text-text-secondary">
               {device.slot_count} slot{device.slot_count !== 1 ? 's' : ''}
             </span>
-            {device.unique_ips > 0 && (
-              <span className="font-mono text-sm text-accent-purple">
-                {device.unique_ips} IP{device.unique_ips !== 1 ? 's' : ''}
-              </span>
-            )}
+            {(() => {
+              const uniqueIPs = new Set(
+                slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
+                     .filter(p => p !== '')
+              ).size
+              return uniqueIPs > 0 ? (
+                <span className="font-mono text-sm text-accent-purple">
+                  {uniqueIPs} IP{uniqueIPs !== 1 ? 's' : ''}
+                </span>
+              ) : null
+            })()}
             {isExpandable && (
               <span className={`text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}>
                 ▾

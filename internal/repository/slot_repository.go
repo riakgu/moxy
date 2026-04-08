@@ -3,6 +3,8 @@
 package repository
 
 import (
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"log/slog"
@@ -141,22 +143,39 @@ func (r *SlotRepository) CountByDevice(deviceAlias string) int {
 	return count
 }
 
-// UniqueIPsByDevice returns the count of distinct public IPv4 addresses
-// across all healthy slots belonging to a device.
+// UniqueIPsByDevice returns the count of distinct IP pairs (exit points)
+// across all healthy slots belonging to a device. Each slot's sorted
+// PublicIPv4s is treated as one exit point — CGNAT dual-BIB counts as 1.
 func (r *SlotRepository) UniqueIPsByDevice(deviceAlias string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	seen := make(map[string]bool)
 	for _, slot := range r.slots {
 		if slot.DeviceAlias == deviceAlias && slot.Status == entity.SlotStatusHealthy {
-			for _, ip := range slot.PublicIPv4s {
-				if ip != "" {
-					seen[ip] = true
-				}
+			key := pairKey(slot.PublicIPv4s)
+			if key != "" {
+				seen[key] = true
 			}
 		}
 	}
 	return len(seen)
+}
+
+// pairKey returns a canonical string key for a set of IPs (sorted, comma-joined).
+func pairKey(ips []string) string {
+	filtered := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip != "" {
+			filtered = append(filtered, ip)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	sorted := make([]string, len(filtered))
+	copy(sorted, filtered)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
 }
 
 // ListHealthyForDevice returns healthy slots belonging to a specific device.
