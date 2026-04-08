@@ -43,12 +43,19 @@ func (uc *TrafficUseCase) buildResponse(limit int) *model.TrafficListResponse {
 	// Compute summaries from ALL entries
 	var totalConn, totalActive int64
 	var totalTx, totalRx uint64
+	deviceTotals := make(map[string]model.DeviceTrafficTotal)
 	responses := make([]model.TrafficEntryResponse, 0, len(entries))
 	for _, e := range entries {
 		totalConn += e.ConnectionCount
 		totalActive += e.ActiveConnections
 		totalTx += e.TxBytes
 		totalRx += e.RxBytes
+
+		dt := deviceTotals[e.DeviceAlias]
+		dt.TxBytes += e.TxBytes
+		dt.RxBytes += e.RxBytes
+		deviceTotals[e.DeviceAlias] = dt
+
 		responses = append(responses, converter.TrafficEntryToResponse(e))
 	}
 
@@ -64,5 +71,6 @@ func (uc *TrafficUseCase) buildResponse(limit int) *model.TrafficListResponse {
 		TotalActive:      totalActive,
 		TotalTxBytes:     totalTx,
 		TotalRxBytes:     totalRx,
+		DeviceTotals:     deviceTotals,
 	}
 }

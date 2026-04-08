@@ -12,6 +12,7 @@ interface DeviceCardProps {
   onDeleteSlot: (name: string) => Promise<void>
   host: string
   animationDelay: number
+  trafficTotals?: { tx_bytes: number; rx_bytes: number }
 }
 
 const deviceStatusStyles: Record<string, { dot: string; text: string; class: string }> = {
@@ -21,6 +22,21 @@ const deviceStatusStyles: Record<string, { dot: string; text: string; class: str
   disconnected: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Disconnected', class: 'text-accent-amber' },
   error: { dot: 'bg-accent-red', text: 'Error', class: 'text-accent-red' },
   offline: { dot: 'bg-text-muted', text: 'Offline', class: 'text-text-muted' },
+}
+
+const setupStepLabels: Record<string, string> = {
+  screen_unlocked: 'Checking screen lock',
+  enabled_tethering: 'Enabling tethering',
+  interface_detected: 'Detecting interface',
+  enabled_data: 'Enabling mobile data',
+  dismissed_dialog: 'Dismissing dialogs',
+  disabled_wifi: 'Disabling WiFi',
+  dhcp_configured: 'Configuring DHCP',
+  ipv6_configured: 'Configuring IPv6',
+  ipv6_verified: 'Verifying IPv6',
+  isp_probed: 'Probing ISP / DNS',
+  carrier_detected: 'Detecting carrier',
+  device_info: 'Reading device info',
 }
 
 const formatBytes = (bytes: number): string => {
@@ -33,7 +49,7 @@ const formatBytes = (bytes: number): string => {
 
 export default function DeviceCard({
   device, slots, onProvision, onDeleteDevice, onSetupDevice,
-  onChangeSlotIP, onDeleteSlot, host, animationDelay,
+  onChangeSlotIP, onDeleteSlot, host, animationDelay, trafficTotals,
 }: DeviceCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [provisionCount, setProvisionCount] = useState(5)
@@ -100,6 +116,11 @@ export default function DeviceCard({
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
             {status.text}
           </span>
+          {device.status === 'setup' && device.setup_step && (
+            <span className="text-xs text-accent-amber/70 font-mono">
+              — {setupStepLabels[device.setup_step] || device.setup_step}…
+            </span>
+          )}
         </div>
         {!isDetected && (
           <div className="flex items-center gap-4">
@@ -137,8 +158,8 @@ export default function DeviceCard({
           {device.nat64_prefix && (
             <span>nat64: <span className="text-text-secondary">{device.nat64_prefix}</span></span>
           )}
-          <span>data: <span className="text-accent-amber">{formatBytes(device.total_bytes)}</span>
-            <span className="text-text-muted"> (↑{formatBytes(device.tx_bytes)} ↓{formatBytes(device.rx_bytes)})</span>
+          <span>data: <span className="text-accent-amber">{formatBytes(trafficTotals ? trafficTotals.tx_bytes + trafficTotals.rx_bytes : device.total_bytes)}</span>
+            <span className="text-text-muted"> (↑{formatBytes(trafficTotals?.tx_bytes ?? device.tx_bytes)} ↓{formatBytes(trafficTotals?.rx_bytes ?? device.rx_bytes)})</span>
           </span>
         </div>
       )}

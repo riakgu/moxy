@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import type { Device, Slot } from '../api/types'
+import type { Device, Slot, TrafficList } from '../api/types'
+import { getDNSStats } from '../api/dns'
 import { scanDevices, setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot, cleanupOrphans } from '../api/slots'
@@ -19,17 +20,28 @@ let toastId = 0
 interface DashboardContext {
   devices: Device[]
   slots: Slot[]
+  traffic: TrafficList | null
   connected: boolean
   error: string | null
 }
 
 export default function Dashboard() {
-  const { devices, slots, connected, error: sseError } = useOutletContext<DashboardContext>()
+  const { devices, slots, traffic, connected, error: sseError } = useOutletContext<DashboardContext>()
   const [scanning, setScanning] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [dnsHitRate, setDnsHitRate] = useState<number | undefined>()
 
   const host = window.location.hostname || 'localhost'
+
+  // Fetch DNS cache stats on mount
+  useEffect(() => {
+    getDNSStats()
+      .then((stats) => {
+        setDnsHitRate(stats.total_hit_rate_percent)
+      })
+      .catch(() => {}) // non-critical
+  }, [])
 
   // Auto-scan on first page load to detect connected devices
   const hasScanned = useRef(false)
@@ -154,6 +166,10 @@ export default function Dashboard() {
           </h1>
           <p className="text-sm text-text-muted mt-1">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
+            {(() => {
+              const uniqueIPs = new Set(slots.flatMap(s => s.public_ipv4s).filter(Boolean)).size
+              return uniqueIPs > 0 ? ` · ${uniqueIPs} unique IP${uniqueIPs !== 1 ? 's' : ''}` : ''
+            })()}
             <span
               className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
                 }`}
@@ -220,7 +236,7 @@ export default function Dashboard() {
       {!loading && (
         <>
           {/* Stats */}
-          <StatsBar devices={devices} slots={slots} />
+          <StatsBar devices={devices} slots={slots} dnsHitRate={dnsHitRate} />
 
           {/* Device cards */}
           <div className="space-y-4">
@@ -242,6 +258,7 @@ export default function Dashboard() {
                 onDeleteSlot={handleDeleteSlot}
                 host={host}
                 animationDelay={200 + i * 50}
+                trafficTotals={traffic?.device_totals?.[device.alias]}
               />
             ))}
           </div>

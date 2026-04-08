@@ -16,6 +16,7 @@ type DeviceResponse struct {
 	Nameserver     string `json:"nameserver"`
 	NAT64Prefix    string `json:"nat64_prefix"`
 	Status         string `json:"status"`
+	SetupStep      string `json:"setup_step,omitempty"`
 	SlotCount      int    `json:"slot_count"`
 	UniqueIPs      int    `json:"unique_ips"`
 	TxBytes        uint64 `json:"tx_bytes"`

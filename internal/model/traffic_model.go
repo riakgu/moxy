@@ -13,11 +13,17 @@ type TrafficEntryResponse struct {
 	LastSeenAt        int64  `json:"last_seen_at"`
 }
 
+type DeviceTrafficTotal struct {
+	TxBytes uint64 `json:"tx_bytes"`
+	RxBytes uint64 `json:"rx_bytes"`
+}
+
 type TrafficListResponse struct {
-	Entries          []TrafficEntryResponse `json:"entries"`
-	TotalEntries     int                    `json:"total_entries"`
-	TotalConnections int64                  `json:"total_connections"`
-	TotalActive      int64                  `json:"total_active"`
-	TotalTxBytes     uint64                 `json:"total_tx_bytes"`
-	TotalRxBytes     uint64                 `json:"total_rx_bytes"`
+	Entries          []TrafficEntryResponse        `json:"entries"`
+	TotalEntries     int                           `json:"total_entries"`
+	TotalConnections int64                         `json:"total_connections"`
+	TotalActive      int64                         `json:"total_active"`
+	TotalTxBytes     uint64                        `json:"total_tx_bytes"`
+	TotalRxBytes     uint64                        `json:"total_rx_bytes"`
+	DeviceTotals     map[string]DeviceTrafficTotal `json:"device_totals"`
 }

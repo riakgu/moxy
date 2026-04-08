@@ -17,6 +17,7 @@ func DeviceToResponse(device *entity.Device, slotCount int, uniqueIPs int, rx, t
 		Nameserver:     device.Nameserver,
 		NAT64Prefix:    device.NAT64Prefix,
 		Status:         device.Status,
+		SetupStep:      device.SetupStep,
 		SlotCount:      slotCount,
 		UniqueIPs:      uniqueIPs,
 		TxBytes:        tx,

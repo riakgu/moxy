@@ -15,6 +15,7 @@ export interface Device {
   nameserver: string
   nat64_prefix: string
   status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
+  setup_step?: string
   slot_count: number
   unique_ips: number
   tx_bytes: number
@@ -148,4 +149,13 @@ export interface TrafficList {
   total_active: number
   total_tx_bytes: number
   total_rx_bytes: number
+  device_totals: Record<string, { tx_bytes: number; rx_bytes: number }>
+}
+
+// DNS Cache — matches model.DNSCacheStatsResponse
+export interface DNSCacheStats {
+  total_entries: number
+  total_hits: number
+  total_misses: number
+  total_hit_rate_percent: number
 }

@@ -3,6 +3,7 @@ import type { Device, Slot } from '../api/types'
 interface StatsBarProps {
   devices: Device[]
   slots: Slot[]
+  dnsHitRate?: number
 }
 
 interface StatItemProps {
@@ -24,11 +25,10 @@ function StatItem({ label, value, glowClass, delay }: StatItemProps) {
   )
 }
 
-export default function StatsBar({ devices, slots }: StatsBarProps) {
+export default function StatsBar({ devices, slots, dnsHitRate }: StatsBarProps) {
   const devicesOnline = devices.filter((d) => d.status === 'online').length
   const healthySlots = slots.filter((s) => s.status === 'healthy').length
   const unhealthySlots = slots.filter((s) => s.status === 'unhealthy').length
-  const activeConnections = slots.reduce((sum, s) => sum + s.active_connections, 0)
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -51,11 +51,12 @@ export default function StatsBar({ devices, slots }: StatsBarProps) {
         delay={100}
       />
       <StatItem
-        label="Active Connections"
-        value={activeConnections}
+        label="DNS Hit Rate"
+        value={dnsHitRate !== undefined ? `${dnsHitRate.toFixed(1)}%` : '—'}
         glowClass="text-accent-amber glow-amber"
         delay={150}
       />
     </div>
   )
 }
+

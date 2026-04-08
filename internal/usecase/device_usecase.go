@@ -180,6 +180,7 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 
 	if err := c.setup(ctx, device); err != nil {
 		c.Log.Warn("setup failed", "device", device.Alias, "serial", device.Serial, "error", err)
+		device.SetupStep = ""
 		device.Status = entity.DeviceStatusError
 		c.DeviceRepo.Put(device)
 		c.publishDevice(device.Alias)
@@ -543,6 +544,9 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		device.SetupStep = step.Name
+		c.DeviceRepo.Put(device)
+		c.publishDevice(device.Alias)
 		c.Log.Info("setup step started", "device", device.Alias, "step", step.Name)
 		if err := step.Fn(); err != nil {
 			return fmt.Errorf("step %s: %w", step.Name, err)
@@ -554,6 +558,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 		c.Log.Warn("enable ndp proxy failed", "device", device.Alias, "interface", device.Interface, "error", err)
 	}
 
+	device.SetupStep = ""
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)

@@ -20,4 +20,5 @@ type Device struct {
 	Nameserver     string
 	NAT64Prefix    string
 	Status         string
+	SetupStep      string
 }
