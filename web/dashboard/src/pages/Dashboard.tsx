@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { Device, Slot, TrafficList } from '../api/types'
 import { getDNSStats } from '../api/dns'
-import { scanDevices, setupDevice } from '../api/devices'
+import { setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
-import { changeSlotIP, deleteSlot, cleanupOrphans } from '../api/slots'
+import { changeSlotIP, deleteSlot } from '../api/slots'
 import StatsBar from '../components/StatsBar'
 import DeviceCard from '../components/DeviceCard'
 import ProxyGenerator from '../components/ProxyGenerator'
@@ -26,9 +26,7 @@ interface DashboardContext {
 }
 
 export default function Dashboard() {
-  const { devices, slots, traffic, connected, error: sseError } = useOutletContext<DashboardContext>()
-  const [scanning, setScanning] = useState(false)
-  const [cleaningUp, setCleaningUp] = useState(false)
+  const { devices, slots, traffic, connected, error } = useOutletContext<DashboardContext>()
   const [toasts, setToasts] = useState<Toast[]>([])
   const [dnsHitRate, setDnsHitRate] = useState<number | undefined>()
 
@@ -43,14 +41,7 @@ export default function Dashboard() {
       .catch(() => {}) // non-critical
   }, [])
 
-  // Auto-scan on first page load to detect connected devices
-  const hasScanned = useRef(false)
-  useEffect(() => {
-    if (!hasScanned.current) {
-      hasScanned.current = true
-      scanDevices().catch(() => { }) // non-critical
-    }
-  }, [])
+
 
   const addToast = useCallback((message: string, type: 'success' | 'error') => {
     const id = ++toastId
@@ -59,18 +50,6 @@ export default function Dashboard() {
       setToasts((prev) => prev.filter((t) => t.id !== id))
     }, 3000)
   }, [])
-
-  const handleScan = async () => {
-    setScanning(true)
-    try {
-      const result = await scanDevices()
-      addToast(`Scan complete: ${result.discovered} new device${result.discovered !== 1 ? 's' : ''} detected`, 'success')
-    } catch (e) {
-      addToast(`Scan failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
-    } finally {
-      setScanning(false)
-    }
-  }
 
   const handleSetupDevice = async (alias: string) => {
     try {
@@ -81,23 +60,6 @@ export default function Dashboard() {
       addToast(msg, 'success')
     } catch (e) {
       addToast(`Setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
-    }
-  }
-
-  const handleCleanup = async () => {
-    setCleaningUp(true)
-    try {
-      const result = await cleanupOrphans()
-      addToast(
-        result.cleaned > 0
-          ? `Cleaned ${result.cleaned} orphaned namespace${result.cleaned !== 1 ? 's' : ''}`
-          : 'No orphans found',
-        'success'
-      )
-    } catch (e) {
-      addToast(`Cleanup failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
-    } finally {
-      setCleaningUp(false)
     }
   }
 
@@ -138,7 +100,6 @@ export default function Dashboard() {
   }
 
   const loading = !connected && devices.length === 0 && slots.length === 0
-  const error = sseError
 
   return (
     <div className="space-y-8">
@@ -166,55 +127,12 @@ export default function Dashboard() {
           </h1>
           <p className="text-sm text-text-muted mt-1">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
-            {(() => {
-              const uniqueIPs = new Set(
-                slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
-                     .filter(p => p !== '')
-              ).size
-              return uniqueIPs > 0 ? ` · ${uniqueIPs} unique IP${uniqueIPs !== 1 ? 's' : ''}` : ''
-            })()}
             <span
               className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
                 }`}
               title={connected ? 'Connected' : 'Reconnecting...'}
             />
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleCleanup}
-            disabled={cleaningUp}
-            className="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer
-              bg-accent-amber/10 text-accent-amber border border-accent-amber/20
-              hover:bg-accent-amber/20 hover:shadow-[0_0_20px_rgba(251,191,36,0.1)]
-              disabled:opacity-50 disabled:cursor-wait"
-          >
-            {cleaningUp ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-accent-amber border-t-transparent rounded-full animate-spin-slow" />
-                Cleaning...
-              </span>
-            ) : (
-              '🧹 Cleanup'
-            )}
-          </button>
-          <button
-            onClick={handleScan}
-            disabled={scanning}
-            className="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer
-              bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30
-              hover:bg-accent-cyan/25 hover:shadow-[0_0_20px_rgba(56,189,248,0.15)]
-              disabled:opacity-50 disabled:cursor-wait"
-          >
-            {scanning ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-accent-cyan border-t-transparent rounded-full animate-spin-slow" />
-                Scanning...
-              </span>
-            ) : (
-              '📡 Scan Devices'
-            )}
-          </button>
         </div>
       </div>
 
@@ -239,14 +157,14 @@ export default function Dashboard() {
       {!loading && (
         <>
           {/* Stats */}
-          <StatsBar devices={devices} slots={slots} dnsHitRate={dnsHitRate} />
+          <StatsBar slots={slots} dnsHitRate={dnsHitRate} />
 
           {/* Device cards */}
           <div className="space-y-4">
             {devices.length === 0 && !error && (
               <div className="bg-bg-surface border border-border-subtle rounded-lg px-6 py-12 text-center">
                 <p className="font-mono text-text-secondary mb-2">No devices found</p>
-                <p className="text-sm text-text-muted">Click "Scan Devices" to discover connected phones</p>
+                <p className="text-sm text-text-muted">Connect a phone via USB — it will be detected automatically</p>
               </div>
             )}
             {devices.map((device, i) => (

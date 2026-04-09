@@ -125,7 +125,7 @@ export default function DeviceCard({
         {!isDetected && (
           <div className="flex items-center gap-4">
             <span className="font-mono text-sm text-text-secondary">
-              {device.slot_count} slot{device.slot_count !== 1 ? 's' : ''}
+              {slots.length} slot{slots.length !== 1 ? 's' : ''}
             </span>
             {(() => {
               const uniqueIPs = new Set(

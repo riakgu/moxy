@@ -1,7 +1,6 @@
-import type { Device, Slot } from '../api/types'
+import type { Slot } from '../api/types'
 
 interface StatsBarProps {
-  devices: Device[]
   slots: Slot[]
   dnsHitRate?: number
 }
@@ -25,17 +24,20 @@ function StatItem({ label, value, glowClass, delay }: StatItemProps) {
   )
 }
 
-export default function StatsBar({ devices, slots, dnsHitRate }: StatsBarProps) {
-  const devicesOnline = devices.filter((d) => d.status === 'online').length
+export default function StatsBar({ slots, dnsHitRate }: StatsBarProps) {
+  const uniqueIPs = new Set(
+    slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
+         .filter(p => p !== '')
+  ).size
   const healthySlots = slots.filter((s) => s.status === 'healthy').length
   const unhealthySlots = slots.filter((s) => s.status === 'unhealthy').length
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <StatItem
-        label="Devices Online"
-        value={`${devicesOnline} / ${devices.length}`}
-        glowClass="text-accent-cyan glow-cyan"
+        label="Unique IPs"
+        value={uniqueIPs}
+        glowClass="text-accent-purple glow-purple"
         delay={0}
       />
       <StatItem
