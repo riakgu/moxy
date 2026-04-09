@@ -108,9 +108,7 @@ export default function DeviceCard({
           <span className="text-sm text-text-secondary">
             {isDetected
               ? device.serial
-              : (device.model
-                ? `${device.brand ? device.brand + ' ' : ''}${device.model}`
-                : (device.carrier || 'Unknown carrier'))}
+              : [device.carrier, device.model].filter(Boolean).join(' · ') || 'Unknown device'}
           </span>
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
@@ -122,40 +120,33 @@ export default function DeviceCard({
             </span>
           )}
         </div>
-        {!isDetected && (
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-sm text-text-secondary">
-              {slots.length} slot{slots.length !== 1 ? 's' : ''}
-            </span>
-            {(() => {
-              const uniqueIPs = new Set(
-                slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
-                     .filter(p => p !== '')
-              ).size
-              return uniqueIPs > 0 ? (
-                <span className="font-mono text-sm text-accent-purple">
-                  {uniqueIPs} IP{uniqueIPs !== 1 ? 's' : ''}
-                </span>
-              ) : null
-            })()}
-            {isExpandable && (
-              <span className={`text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}>
-                ▾
-              </span>
-            )}
-          </div>
+        {!isDetected && isExpandable && (
+          <span className={`text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}>
+            ▾
+          </span>
         )}
       </button>
 
-      {/* Details — only for non-detected devices */}
+      {/* Stats row — always visible for non-detected devices */}
       {!isDetected && (
-        <div className="px-5 pb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted font-mono">
-          {device.carrier && (
-            <span>carrier: <span className="text-text-secondary">{device.carrier}</span></span>
+        <div className="px-5 pb-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-muted font-mono">
+          {slots.length > 0 && (
+            <span>slot{slots.length !== 1 ? 's' : ''}: <span className="text-text-secondary">{slots.length}</span></span>
           )}
-          <span>data: <span className="text-accent-amber">{formatBytes(trafficTotals ? trafficTotals.tx_bytes + trafficTotals.rx_bytes : device.total_bytes)}</span>
-            <span className="text-text-muted"> (↑{formatBytes(trafficTotals?.tx_bytes ?? device.tx_bytes)} ↓{formatBytes(trafficTotals?.rx_bytes ?? device.rx_bytes)})</span>
-          </span>
+          {(() => {
+            const uniqueIPs = new Set(
+              slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
+                .filter(p => p !== '')
+            ).size
+            return uniqueIPs > 0 ? (
+              <span>unique ip{uniqueIPs !== 1 ? 's' : ''}: <span className="text-text-secondary">{uniqueIPs}</span></span>
+            ) : null
+          })()}
+          {trafficTotals && (
+            <span>data: <span className="text-accent-amber">{formatBytes(trafficTotals.tx_bytes + trafficTotals.rx_bytes)}</span>
+              <span className="text-text-muted"> (↑{formatBytes(trafficTotals.tx_bytes)} ↓{formatBytes(trafficTotals.rx_bytes)})</span>
+            </span>
+          )}
         </div>
       )}
 
