@@ -24,5 +24,7 @@ func SlotToResponse(slot *entity.Slot) *model.SlotResponse {
 		NextCheckAt:       slot.NextCheckAt,
 		LastUsedAt:        slot.LastUsedAt,
 		MonitorState:      slot.MonitorState,
+		IPChangedAt:       slot.IPChangedAt,
+		IPChangeCount:     slot.IPChangeCount,
 	}
 }

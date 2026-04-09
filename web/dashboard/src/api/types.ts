@@ -42,6 +42,8 @@ export interface Slot {
   next_check_at: number
   last_used_at: number
   monitor_state: string
+  ip_changed_at: number
+  ip_change_count: number
 }
 
 // Scan — matches model.ScanResponse

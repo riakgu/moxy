@@ -9,16 +9,6 @@ interface SlotRowProps {
   now: number
 }
 
-function countdownTime(timestampMs: number, now: number): string {
-  if (!timestampMs) return '—'
-  const diffMs = timestampMs - now
-  if (diffMs <= 0) return 'now'
-  const seconds = Math.ceil(diffMs / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ${seconds % 60}s`
-}
-
 function timeAgo(timestampMs: number, now: number): string {
   if (!timestampMs) return 'Never'
   const diffMs = now - timestampMs
@@ -79,10 +69,6 @@ export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProp
         ) : '—'}
       </td>
       <td className="py-2.5 px-3 text-sm text-text-secondary">{slot.city || '—'}</td>
-      <td className="py-2.5 px-3 font-mono text-xs text-text-secondary" title={slot.org}>
-        {slot.asn || '—'}
-      </td>
-      <td className="py-2.5 px-3 font-mono text-xs text-text-secondary">{slot.rtt || '—'}</td>
       <td className="py-2.5 px-3">
         <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
@@ -93,7 +79,10 @@ export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProp
         {timeAgo(slot.last_used_at, now)}
       </td>
       <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
-        {countdownTime(slot.next_check_at, now)}
+        {timeAgo(slot.ip_changed_at, now)}
+      </td>
+      <td className="py-2.5 px-3 text-xs font-mono text-text-secondary">
+        {slot.ip_change_count}
       </td>
       <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">

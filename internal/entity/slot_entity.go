@@ -25,4 +25,6 @@ type Slot struct {
 	NextCheckAt       int64
 	LastUsedAt        int64
 	MonitorState      string
+	IPChangedAt       int64
+	IPChangeCount     int
 }

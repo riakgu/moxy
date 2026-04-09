@@ -226,13 +226,23 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 		return
 	}
 
-	// Log pair changes
+	// Detect IP pair changes vs expansions
 	oldPair := pairKey(slot.PublicIPv4s)
 	newPair := pairKey(ips)
-	if oldPair != "" && oldPair != newPair {
-		c.Log.Info("ip pair rebuilt", "slot", name, "old_pair", oldPair, "new_pair", newPair)
-	} else if oldPair == "" {
+	if oldPair == "" {
+		// Initial discovery
 		c.Log.Info("ip pair discovered", "slot", name, "pair", newPair)
+		slot.IPChangedAt = now
+	} else if oldPair != newPair {
+		// Check if old is subset of new (pair expansion, not rotation)
+		if isSubset(slot.PublicIPv4s, ips) {
+			c.Log.Info("ip pair expanded", "slot", name, "old_pair", oldPair, "new_pair", newPair)
+		} else {
+			// Real carrier rotation — at least one old IP is gone
+			c.Log.Info("ip pair rotated", "slot", name, "old_pair", oldPair, "new_pair", newPair)
+			slot.IPChangeCount++
+			slot.IPChangedAt = now
+		}
 	}
 
 	slot.PublicIPv4s = ips
@@ -297,4 +307,19 @@ func pairKey(ips []string) string {
 	copy(sorted, ips)
 	sort.Strings(sorted)
 	return fmt.Sprintf("%s", strings.Join(sorted, ", "))
+}
+
+// isSubset returns true if every IP in 'old' is present in 'new'.
+// Used to distinguish pair expansion ([A] → [A,B]) from rotation ([A] → [B]).
+func isSubset(old, new []string) bool {
+	set := make(map[string]bool, len(new))
+	for _, ip := range new {
+		set[ip] = true
+	}
+	for _, ip := range old {
+		if !set[ip] {
+			return false
+		}
+	}
+	return true
 }

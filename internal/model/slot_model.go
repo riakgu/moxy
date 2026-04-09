@@ -18,6 +18,8 @@ type SlotResponse struct {
 	NextCheckAt       int64  `json:"next_check_at"`
 	LastUsedAt        int64  `json:"last_used_at"`
 	MonitorState      string `json:"monitor_state"`
+	IPChangedAt       int64  `json:"ip_changed_at"`
+	IPChangeCount     int    `json:"ip_change_count"`
 }
 
 type GetSlotRequest struct {
