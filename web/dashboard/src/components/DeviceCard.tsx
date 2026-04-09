@@ -153,17 +153,6 @@ export default function DeviceCard({
           {device.carrier && (
             <span>carrier: <span className="text-text-secondary">{device.carrier}</span></span>
           )}
-          {device.android_version && (
-            <span>android: <span className="text-text-secondary">{device.android_version}</span></span>
-          )}
-          <span>iface: <span className="text-text-secondary">{device.interface}</span></span>
-          <span>serial: <span className="text-text-secondary">{device.serial}</span></span>
-          {device.nameserver && (
-            <span>dns: <span className="text-text-secondary">{device.nameserver}</span></span>
-          )}
-          {device.nat64_prefix && (
-            <span>nat64: <span className="text-text-secondary">{device.nat64_prefix}</span></span>
-          )}
           <span>data: <span className="text-accent-amber">{formatBytes(trafficTotals ? trafficTotals.tx_bytes + trafficTotals.rx_bytes : device.total_bytes)}</span>
             <span className="text-text-muted"> (↑{formatBytes(trafficTotals?.tx_bytes ?? device.tx_bytes)} ↓{formatBytes(trafficTotals?.rx_bytes ?? device.rx_bytes)})</span>
           </span>
