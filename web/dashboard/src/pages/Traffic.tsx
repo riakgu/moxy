@@ -97,6 +97,7 @@ export default function Traffic() {
 
   // Filter state
   const [protocolFilter, setProtocolFilter] = useState<Set<string>>(new Set(['ipv4', 'ipv6']))
+  const [transportFilter, setTransportFilter] = useState<Set<string>>(new Set(['tcp', 'udp']))
   const [deviceFilter, setDeviceFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -113,6 +114,7 @@ export default function Traffic() {
   const filtered = useMemo(() => {
     return entries.filter((e) => {
       if (!protocolFilter.has(e.protocol)) return false
+      if (!transportFilter.has(e.transport || 'tcp')) return false
       if (deviceFilter && e.device_alias !== deviceFilter) return false
       if (search) {
         const q = search.toLowerCase()
@@ -120,7 +122,7 @@ export default function Traffic() {
       }
       return true
     })
-  }, [entries, protocolFilter, deviceFilter, search])
+  }, [entries, protocolFilter, transportFilter, deviceFilter, search])
 
   // Sort entries
   const sorted = useMemo(() => {
@@ -160,6 +162,15 @@ export default function Traffic() {
       const next = new Set(prev)
       if (next.has(proto)) next.delete(proto)
       else next.add(proto)
+      return next
+    })
+  }
+
+  const toggleTransport = (t: string) => {
+    setTransportFilter((prev) => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t)
+      else next.add(t)
       return next
     })
   }
@@ -242,6 +253,31 @@ export default function Traffic() {
 
         <div className="w-px h-5 bg-border-subtle" />
 
+        {/* Transport pills */}
+        <div className="flex items-center gap-1.5">
+          {(['tcp', 'udp'] as const).map((t) => {
+            const active = transportFilter.has(t)
+            const activeClass = t === 'tcp'
+              ? 'text-accent-green bg-accent-green/10 border-accent-green/20'
+              : 'text-accent-amber bg-accent-amber/10 border-accent-amber/20'
+            return (
+              <button
+                key={t}
+                onClick={() => toggleTransport(t)}
+                className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-all cursor-pointer border ${
+                  active
+                    ? activeClass
+                    : 'bg-bg-elevated text-text-muted border-transparent hover:text-text-secondary'
+                }`}
+              >
+                {t.toUpperCase()}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="w-px h-5 bg-border-subtle" />
+
         {/* Device dropdown */}
         <select
           value={deviceFilter}
@@ -307,7 +343,7 @@ export default function Traffic() {
               </thead>
               <tbody>
                 {sorted.map((entry) => (
-                  <TrafficRow key={`${entry.domain}:${entry.port}:${entry.device_alias}:${entry.protocol}`} entry={entry} />
+                  <TrafficRow key={`${entry.domain}:${entry.port}:${entry.device_alias}:${entry.protocol}:${entry.transport}`} entry={entry} />
                 ))}
               </tbody>
             </table>
@@ -343,6 +379,11 @@ function TrafficRow({ entry }: { entry: TrafficEntry }) {
         }`}>
           {entry.protocol === 'ipv6' ? 'v6' : 'v4'}
         </span>
+        {(entry.transport === 'udp') && (
+          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-amber/15 text-accent-amber ml-1">
+            UDP
+          </span>
+        )}
       </td>
 
       {/* Connections */}

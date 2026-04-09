@@ -5,6 +5,7 @@ type TrafficKey struct {
 	Port        string
 	DeviceAlias string
 	Protocol    string
+	Transport   string
 }
 
 type TrafficEntry struct {

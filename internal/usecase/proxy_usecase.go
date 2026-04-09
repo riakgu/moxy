@@ -19,6 +19,8 @@ import (
 type SlotDialer interface {
 	Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
 	DialIPv6(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
+	DialUDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error)
+	DialIPv6UDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error)
 }
 
 type ProxyUseCase struct {
@@ -78,7 +80,7 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
 		deviceAlias = slot.DeviceAlias
 	}
-	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv4"}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv4", Transport: "tcp"}
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
 
@@ -128,11 +130,107 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
 		deviceAlias = slot.DeviceAlias
 	}
-	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv6"}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv6", Transport: "tcp"}
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
 
 	// Publish traffic + dns snapshots (debounced by EventHub)
+	if c.EventPub != nil && c.TrafficUC != nil {
+		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+		if c.DNSUC != nil {
+			c.EventPub.Publish("dns_stats", c.DNSUC.GetCacheStats())
+		}
+	}
+
+	tc := &trackedConn{
+		Conn:     conn,
+		slotName: slotName,
+		slotRepo: c.SlotRepo,
+		traffic:  entry,
+	}
+
+	return tc, nil
+}
+
+// ConnectUDP connects via UDP through a slot's namespace.
+// Returns net.Conn wrapping a *net.UDPConn with byte tracking.
+// The go-socks5 library uses Read/Write on the returned conn for its UDP relay.
+func (c *ProxyUseCase) ConnectUDP(slotName string, targetAddr string) (net.Conn, error) {
+	c.SlotRepo.IncrementConnections(slotName)
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+		if c.EventPub != nil {
+			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+		}
+	}
+
+	nameserver, nat64Prefix := c.getSlotConfig(slotName)
+
+	conn, err := c.Dialer.DialUDP(slotName, targetAddr, nameserver, nat64Prefix)
+	if err != nil {
+		c.SlotRepo.DecrementConnections(slotName)
+		c.Log.Warn("udp dial failed", "slot", slotName, "target", targetAddr, "error", err)
+		return nil, fmt.Errorf("dial-udp %s via %s: %w", targetAddr, slotName, err)
+	}
+
+	c.Log.Debug("udp connection established", "slot", slotName, "target", targetAddr, "protocol", "ipv4")
+
+	host, port, _ := net.SplitHostPort(targetAddr)
+	deviceAlias := ""
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		deviceAlias = slot.DeviceAlias
+	}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv4", Transport: "udp"}
+	entry := c.TrafficRepo.Record(key)
+	atomic.AddInt64(&entry.ActiveConnections, 1)
+
+	if c.EventPub != nil && c.TrafficUC != nil {
+		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+		if c.DNSUC != nil {
+			c.EventPub.Publish("dns_stats", c.DNSUC.GetCacheStats())
+		}
+	}
+
+	tc := &trackedConn{
+		Conn:     conn,
+		slotName: slotName,
+		slotRepo: c.SlotRepo,
+		traffic:  entry,
+	}
+
+	return tc, nil
+}
+
+// ConnectIPv6UDP connects via UDP through a slot's namespace preferring native IPv6.
+func (c *ProxyUseCase) ConnectIPv6UDP(slotName string, targetAddr string) (net.Conn, error) {
+	c.SlotRepo.IncrementConnections(slotName)
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+		if c.EventPub != nil {
+			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+		}
+	}
+
+	nameserver, nat64Prefix := c.getSlotConfig(slotName)
+
+	conn, err := c.Dialer.DialIPv6UDP(slotName, targetAddr, nameserver, nat64Prefix)
+	if err != nil {
+		c.SlotRepo.DecrementConnections(slotName)
+		c.Log.Warn("udp dial failed", "slot", slotName, "target", targetAddr, "protocol", "ipv6", "error", err)
+		return nil, fmt.Errorf("dial-udp-ipv6 %s via %s: %w", targetAddr, slotName, err)
+	}
+
+	c.Log.Debug("udp connection established", "slot", slotName, "target", targetAddr, "protocol", "ipv6")
+
+	host, port, _ := net.SplitHostPort(targetAddr)
+	deviceAlias := ""
+	if slot, ok := c.SlotRepo.Get(slotName); ok {
+		deviceAlias = slot.DeviceAlias
+	}
+	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: "ipv6", Transport: "udp"}
+	entry := c.TrafficRepo.Record(key)
+	atomic.AddInt64(&entry.ActiveConnections, 1)
+
 	if c.EventPub != nil && c.TrafficUC != nil {
 		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
 		if c.DNSUC != nil {

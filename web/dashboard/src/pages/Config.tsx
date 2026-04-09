@@ -26,6 +26,8 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
       { key: 'ipv6_port', label: 'IPv6 Port', type: 'number', min: 0, max: 65535, description: 'IPv6-preferred proxy port (0 = disabled)', readonly: true },
       { key: 'ipv6_slot_port_start', label: 'IPv6 Slot Port Start', type: 'number', min: 0, max: 65535, description: 'First port for per-slot IPv6 listeners (0 = disabled)', readonly: true },
       { key: 'source_ip_strategy', label: 'Strategy', type: 'select', options: ['random', 'round-robin', 'least-connections'], description: 'Load balancing strategy for slot selection' },
+      { key: 'udp_idle_timeout_seconds', label: 'UDP Idle Timeout (s)', type: 'number', min: 10, description: 'Seconds of inactivity before closing a UDP association' },
+      { key: 'udp_max_associations', label: 'UDP Max Associations', type: 'number', min: 1, max: 10000, description: 'Maximum concurrent UDP ASSOCIATE sessions' },
     ],
   },
   {

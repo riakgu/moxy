@@ -11,6 +11,7 @@ func TrafficEntryToResponse(entry *entity.TrafficEntry) model.TrafficEntryRespon
 		Port:              entry.Port,
 		DeviceAlias:       entry.DeviceAlias,
 		Protocol:          entry.Protocol,
+		Transport:         entry.Transport,
 		ConnectionCount:   entry.ConnectionCount,
 		ActiveConnections: entry.ActiveConnections,
 		TxBytes:           entry.TxBytes,

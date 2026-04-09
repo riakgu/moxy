@@ -4,7 +4,9 @@
         "slot_port_start": 10000,
         "ipv6_port": 2080,
         "ipv6_slot_port_start": 20000,
-        "source_ip_strategy": "round-robin"
+        "source_ip_strategy": "round-robin",
+        "udp_idle_timeout_seconds": 60,
+        "udp_max_associations": 256
     },
     "api": {
         "port": 8080

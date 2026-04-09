@@ -28,13 +28,13 @@ func NewHttpProxyHandler(
 	proxy.Verbose = false
 
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
-		return connect(context.Background(), addr)
+		return connect(context.Background(), "tcp", addr)
 	}
 
 	proxy.Tr = &http.Transport{
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return connect(ctx, addr)
+			return connect(ctx, "tcp", addr)
 		},
 	}
 

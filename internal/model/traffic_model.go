@@ -5,6 +5,7 @@ type TrafficEntryResponse struct {
 	Port              string `json:"port"`
 	DeviceAlias       string `json:"device_alias"`
 	Protocol          string `json:"protocol"`
+	Transport         string `json:"transport"`
 	ConnectionCount   int64  `json:"connection_count"`
 	ActiveConnections int64  `json:"active_connections"`
 	TxBytes           uint64 `json:"tx_bytes"`

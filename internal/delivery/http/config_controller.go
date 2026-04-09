@@ -100,11 +100,13 @@ type MoxyConfig struct {
 }
 
 type ProxyConfig struct {
-	Port              int    `json:"port"`
-	SlotPortStart     int    `json:"slot_port_start"`
-	IPv6Port          int    `json:"ipv6_port"`
-	IPv6SlotPortStart int    `json:"ipv6_slot_port_start"`
-	SourceIPStrategy  string `json:"source_ip_strategy"`
+	Port                  int    `json:"port"`
+	SlotPortStart         int    `json:"slot_port_start"`
+	IPv6Port              int    `json:"ipv6_port"`
+	IPv6SlotPortStart     int    `json:"ipv6_slot_port_start"`
+	SourceIPStrategy      string `json:"source_ip_strategy"`
+	UDPIdleTimeoutSeconds int    `json:"udp_idle_timeout_seconds"`
+	UDPMaxAssociations    int    `json:"udp_max_associations"`
 }
 
 type APIConfig struct {
@@ -175,6 +177,12 @@ func (cfg *MoxyConfig) Validate() map[string]string {
 	validStrategies := map[string]bool{"random": true, "round-robin": true, "least-connections": true}
 	if !validStrategies[cfg.Proxy.SourceIPStrategy] {
 		errs["proxy.source_ip_strategy"] = "must be one of: random, round-robin, least-connections"
+	}
+	if cfg.Proxy.UDPIdleTimeoutSeconds != 0 && cfg.Proxy.UDPIdleTimeoutSeconds < 10 {
+		errs["proxy.udp_idle_timeout_seconds"] = "must be >= 10 (or 0 for default)"
+	}
+	if cfg.Proxy.UDPMaxAssociations != 0 && (cfg.Proxy.UDPMaxAssociations < 1 || cfg.Proxy.UDPMaxAssociations > 10000) {
+		errs["proxy.udp_max_associations"] = "must be between 1 and 10000 (or 0 for default)"
 	}
 
 	// API

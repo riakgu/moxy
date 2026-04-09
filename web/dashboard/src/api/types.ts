@@ -87,6 +87,8 @@ export interface MoxyConfig {
     ipv6_port: number
     ipv6_slot_port_start: number
     source_ip_strategy: string
+    udp_idle_timeout_seconds: number
+    udp_max_associations: number
   }
   api: {
     port: number
@@ -135,6 +137,7 @@ export interface TrafficEntry {
   port: string
   device_alias: string
   protocol: string
+  transport: string
   connection_count: number
   active_connections: number
   tx_bytes: number

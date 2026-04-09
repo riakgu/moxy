@@ -13,8 +13,9 @@ import (
 )
 
 // ConnectFunc dials a target address through a slot's network namespace.
+// The network parameter is "tcp" for CONNECT or "udp" for UDP ASSOCIATE.
 // The implementation handles slot selection and connection tracking.
-type ConnectFunc func(ctx context.Context, addr string) (net.Conn, error)
+type ConnectFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // Socks5Handler wraps things-go/go-socks5 with graceful shutdown.
 type Socks5Handler struct {
@@ -44,7 +45,7 @@ func NewSocks5Handler(
 
 	server := socks5.NewServer(
 		socks5.WithDial(func(dialCtx context.Context, network, addr string) (net.Conn, error) {
-			return connect(dialCtx, addr)
+			return connect(dialCtx, network, addr)
 		}),
 		socks5.WithResolver(passthroughResolver{}),
 		socks5.WithAuthMethods([]socks5.Authenticator{

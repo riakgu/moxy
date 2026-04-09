@@ -183,3 +183,128 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 
 	return conn, nil
 }
+
+// DialUDP connects via UDP through the network namespace identified by slotName.
+// Same setns pattern as Dial() but creates a *net.UDPConn instead of TCP.
+func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil && ip.To4() != nil {
+		host = toNAT64(ip, nat64Prefix)
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	origNs, err := os.Open("/proc/self/ns/net")
+	if err != nil {
+		return nil, fmt.Errorf("open host namespace: %w", err)
+	}
+	defer origNs.Close()
+
+	targetNs, err := os.Open("/var/run/netns/" + slotName)
+	if err != nil {
+		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer targetNs.Close()
+
+	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
+		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
+	}
+
+	if ip == nil {
+		resolved, err := d.Resolver.Resolve(host, nameserver, nat64Prefix)
+		if err != nil {
+			unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+			return nil, fmt.Errorf("DNS64 resolve %s for %s: %w", host, slotName, err)
+		}
+		host = resolved
+	}
+
+	portNum, _ := net.LookupPort("udp", port)
+	targetIP := net.ParseIP(host)
+	udpAddr := &net.UDPAddr{IP: targetIP, Port: portNum}
+	conn, dialErr := net.DialUDP("udp6", nil, udpAddr)
+
+	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
+	}
+
+	if dialErr != nil {
+		return nil, fmt.Errorf("dial udp %s via %s: %w", addr, slotName, dialErr)
+	}
+
+	return conn, nil
+}
+
+// DialIPv6UDP connects via UDP preferring native IPv6, falls back to NAT64.
+func (d *SetnsDialer) DialIPv6UDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil && ip.To4() != nil {
+		host = toNAT64(ip, nat64Prefix)
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	origNs, err := os.Open("/proc/self/ns/net")
+	if err != nil {
+		return nil, fmt.Errorf("open host namespace: %w", err)
+	}
+	defer origNs.Close()
+
+	targetNs, err := os.Open("/var/run/netns/" + slotName)
+	if err != nil {
+		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
+	}
+	defer targetNs.Close()
+
+	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
+		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
+	}
+
+	if ip == nil {
+		resolved, nativeErr := d.Resolver.ResolveNative(host, nameserver, nat64Prefix)
+		if nativeErr != nil {
+			resolved, err = d.Resolver.Resolve(host, nameserver, nat64Prefix)
+			if err != nil {
+				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
+			}
+			d.Log.Debug("udp dns64 fallback used", "host", host, "slot", slotName, "resolved", resolved)
+		} else {
+			d.Log.Debug("udp native ipv6 resolved", "host", host, "slot", slotName, "resolved", resolved)
+		}
+		host = resolved
+	}
+
+	portNum, _ := net.LookupPort("udp", port)
+	targetIP := net.ParseIP(host)
+	udpAddr := &net.UDPAddr{IP: targetIP, Port: portNum}
+	conn, dialErr := net.DialUDP("udp6", nil, udpAddr)
+
+	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
+	}
+
+	if dialErr != nil {
+		return nil, fmt.Errorf("dial udp %s via %s: %w", addr, slotName, dialErr)
+	}
+
+	return conn, nil
+}

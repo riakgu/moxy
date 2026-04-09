@@ -63,11 +63,14 @@ func (c *PortBasedHandler) StartShared() {
 		return
 	}
 	addr := fmt.Sprintf(":%d", c.proxyPort)
-	connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
 		slots := c.proxyUC.SlotRepo.ListHealthy()
 		slot, err := c.proxyUC.SelectSlot(slots)
 		if err != nil {
 			return nil, err
+		}
+		if network == "udp" {
+			return c.proxyUC.ConnectUDP(slot.Name, targetAddr)
 		}
 		return c.proxyUC.Connect(slot.Name, targetAddr)
 	}
@@ -89,11 +92,14 @@ func (c *PortBasedHandler) StartSharedIPv6() {
 		return
 	}
 	addr := fmt.Sprintf(":%d", c.ipv6Port)
-	connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
 		slots := c.proxyUC.SlotRepo.ListHealthy()
 		slot, err := c.proxyUC.SelectSlot(slots)
 		if err != nil {
 			return nil, err
+		}
+		if network == "udp" {
+			return c.proxyUC.ConnectIPv6UDP(slot.Name, targetAddr)
 		}
 		return c.proxyUC.ConnectIPv6(slot.Name, targetAddr)
 	}
@@ -144,11 +150,14 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 		addr := fmt.Sprintf(":%d", port)
 
 		deviceAlias := alias // capture for closure
-		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
 			slots := c.proxyUC.SlotRepo.ListHealthyForDevice(deviceAlias)
 			slot, err := c.proxyUC.SelectSlot(slots)
 			if err != nil {
 				return nil, err
+			}
+			if network == "udp" {
+				return c.proxyUC.ConnectUDP(slot.Name, targetAddr)
 			}
 			return c.proxyUC.Connect(slot.Name, targetAddr)
 		}
@@ -202,11 +211,14 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 		addr := fmt.Sprintf(":%d", port)
 
 		deviceAlias := alias
-		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
 			slots := c.proxyUC.SlotRepo.ListHealthyForDevice(deviceAlias)
 			slot, err := c.proxyUC.SelectSlot(slots)
 			if err != nil {
 				return nil, err
+			}
+			if network == "udp" {
+				return c.proxyUC.ConnectIPv6UDP(slot.Name, targetAddr)
 			}
 			return c.proxyUC.ConnectIPv6(slot.Name, targetAddr)
 		}
@@ -265,7 +277,10 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 		addr := fmt.Sprintf(":%d", port)
 
 		slotName := name // capture for closure
-		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+			if network == "udp" {
+				return c.proxyUC.ConnectUDP(slotName, targetAddr)
+			}
 			return c.proxyUC.Connect(slotName, targetAddr)
 		}
 
@@ -321,7 +336,10 @@ func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 		addr := fmt.Sprintf(":%d", port)
 
 		slotName := name
-		connect := func(ctx context.Context, targetAddr string) (net.Conn, error) {
+		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+			if network == "udp" {
+				return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
+			}
 			return c.proxyUC.ConnectIPv6(slotName, targetAddr)
 		}
 
