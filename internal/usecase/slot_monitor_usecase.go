@@ -202,11 +202,10 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 			org = gotOrg
 			rtt = gotRTT
 		}
-		if seen[gotIP] {
-			break // repeat seen — pair complete
+		if !seen[gotIP] {
+			seen[gotIP] = true
+			ips = append(ips, gotIP)
 		}
-		seen[gotIP] = true
-		ips = append(ips, gotIP)
 	}
 
 	// Update IPv6 too
@@ -237,8 +236,11 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 		// Check if old is subset of new (pair expansion, not rotation)
 		if isSubset(slot.PublicIPv4s, ips) {
 			c.Log.Info("ip pair expanded", "slot", name, "old_pair", oldPair, "new_pair", newPair)
+		} else if len(slot.PublicIPv4s) < 2 {
+			// Old pair was a single IP — can't confirm rotation vs late CGNAT discovery
+			c.Log.Info("ip pair rebuilt (unconfirmed)", "slot", name, "old_pair", oldPair, "new_pair", newPair)
 		} else {
-			// Real carrier rotation — at least one old IP is gone
+			// Old pair had 2+ IPs (confirmed full pair) — this is a real carrier rotation
 			c.Log.Info("ip pair rotated", "slot", name, "old_pair", oldPair, "new_pair", newPair)
 			slot.IPChangeCount++
 			slot.IPChangedAt = now
