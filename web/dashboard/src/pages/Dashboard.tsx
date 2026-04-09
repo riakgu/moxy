@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import type { Device, Slot, TrafficList } from '../api/types'
-import { getDNSStats } from '../api/dns'
+import type { Device, Slot, TrafficList, DNSCacheStats } from '../api/types'
 import { setupDevice } from '../api/devices'
 import { provisionDevice, deleteDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot } from '../api/slots'
@@ -21,25 +20,17 @@ interface DashboardContext {
   devices: Device[]
   slots: Slot[]
   traffic: TrafficList | null
+  dnsStats: DNSCacheStats | null
   connected: boolean
   error: string | null
 }
 
 export default function Dashboard() {
-  const { devices, slots, traffic, connected, error } = useOutletContext<DashboardContext>()
+  const { devices, slots, traffic, dnsStats, connected, error } = useOutletContext<DashboardContext>()
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [dnsHitRate, setDnsHitRate] = useState<number | undefined>()
 
   const host = window.location.hostname || 'localhost'
-
-  // Fetch DNS cache stats on mount
-  useEffect(() => {
-    getDNSStats()
-      .then((stats) => {
-        setDnsHitRate(stats.total_hit_rate_percent)
-      })
-      .catch(() => {}) // non-critical
-  }, [])
+  const dnsHitRate = dnsStats?.total_hit_rate_percent
 
 
 

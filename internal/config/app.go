@@ -196,6 +196,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	// Inject traffic snapshot config into proxyUC
 	proxyUC.TrafficUC = trafficUC
 	proxyUC.SnapshotLimit = sseTrafficLimit
+	proxyUC.DNSUC = dnsUC
 
 	sseSnapshot := func() (*sse.InitPayload, error) {
 		devices, err := deviceUC.List()
@@ -205,7 +206,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		slots := slotUC.ListAll()
 		logs := ringHandler.GetRecent()
 		traffic := trafficUC.ListTop(sseTrafficLimit)
-		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs, Traffic: traffic}, nil
+		dnsStats := dnsUC.GetCacheStats()
+		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs, Traffic: traffic, DNSStats: dnsStats}, nil
 	}
 	sseHandler := sse.NewSSEHandler(hub, sseLog, sseSnapshot, sseDebounce, sseHeartbeat)
 

@@ -18,10 +18,11 @@ type SnapshotFunc func() (*InitPayload, error)
 
 // InitPayload is sent on first connect.
 type InitPayload struct {
-	Devices []model.DeviceResponse     `json:"devices"`
-	Slots   []model.SlotResponse       `json:"slots"`
-	Logs    []LogEntry                 `json:"logs,omitempty"`
-	Traffic *model.TrafficListResponse `json:"traffic,omitempty"`
+	Devices  []model.DeviceResponse          `json:"devices"`
+	Slots    []model.SlotResponse            `json:"slots"`
+	Logs     []LogEntry                      `json:"logs,omitempty"`
+	Traffic  *model.TrafficListResponse      `json:"traffic,omitempty"`
+	DNSStats *model.DNSCacheStatsResponse    `json:"dns_stats,omitempty"`
 }
 
 // SSEHandler serves the GET /api/events endpoint.

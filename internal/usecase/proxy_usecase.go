@@ -30,6 +30,7 @@ type ProxyUseCase struct {
 	TrafficRepo   *repository.TrafficRepository
 	EventPub      EventPublisher
 	TrafficUC     *TrafficUseCase
+	DNSUC         *DNSUseCase
 	SnapshotLimit int
 }
 
@@ -81,9 +82,12 @@ func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, er
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
 
-	// Publish traffic snapshot (debounced by EventHub)
+	// Publish traffic + dns snapshots (debounced by EventHub)
 	if c.EventPub != nil && c.TrafficUC != nil {
 		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+		if c.DNSUC != nil {
+			c.EventPub.Publish("dns_stats", c.DNSUC.GetCacheStats())
+		}
 	}
 
 	tc := &trackedConn{
@@ -128,9 +132,12 @@ func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
 
-	// Publish traffic snapshot (debounced by EventHub)
+	// Publish traffic + dns snapshots (debounced by EventHub)
 	if c.EventPub != nil && c.TrafficUC != nil {
 		c.EventPub.Publish("traffic_snapshot", c.TrafficUC.ListTop(c.SnapshotLimit))
+		if c.DNSUC != nil {
+			c.EventPub.Publish("dns_stats", c.DNSUC.GetCacheStats())
+		}
 	}
 
 	tc := &trackedConn{
