@@ -12,11 +12,14 @@ interface SlotRowProps {
 function timeAgo(timestampMs: number, now: number): string {
   if (!timestampMs) return 'Never'
   const diffMs = now - timestampMs
-  if (diffMs < 60_000) return 'just now'
-  const minutes = Math.floor(diffMs / 60_000)
-  if (minutes < 60) return `${minutes}m ago`
+  if (diffMs < 5_000) return 'just now'
+  const seconds = Math.floor(diffMs / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  const remainSec = seconds % 60
+  if (minutes < 60) return `${minutes}m ${remainSec}s ago`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`
   return `${Math.floor(hours / 24)}d ago`
 }
 
