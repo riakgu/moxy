@@ -223,3 +223,41 @@ body::before {
   content-visibility: auto;
   contain-intrinsic-size: auto 28px;
 }
+
+/* === Hamburger Menu === */
+
+.hamburger-line {
+  position: absolute;
+  width: 18px;
+  height: 2px;
+  background-color: var(--color-text-secondary);
+  border-radius: 1px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hamburger-top {
+  transform: translateY(-6px);
+}
+
+.hamburger-mid {
+  transform: translateY(0);
+}
+
+.hamburger-bot {
+  transform: translateY(6px);
+}
+
+.hamburger-top.hamburger-open {
+  transform: translateY(0) rotate(45deg);
+  background-color: var(--color-accent-cyan);
+}
+
+.hamburger-mid.hamburger-open {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.hamburger-bot.hamburger-open {
+  transform: translateY(0) rotate(-45deg);
+  background-color: var(--color-accent-cyan);
+}
