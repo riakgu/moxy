@@ -168,9 +168,14 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 				consecutiveFails = 0
 				slot.LastCheckedAt = time.Now().UnixMilli()
 				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
-				slot.Status = entity.SlotStatusHealthy
-				if c.EventPub != nil {
-					c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+				// Only publish on actual state transition (e.g. unhealthy → healthy recovery)
+				// Steady-state "still healthy" checks are noise — IP changes are handled by burstDetect
+				if slot.Status != entity.SlotStatusHealthy {
+					slot.Status = entity.SlotStatusHealthy
+					c.Log.Info("slot recovered", "slot", name)
+					if c.EventPub != nil {
+						c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+					}
 				}
 			}
 		}
