@@ -101,7 +101,11 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		threshold = 3
 	}
 
-	// Initial burst: detect IP pair with metadata
+	// Rotation verification state (goroutine-local)
+	var pendingOldIPs []string // snapshot of pool before unknown IP appeared (nil = no verification)
+	absenceCount := 0          // consecutive fast checks where no pendingOldIP was seen
+
+	// Initial burst: discover pool IPs + metadata
 	c.burstDetect(name)
 
 	for {
@@ -132,7 +136,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		case <-time.After(interval):
 		}
 
-		// Steady-state: single lightweight check (plain text, just IP)
+		// Single lightweight check (plain text, just IP)
 		ip, err := c.Discovery.ResolveSlotIP(name)
 		if err != nil {
 			if slot, ok := c.SlotRepo.Get(name); ok {
@@ -155,24 +159,58 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			continue
 		}
 
-		// Check if IP is in known pair
-		if slot, ok := c.SlotRepo.Get(name); ok {
-			if slot.Status == entity.SlotStatusSuspended {
-				continue
+		slot, ok = c.SlotRepo.Get(name)
+		if !ok {
+			continue
+		}
+		if slot.Status == entity.SlotStatusSuspended {
+			continue
+		}
+
+		consecutiveFails = 0
+		slot.LastCheckedAt = time.Now().UnixMilli()
+		slot.Status = entity.SlotStatusHealthy
+
+		if !containsIP(slot.PublicIPv4s, ip) {
+			// Unknown IP — add to pool and start/continue rotation verification
+			if pendingOldIPs == nil {
+				// First unknown IP: snapshot the current pool before mutation
+				pendingOldIPs = make([]string, len(slot.PublicIPv4s))
+				copy(pendingOldIPs, slot.PublicIPv4s)
+				absenceCount = 0
 			}
-			if !containsIP(slot.PublicIPv4s, ip) {
-				c.Log.Info("unknown ip detected", "slot", name, "ip", ip, "known_pair", slot.PublicIPv4s)
-				c.burstDetect(name)
-				fastTicks = c.Config.FastTicks
+			slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
+			c.Log.Info("pool ip added", "slot", name, "ip", ip, "pool", poolKey(slot.PublicIPv4s))
+			fastTicks = c.Config.FastTicks
+		} else if pendingOldIPs != nil {
+			// Verification in progress — check if this IP is from the old pool
+			if containsIP(pendingOldIPs, ip) {
+				// Old IP still active — pool expansion, not rotation
+				c.Log.Info("pool expansion confirmed", "slot", name, "pool", poolKey(slot.PublicIPv4s))
+				pendingOldIPs = nil
+				absenceCount = 0
 			} else {
-				consecutiveFails = 0
-				slot.LastCheckedAt = time.Now().UnixMilli()
-				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
-				slot.Status = entity.SlotStatusHealthy
-				if c.EventPub != nil {
-					c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+				// IP is known but not from old pool — old IPs still absent
+				absenceCount++
+				c.Log.Debug("rotation verification", "slot", name, "absence", fmt.Sprintf("%d/%d", absenceCount, c.Config.FastTicks))
+				if absenceCount >= c.Config.FastTicks {
+					// Confirmed rotation: old IPs never reappeared
+					oldPool := poolKey(pendingOldIPs)
+					slot.PublicIPv4s = removeIPs(slot.PublicIPv4s, pendingOldIPs)
+					slot.IPChangeCount++
+					slot.IPChangedAt = time.Now().UnixMilli()
+					c.Log.Info("pool rotated", "slot", name, "old", oldPool, "new", poolKey(slot.PublicIPv4s))
+					pendingOldIPs = nil
+					absenceCount = 0
+					// Refresh metadata for the new pool
+					c.burstDetect(name)
 				}
 			}
+		}
+
+		slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
+		if c.EventPub != nil {
+			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 		}
 
 		// Update IPv6 (rarely changes but keep fresh)
@@ -182,8 +220,11 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 }
 
 // burstDetect makes up to 5 rapid IP checks using the JSON endpoint
-// to discover the CGNAT pair and collect metadata (city, ASN, RTT).
-// Stops early when it sees a repeated IP.
+// to discover pool IPs and collect metadata (city, ASN, RTT).
+// On initial discovery, sets the pool. On subsequent calls (post-rotation),
+// merges new IPs into the existing pool. No classification logic —
+// rotation detection is handled by the sustained absence verification
+// in monitorSlot.
 func (c *SlotMonitorUseCase) burstDetect(name string) {
 	seen := make(map[string]bool)
 	var ips []string
@@ -195,7 +236,6 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 			c.Log.Warn("burst check failed", "slot", name, "attempt", i+1, "error", err)
 			continue
 		}
-		// Store metadata from first successful response
 		if city == "" {
 			city = gotCity
 			asn = gotASN
@@ -208,7 +248,6 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 		}
 	}
 
-	// Update IPv6 too
 	ipv6, _ := c.Discovery.ResolveSlotIPv6(name)
 
 	slot, ok := c.SlotRepo.Get(name)
@@ -221,40 +260,30 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 
 	if len(ips) == 0 {
 		slot.Status = entity.SlotStatusUnhealthy
-		c.Log.Warn("pair detection failed", "slot", name)
+		c.Log.Warn("pool detection failed", "slot", name)
 		return
 	}
 
-	// Detect IP pair changes vs expansions
-	oldPair := pairKey(slot.PublicIPv4s)
-	newPair := pairKey(ips)
-	if oldPair == "" {
+	if len(slot.PublicIPv4s) == 0 {
 		// Initial discovery
-		c.Log.Info("ip pair discovered", "slot", name, "pair", newPair)
+		slot.PublicIPv4s = ips
 		slot.IPChangedAt = now
-	} else if oldPair != newPair {
-		// Check if old is subset of new (pair expansion, not rotation)
-		if isSubset(slot.PublicIPv4s, ips) {
-			c.Log.Info("ip pair expanded", "slot", name, "old_pair", oldPair, "new_pair", newPair)
-		} else if len(slot.PublicIPv4s) < 2 {
-			// Old pair was a single IP — can't confirm rotation vs late CGNAT discovery
-			c.Log.Info("ip pair rebuilt (unconfirmed)", "slot", name, "old_pair", oldPair, "new_pair", newPair)
-		} else {
-			// Old pair had 2+ IPs (confirmed full pair) — this is a real carrier rotation
-			c.Log.Info("ip pair rotated", "slot", name, "old_pair", oldPair, "new_pair", newPair)
-			slot.IPChangeCount++
-			slot.IPChangedAt = now
+		c.Log.Info("pool discovered", "slot", name, "pool", poolKey(ips))
+	} else {
+		// Merge any new IPs from burst into existing pool
+		for _, ip := range ips {
+			if !containsIP(slot.PublicIPv4s, ip) {
+				slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
+			}
 		}
 	}
 
-	slot.PublicIPv4s = ips
 	slot.City = city
 	slot.ASN = asn
 	slot.Org = org
 	slot.RTT = rtt
 	slot.Status = entity.SlotStatusHealthy
 
-	// Update IPv6
 	c.updateIPv6Helper(slot, ipv6)
 
 	if c.EventPub != nil {
@@ -301,27 +330,28 @@ func containsIP(pair []string, ip string) bool {
 	return false
 }
 
-func pairKey(ips []string) string {
+// poolKey returns a sorted, comma-separated string of IPs for logging.
+func poolKey(ips []string) string {
 	if len(ips) == 0 {
 		return ""
 	}
 	sorted := make([]string, len(ips))
 	copy(sorted, ips)
 	sort.Strings(sorted)
-	return fmt.Sprintf("%s", strings.Join(sorted, ", "))
+	return strings.Join(sorted, ", ")
 }
 
-// isSubset returns true if every IP in 'old' is present in 'new'.
-// Used to distinguish pair expansion ([A] → [A,B]) from rotation ([A] → [B]).
-func isSubset(old, new []string) bool {
-	set := make(map[string]bool, len(new))
-	for _, ip := range new {
-		set[ip] = true
+// removeIPs returns a new slice with all IPs in 'remove' excluded from 'pool'.
+func removeIPs(pool, remove []string) []string {
+	removeSet := make(map[string]bool, len(remove))
+	for _, ip := range remove {
+		removeSet[ip] = true
 	}
-	for _, ip := range old {
-		if !set[ip] {
-			return false
+	var result []string
+	for _, ip := range pool {
+		if !removeSet[ip] {
+			result = append(result, ip)
 		}
 	}
-	return true
+	return result
 }
