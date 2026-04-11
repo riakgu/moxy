@@ -8,7 +8,6 @@ import (
 	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
-	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 )
@@ -251,7 +250,7 @@ func (c *ProxyUseCase) ConnectIPv6UDP(slotName string, targetAddr string) (net.C
 // SelectSlot picks a slot from the given candidates using the configured strategy.
 func (c *ProxyUseCase) SelectSlot(slots []*entity.Slot) (*entity.Slot, error) {
 	if len(slots) == 0 {
-		return nil, model.ErrNoSlotsAvailable
+		return nil, entity.ErrNoSlotsAvailable
 	}
 	return c.Strategy.Select(slots), nil
 }

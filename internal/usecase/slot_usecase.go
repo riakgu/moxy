@@ -190,10 +190,10 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 
 	slot, ok := c.SlotRepo.Get(request.SlotName)
 	if !ok {
-		return nil, model.ErrSlotNotFound
+		return nil, entity.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		return nil, model.ErrSlotBusy
+		return nil, entity.ErrSlotBusy
 	}
 
 	slot.Status = entity.SlotStatusDiscovering
@@ -322,10 +322,10 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 
 	slot, ok := c.SlotRepo.Get(slotName)
 	if !ok {
-		return model.ErrSlotNotFound
+		return entity.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		return model.ErrSlotBusy
+		return entity.ErrSlotBusy
 	}
 
 	// Capture before deleting from repo

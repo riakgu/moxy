@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/riakgu/moxy/internal/delivery/proxy"
+	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -83,7 +84,7 @@ func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
-	req := new(model.ProvisionDeviceRequest)
+	req := new(model.ProvisionRequest)
 	if err := ctx.BodyParser(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
@@ -101,7 +102,7 @@ func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
 	alias := ctx.Params("alias")
 	resp, err := c.DeviceUC.Setup(ctx.UserContext(), alias)
 	if err != nil {
-		if errors.Is(err, model.ErrDeviceNotDetected) {
+		if errors.Is(err, entity.ErrDeviceNotDetected) {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())

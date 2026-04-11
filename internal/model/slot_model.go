@@ -26,6 +26,11 @@ type GetSlotRequest struct {
 	SlotName string `json:"-"`
 }
 
+type ProvisionRequest struct {
+	Alias string `json:"-"`
+	Slots int    `json:"slots"`
+}
+
 type ChangeIPRequest struct {
 	SlotName string `json:"-"`
 }

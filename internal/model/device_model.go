@@ -1,10 +1,5 @@
 package model
 
-type ProvisionDeviceRequest struct {
-	Alias string `json:"-"`
-	Slots int    `json:"slots"`
-}
-
 type DeviceResponse struct {
 	Alias          string `json:"alias"`
 	Serial         string `json:"serial"`
@@ -32,14 +27,4 @@ type ScanResponse struct {
 type SetupResponse struct {
 	Device    DeviceResponse     `json:"device"`
 	Provision *ProvisionResponse `json:"provision,omitempty"`
-}
-
-type ISPProbeResult struct {
-	Nameserver  string `json:"nameserver"`
-	NAT64Prefix string `json:"nat64_prefix"`
-}
-
-type DeviceEvent struct {
-	Serial string
-	Status string
 }

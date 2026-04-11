@@ -171,7 +171,7 @@ func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupRe
 		return nil, fmt.Errorf("device %s not found", alias)
 	}
 	if device.Status != entity.DeviceStatusDetected {
-		return nil, model.ErrDeviceNotDetected
+		return nil, entity.ErrDeviceNotDetected
 	}
 
 	device.Status = entity.DeviceStatusSetup
@@ -251,7 +251,7 @@ func (c *DeviceUseCase) Delete(alias string) error {
 }
 
 // Provision adds more slots to a device.
-func (c *DeviceUseCase) Provision(req *model.ProvisionDeviceRequest) (*model.ProvisionResponse, error) {
+func (c *DeviceUseCase) Provision(req *model.ProvisionRequest) (*model.ProvisionResponse, error) {
 	device, ok := c.DeviceRepo.GetByAlias(req.Alias)
 	if !ok {
 		return nil, fmt.Errorf("device %s not found", req.Alias)

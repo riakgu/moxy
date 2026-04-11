@@ -1,6 +1,5 @@
 package model
 
-// MoxyConfig mirrors the config.json structure for validation.
 type MoxyConfig struct {
 	Proxy   ProxyConfig   `json:"proxy"`
 	API     APIConfig     `json:"api"`
@@ -70,8 +69,6 @@ type LogConfig struct {
 	RingBufferSize int    `json:"ring_buffer_size,omitempty"`
 }
 
-// Validate checks all config fields and returns a map of field path → error message.
-// Returns nil if everything is valid.
 func (cfg *MoxyConfig) Validate() map[string]string {
 	errs := make(map[string]string)
 
