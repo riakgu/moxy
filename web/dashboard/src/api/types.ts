@@ -82,10 +82,14 @@ export interface LogEntry {
 // Config — mirrors config.json structure
 export interface MoxyConfig {
   proxy: {
-    port: number
-    slot_port_start: number
-    ipv6_port: number
-    ipv6_slot_port_start: number
+    ipv4: {
+      port: number
+      slot_port_start: number
+    }
+    ipv6: {
+      port: number
+      slot_port_start: number
+    }
     source_ip_strategy: string
     udp_idle_timeout_seconds: number
     udp_max_associations: number

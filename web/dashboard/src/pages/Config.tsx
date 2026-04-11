@@ -6,6 +6,7 @@ import type { MoxyConfig } from '../api/types'
 // Field metadata for rendering the form
 interface FieldDef {
   key: string
+  subgroup?: string
   label: string
   type: 'number' | 'text' | 'select'
   options?: string[]
@@ -21,10 +22,10 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'Proxy',
     group: 'proxy',
     fields: [
-      { key: 'port', label: 'Port', type: 'number', min: 1, max: 65535, description: 'Main SOCKS5/HTTP proxy port', readonly: true },
-      { key: 'slot_port_start', label: 'Slot Port Start', type: 'number', min: 1, max: 65535, description: 'First port for per-slot proxy listeners', readonly: true },
-      { key: 'ipv6_port', label: 'IPv6 Port', type: 'number', min: 0, max: 65535, description: 'IPv6-preferred proxy port (0 = disabled)', readonly: true },
-      { key: 'ipv6_slot_port_start', label: 'IPv6 Slot Port Start', type: 'number', min: 0, max: 65535, description: 'First port for per-slot IPv6 listeners (0 = disabled)', readonly: true },
+      { key: 'port', subgroup: 'ipv4', label: 'IPv4 Port', type: 'number', min: 1, max: 65535, description: 'Main SOCKS5/HTTP proxy port', readonly: true },
+      { key: 'slot_port_start', subgroup: 'ipv4', label: 'IPv4 Slot Port Start', type: 'number', min: 1, max: 65535, description: 'First port for per-slot proxy listeners', readonly: true },
+      { key: 'port', subgroup: 'ipv6', label: 'IPv6 Port', type: 'number', min: 0, max: 65535, description: 'IPv6-preferred proxy port (0 = disabled)', readonly: true },
+      { key: 'slot_port_start', subgroup: 'ipv6', label: 'IPv6 Slot Port Start', type: 'number', min: 0, max: 65535, description: 'First port for per-slot IPv6 listeners (0 = disabled)', readonly: true },
       { key: 'source_ip_strategy', label: 'Strategy', type: 'select', options: ['random', 'round-robin', 'least-connections'], description: 'Load balancing strategy for slot selection' },
       { key: 'udp_idle_timeout_seconds', label: 'UDP Idle Timeout (s)', type: 'number', min: 10, description: 'Seconds of inactivity before closing a UDP association' },
       { key: 'udp_max_associations', label: 'UDP Max Associations', type: 'number', min: 1, max: 10000, description: 'Maximum concurrent UDP ASSOCIATE sessions' },
@@ -125,18 +126,26 @@ export default function Config() {
 
   const isDirty = config && savedConfig && JSON.stringify(config) !== JSON.stringify(savedConfig)
 
-  const updateField = useCallback((group: keyof MoxyConfig, key: string, value: string | number) => {
+  const updateField = useCallback((group: keyof MoxyConfig, key: string, value: string | number, subgroup?: string) => {
     setConfig((prev) => {
       if (!prev) return prev
+      if (subgroup) {
+        const groupObj = prev[group] as Record<string, unknown>
+        const sub = groupObj[subgroup] as Record<string, unknown>
+        return {
+          ...prev,
+          [group]: { ...groupObj, [subgroup]: { ...sub, [key]: value } },
+        }
+      }
       return {
         ...prev,
         [group]: { ...(prev[group] as Record<string, unknown>), [key]: value },
       }
     })
-    // Clear field error on edit
+    const errorKey = subgroup ? `${String(group)}.${subgroup}.${key}` : `${String(group)}.${key}`
     setErrors((prev) => {
       const next = { ...prev }
-      delete next[`${String(group)}.${key}`]
+      delete next[errorKey]
       return next
     })
   }, [])
@@ -197,8 +206,13 @@ export default function Config() {
     setCollapsed((prev) => ({ ...prev, [title]: !prev[title] }))
   }, [])
 
-  const isFieldChanged = useCallback((group: keyof MoxyConfig, key: string): boolean => {
+  const isFieldChanged = useCallback((group: keyof MoxyConfig, key: string, subgroup?: string): boolean => {
     if (!config || !savedConfig) return false
+    if (subgroup) {
+      const currentSub = (config[group] as unknown as Record<string, Record<string, unknown>>)[subgroup]
+      const savedSub = (savedConfig[group] as unknown as Record<string, Record<string, unknown>>)[subgroup]
+      return currentSub?.[key] !== savedSub?.[key]
+    }
     const current = (config[group] as Record<string, unknown>)[key]
     const saved = (savedConfig[group] as Record<string, unknown>)[key]
     return current !== saved
@@ -290,7 +304,7 @@ export default function Config() {
             </h2>
             <div className="flex items-center gap-3">
               {/* Changed indicator */}
-              {section.fields.some((f) => isFieldChanged(section.group, f.key)) && (
+              {section.fields.some((f) => isFieldChanged(section.group, f.key, f.subgroup)) && (
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent-amber" title="Has changes" />
               )}
               <span className="text-text-muted text-xs transition-transform duration-200" style={{
@@ -305,12 +319,19 @@ export default function Config() {
           {!collapsed[section.title] && (
             <div className="border-t border-border-subtle/50 px-5 py-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {section.fields.map((field) => {
-                const value = (config[section.group] as Record<string, unknown>)[field.key] as string | number | undefined
-                const error = errors[`${String(section.group)}.${field.key}`]
-                const changed = isFieldChanged(section.group, field.key)
+                const groupObj = config[section.group] as Record<string, unknown>
+                const value = field.subgroup
+                  ? ((groupObj[field.subgroup] as Record<string, unknown>)?.[field.key] as string | number | undefined)
+                  : (groupObj[field.key] as string | number | undefined)
+                const errorKey = field.subgroup
+                  ? `${String(section.group)}.${field.subgroup}.${field.key}`
+                  : `${String(section.group)}.${field.key}`
+                const error = errors[errorKey]
+                const changed = isFieldChanged(section.group, field.key, field.subgroup)
+                const fieldUniqueKey = field.subgroup ? `${field.subgroup}.${field.key}` : field.key
 
                 return (
-                  <div key={field.key} className="space-y-1.5">
+                  <div key={fieldUniqueKey} className="space-y-1.5">
                     {/* Label */}
                     <label className="flex items-center gap-1.5 text-xs font-mono text-text-secondary">
                       <span className={changed ? 'text-accent-amber' : ''}>{field.label}</span>
@@ -323,7 +344,7 @@ export default function Config() {
                     {field.type === 'select' ? (
                       <select
                         value={String(value ?? '')}
-                        onChange={(e) => updateField(section.group, field.key, e.target.value)}
+                        onChange={(e) => updateField(section.group, field.key, e.target.value, field.subgroup)}
                         disabled={field.readonly}
                         className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors appearance-none ${field.readonly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                           } ${error ? 'border-accent-red/60' : changed ? 'border-accent-amber/40' : 'border-border-subtle'
@@ -345,6 +366,7 @@ export default function Config() {
                             section.group,
                             field.key,
                             field.type === 'number' ? parseInt(e.target.value) || 0 : e.target.value,
+                            field.subgroup,
                           )
                         }
                         className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors ${field.readonly ? 'opacity-50 cursor-not-allowed' : ''

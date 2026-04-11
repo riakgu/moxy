@@ -13,13 +13,16 @@ type MoxyConfig struct {
 }
 
 type ProxyConfig struct {
-	Port                  int    `json:"port"`
-	SlotPortStart         int    `json:"slot_port_start"`
-	IPv6Port              int    `json:"ipv6_port"`
-	IPv6SlotPortStart     int    `json:"ipv6_slot_port_start"`
-	SourceIPStrategy      string `json:"source_ip_strategy"`
-	UDPIdleTimeoutSeconds int    `json:"udp_idle_timeout_seconds"`
-	UDPMaxAssociations    int    `json:"udp_max_associations"`
+	IPv4                  ProxyPortConfig `json:"ipv4"`
+	IPv6                  ProxyPortConfig `json:"ipv6"`
+	SourceIPStrategy      string          `json:"source_ip_strategy"`
+	UDPIdleTimeoutSeconds int             `json:"udp_idle_timeout_seconds"`
+	UDPMaxAssociations    int             `json:"udp_max_associations"`
+}
+
+type ProxyPortConfig struct {
+	Port          int `json:"port"`
+	SlotPortStart int `json:"slot_port_start"`
 }
 
 type APIConfig struct {
@@ -73,17 +76,17 @@ func (cfg *MoxyConfig) Validate() map[string]string {
 	errs := make(map[string]string)
 
 	// Proxy
-	if cfg.Proxy.Port < 1 || cfg.Proxy.Port > 65535 {
-		errs["proxy.port"] = "must be between 1 and 65535"
+	if cfg.Proxy.IPv4.Port < 1 || cfg.Proxy.IPv4.Port > 65535 {
+		errs["proxy.ipv4.port"] = "must be between 1 and 65535"
 	}
-	if cfg.Proxy.SlotPortStart < 1 || cfg.Proxy.SlotPortStart > 65535 {
-		errs["proxy.slot_port_start"] = "must be between 1 and 65535"
+	if cfg.Proxy.IPv4.SlotPortStart < 1 || cfg.Proxy.IPv4.SlotPortStart > 65535 {
+		errs["proxy.ipv4.slot_port_start"] = "must be between 1 and 65535"
 	}
-	if cfg.Proxy.IPv6Port < 0 || cfg.Proxy.IPv6Port > 65535 {
-		errs["proxy.ipv6_port"] = "must be between 0 and 65535 (0 = disabled)"
+	if cfg.Proxy.IPv6.Port < 0 || cfg.Proxy.IPv6.Port > 65535 {
+		errs["proxy.ipv6.port"] = "must be between 0 and 65535 (0 = disabled)"
 	}
-	if cfg.Proxy.IPv6SlotPortStart < 0 || cfg.Proxy.IPv6SlotPortStart > 65535 {
-		errs["proxy.ipv6_slot_port_start"] = "must be between 0 and 65535 (0 = disabled)"
+	if cfg.Proxy.IPv6.SlotPortStart < 0 || cfg.Proxy.IPv6.SlotPortStart > 65535 {
+		errs["proxy.ipv6.slot_port_start"] = "must be between 0 and 65535 (0 = disabled)"
 	}
 	validStrategies := map[string]bool{"random": true, "round-robin": true, "least-connections": true}
 	if !validStrategies[cfg.Proxy.SourceIPStrategy] {

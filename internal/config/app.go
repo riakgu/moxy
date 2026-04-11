@@ -152,10 +152,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	// Port-based handler (shared + device + per-slot mux listeners)
 	// Must be created before controllers so we can inject it.
-	proxyPort := cfg.Viper.GetInt("proxy.port")
-	slotPortStart := cfg.Viper.GetInt("proxy.slot_port_start")
-	ipv6Port := cfg.Viper.GetInt("proxy.ipv6_port")
-	ipv6SlotPortStart := cfg.Viper.GetInt("proxy.ipv6_slot_port_start")
+	proxyPort := cfg.Viper.GetInt("proxy.ipv4.port")
+	slotPortStart := cfg.Viper.GetInt("proxy.ipv4.slot_port_start")
+	ipv6Port := cfg.Viper.GetInt("proxy.ipv6.port")
+	ipv6SlotPortStart := cfg.Viper.GetInt("proxy.ipv6.slot_port_start")
 	portHandler := proxy.NewPortBasedHandler(proxyLog, proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
 
 	// Wire teardown callback — cleans up stale proxy listeners after background device teardown
