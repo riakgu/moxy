@@ -1,0 +1,193 @@
+package model
+
+// MoxyConfig mirrors the config.json structure for validation.
+type MoxyConfig struct {
+	Proxy   ProxyConfig   `json:"proxy"`
+	API     APIConfig     `json:"api"`
+	Devices DevicesConfig `json:"devices"`
+	Slots   SlotsConfig   `json:"slots"`
+	DNS     DNSConfig     `json:"dns"`
+	Traffic TrafficConfig `json:"traffic"`
+	SSE     SSEConfig     `json:"sse"`
+	Server  ServerConfig  `json:"server"`
+	Log     LogConfig     `json:"log"`
+}
+
+type ProxyConfig struct {
+	Port                  int    `json:"port"`
+	SlotPortStart         int    `json:"slot_port_start"`
+	IPv6Port              int    `json:"ipv6_port"`
+	IPv6SlotPortStart     int    `json:"ipv6_slot_port_start"`
+	SourceIPStrategy      string `json:"source_ip_strategy"`
+	UDPIdleTimeoutSeconds int    `json:"udp_idle_timeout_seconds"`
+	UDPMaxAssociations    int    `json:"udp_max_associations"`
+}
+
+type APIConfig struct {
+	Port int `json:"port"`
+}
+
+type DevicesConfig struct {
+	GracePeriodSeconds         int `json:"grace_period_seconds"`
+	WatcherReconnectMaxSeconds int `json:"watcher_reconnect_max_seconds"`
+	DrainTimeoutSeconds        int `json:"drain_timeout_seconds"`
+}
+
+type SlotsConfig struct {
+	MaxSlotsPerDevice              int    `json:"max_slots_per_device"`
+	IPCheckHost                    string `json:"ip_check_host"`
+	MonitorFastIntervalSeconds     int    `json:"monitor_fast_interval_seconds"`
+	MonitorSteadyIntervalSeconds   int    `json:"monitor_steady_interval_seconds"`
+	MonitorRecoveryIntervalSeconds int    `json:"monitor_recovery_interval_seconds"`
+	MonitorFastTicks               int    `json:"monitor_fast_ticks"`
+	MonitorUnhealthyThreshold      int    `json:"monitor_unhealthy_threshold"`
+}
+
+type DNSConfig struct {
+	CacheMaxEntriesPerDevice int `json:"cache_max_entries_per_device"`
+	CacheMinTTLSeconds       int `json:"cache_min_ttl_seconds"`
+	CacheMaxTTLSeconds       int `json:"cache_max_ttl_seconds"`
+}
+
+type TrafficConfig struct {
+	MaxTracked int `json:"max_tracked"`
+}
+
+type SSEConfig struct {
+	DebounceMs           int `json:"debounce_ms"`
+	HeartbeatSeconds     int `json:"heartbeat_seconds"`
+	MaxClients           int `json:"max_clients"`
+	TrafficSnapshotLimit int `json:"traffic_snapshot_limit"`
+}
+
+type ServerConfig struct {
+	ShutdownDrainSeconds int `json:"shutdown_drain_seconds"`
+}
+
+type LogConfig struct {
+	Level          string `json:"level"`
+	Format         string `json:"format"`
+	RingBufferSize int    `json:"ring_buffer_size,omitempty"`
+}
+
+// Validate checks all config fields and returns a map of field path → error message.
+// Returns nil if everything is valid.
+func (cfg *MoxyConfig) Validate() map[string]string {
+	errs := make(map[string]string)
+
+	// Proxy
+	if cfg.Proxy.Port < 1 || cfg.Proxy.Port > 65535 {
+		errs["proxy.port"] = "must be between 1 and 65535"
+	}
+	if cfg.Proxy.SlotPortStart < 1 || cfg.Proxy.SlotPortStart > 65535 {
+		errs["proxy.slot_port_start"] = "must be between 1 and 65535"
+	}
+	if cfg.Proxy.IPv6Port < 0 || cfg.Proxy.IPv6Port > 65535 {
+		errs["proxy.ipv6_port"] = "must be between 0 and 65535 (0 = disabled)"
+	}
+	if cfg.Proxy.IPv6SlotPortStart < 0 || cfg.Proxy.IPv6SlotPortStart > 65535 {
+		errs["proxy.ipv6_slot_port_start"] = "must be between 0 and 65535 (0 = disabled)"
+	}
+	validStrategies := map[string]bool{"random": true, "round-robin": true, "least-connections": true}
+	if !validStrategies[cfg.Proxy.SourceIPStrategy] {
+		errs["proxy.source_ip_strategy"] = "must be one of: random, round-robin, least-connections"
+	}
+	if cfg.Proxy.UDPIdleTimeoutSeconds != 0 && cfg.Proxy.UDPIdleTimeoutSeconds < 10 {
+		errs["proxy.udp_idle_timeout_seconds"] = "must be >= 10 (or 0 for default)"
+	}
+	if cfg.Proxy.UDPMaxAssociations != 0 && (cfg.Proxy.UDPMaxAssociations < 1 || cfg.Proxy.UDPMaxAssociations > 10000) {
+		errs["proxy.udp_max_associations"] = "must be between 1 and 10000 (or 0 for default)"
+	}
+
+	// API
+	if cfg.API.Port < 1 || cfg.API.Port > 65535 {
+		errs["api.port"] = "must be between 1 and 65535"
+	}
+
+	// Devices
+	if cfg.Devices.GracePeriodSeconds < 1 {
+		errs["devices.grace_period_seconds"] = "must be >= 1"
+	}
+	if cfg.Devices.WatcherReconnectMaxSeconds < 1 {
+		errs["devices.watcher_reconnect_max_seconds"] = "must be >= 1"
+	}
+	if cfg.Devices.DrainTimeoutSeconds < 1 {
+		errs["devices.drain_timeout_seconds"] = "must be >= 1"
+	}
+
+	// Slots
+	if cfg.Slots.MaxSlotsPerDevice < 1 || cfg.Slots.MaxSlotsPerDevice > 1000 {
+		errs["slots.max_slots_per_device"] = "must be between 1 and 1000"
+	}
+	if cfg.Slots.IPCheckHost == "" {
+		errs["slots.ip_check_host"] = "must not be empty"
+	}
+	if cfg.Slots.MonitorFastIntervalSeconds < 1 {
+		errs["slots.monitor_fast_interval_seconds"] = "must be >= 1"
+	}
+	if cfg.Slots.MonitorSteadyIntervalSeconds < 1 {
+		errs["slots.monitor_steady_interval_seconds"] = "must be >= 1"
+	}
+	if cfg.Slots.MonitorRecoveryIntervalSeconds < 1 {
+		errs["slots.monitor_recovery_interval_seconds"] = "must be >= 1"
+	}
+	if cfg.Slots.MonitorFastTicks < 1 {
+		errs["slots.monitor_fast_ticks"] = "must be >= 1"
+	}
+	if cfg.Slots.MonitorUnhealthyThreshold < 1 {
+		errs["slots.monitor_unhealthy_threshold"] = "must be >= 1"
+	}
+
+	// DNS
+	if cfg.DNS.CacheMaxEntriesPerDevice < 100 {
+		errs["dns.cache_max_entries_per_device"] = "must be >= 100"
+	}
+	if cfg.DNS.CacheMinTTLSeconds < 1 {
+		errs["dns.cache_min_ttl_seconds"] = "must be >= 1"
+	}
+	if cfg.DNS.CacheMaxTTLSeconds < cfg.DNS.CacheMinTTLSeconds {
+		errs["dns.cache_max_ttl_seconds"] = "must be >= cache_min_ttl_seconds"
+	}
+
+	// Traffic
+	if cfg.Traffic.MaxTracked < 100 {
+		errs["traffic.max_tracked"] = "must be >= 100"
+	}
+
+	// SSE
+	if cfg.SSE.DebounceMs < 100 {
+		errs["sse.debounce_ms"] = "must be >= 100"
+	}
+	if cfg.SSE.HeartbeatSeconds < 5 {
+		errs["sse.heartbeat_seconds"] = "must be >= 5"
+	}
+	if cfg.SSE.MaxClients < 1 {
+		errs["sse.max_clients"] = "must be >= 1"
+	}
+	if cfg.SSE.TrafficSnapshotLimit < 10 {
+		errs["sse.traffic_snapshot_limit"] = "must be >= 10"
+	}
+
+	// Server
+	if cfg.Server.ShutdownDrainSeconds < 1 {
+		errs["server.shutdown_drain_seconds"] = "must be >= 1"
+	}
+
+	// Log
+	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	if !validLevels[cfg.Log.Level] {
+		errs["log.level"] = "must be one of: debug, info, warn, error"
+	}
+	validFormats := map[string]bool{"json": true, "text": true}
+	if !validFormats[cfg.Log.Format] {
+		errs["log.format"] = "must be one of: json, text"
+	}
+	if cfg.Log.RingBufferSize != 0 && cfg.Log.RingBufferSize < 100 {
+		errs["log.ring_buffer_size"] = "must be >= 100 (or 0 for default)"
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return errs
+}
