@@ -77,12 +77,12 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 	if err != nil {
 		return fmt.Errorf("connect to ADB: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Close connection when context is cancelled
 	go func() {
 		<-ctx.Done()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	// Send track-devices command using ADB wire protocol:

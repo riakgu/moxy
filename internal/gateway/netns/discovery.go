@@ -52,10 +52,10 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get host namespace: %w", err)
 	}
-	defer hostNs.Close()
+	defer func() { _ = hostNs.Close() }()
 
 	defer func() {
-		netns.Set(hostNs)
+		_ = netns.Set(hostNs)
 	}()
 
 	// Enter slot namespace
@@ -63,7 +63,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer slotNs.Close()
+	defer func() { _ = slotNs.Close() }()
 
 	if err := netns.Set(slotNs); err != nil {
 		return nil, fmt.Errorf("enter namespace %s: %w", slotName, err)
@@ -91,7 +91,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 			}
 			tlsConn := tls.Client(rawConn, &tls.Config{ServerName: d.IPCheckHost})
 			if hsErr := tlsConn.Handshake(); hsErr != nil {
-				rawConn.Close()
+				_ = rawConn.Close()
 				err = hsErr
 				continue
 			}
@@ -103,13 +103,13 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		d.Log.Warn("discovery dns returned no reachable address", "slot", slotName, "addrs", len(ips), "error", err)
 		return nil, fmt.Errorf("no reachable address for %s in %s: %v", d.IPCheckHost, slotName, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Restore host namespace — the socket is already bound to the slot namespace
-	netns.Set(hostNs)
+	_ = netns.Set(hostNs)
 
 	// Write raw HTTP GET on the established TLS connection
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, d.IPCheckHost)
 	if _, err = conn.Write([]byte(req)); err != nil {
 		return nil, fmt.Errorf("write HTTP request for %s: %w", slotName, err)
@@ -120,7 +120,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read HTTP response for %s: %w", slotName, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -167,10 +167,10 @@ func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get host namespace: %w", err)
 	}
-	defer hostNs.Close()
+	defer func() { _ = hostNs.Close() }()
 
 	defer func() {
-		netns.Set(hostNs)
+		_ = netns.Set(hostNs)
 	}()
 
 	// Enter slot namespace
@@ -178,7 +178,7 @@ func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer slotNs.Close()
+	defer func() { _ = slotNs.Close() }()
 
 	if err := netns.Set(slotNs); err != nil {
 		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)

@@ -141,11 +141,15 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 
 	// Remove old NDP proxy
 	if oldIPv6 != "" {
-		c.Provisioner.RemoveNDPProxyEntry(oldIPv6, iface)
+		if err := c.Provisioner.RemoveNDPProxyEntry(oldIPv6, iface); err != nil {
+			c.Log.Warn("failed to remove old ndp proxy", "slot", slotName, "ipv6", oldIPv6, "error", err)
+		}
 	}
 
 	// Destroy + recreate
-	c.Provisioner.DestroySlot(slotName)
+	if err := c.Provisioner.DestroySlot(slotName); err != nil {
+		c.Log.Warn("failed to destroy slot for reroll", "slot", slotName, "error", err)
+	}
 	if err := c.Provisioner.CreateSlot(slotIndex, iface, dns64); err != nil {
 		return "", "", fmt.Errorf("recreate %s: %w", slotName, err)
 	}
@@ -161,7 +165,9 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 
 	// Add new NDP proxy
 	if newIPv6 != "" {
-		c.Provisioner.AddNDPProxyEntry(newIPv6, iface)
+		if err := c.Provisioner.AddNDPProxyEntry(newIPv6, iface); err != nil {
+			c.Log.Warn("failed to add ndp proxy", "slot", slotName, "ipv6", newIPv6, "error", err)
+		}
 	}
 
 	// Update slot in repo

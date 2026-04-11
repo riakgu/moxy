@@ -132,7 +132,9 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 	for alias, handler := range c.devices {
 		if !desired[alias] {
 			c.Log.Info("device proxy stopped", "device", alias)
-			handler.Shutdown(context.Background())
+			if err := handler.Shutdown(context.Background()); err != nil {
+				c.Log.Warn("device proxy shutdown failed", "device", alias, "error", err)
+			}
 			delete(c.devices, alias)
 		}
 	}
@@ -194,7 +196,9 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 	for alias, handler := range c.ipv6Devices {
 		if !desired[alias] {
 			c.Log.Info("ipv6 device proxy stopped", "device", alias)
-			handler.Shutdown(context.Background())
+			if err := handler.Shutdown(context.Background()); err != nil {
+				c.Log.Warn("ipv6 device proxy shutdown failed", "device", alias, "error", err)
+			}
 			delete(c.ipv6Devices, alias)
 		}
 	}
@@ -257,7 +261,9 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	for name, handler := range c.slots {
 		if !desired[name] {
 			c.Log.Info("slot proxy stopped", "slot", name)
-			handler.Shutdown(context.Background())
+			if err := handler.Shutdown(context.Background()); err != nil {
+				c.Log.Warn("slot proxy shutdown failed", "slot", name, "error", err)
+			}
 			delete(c.slots, name)
 		}
 	}
@@ -317,7 +323,9 @@ func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 	for name, handler := range c.ipv6Slots {
 		if !desired[name] {
 			c.Log.Info("ipv6 slot proxy stopped", "slot", name)
-			handler.Shutdown(context.Background())
+			if err := handler.Shutdown(context.Background()); err != nil {
+				c.Log.Warn("ipv6 slot proxy shutdown failed", "slot", name, "error", err)
+			}
 			delete(c.ipv6Slots, name)
 		}
 	}
@@ -377,22 +385,34 @@ func (c *PortBasedHandler) GetPortMappings() map[string]int {
 func (c *PortBasedHandler) Shutdown(ctx context.Context) error {
 	c.mu.Lock()
 	if c.shared != nil {
-		c.shared.Shutdown(ctx)
+		if err := c.shared.Shutdown(ctx); err != nil {
+			c.Log.Warn("shared proxy shutdown failed", "error", err)
+		}
 	}
 	if c.ipv6Shared != nil {
-		c.ipv6Shared.Shutdown(ctx)
+		if err := c.ipv6Shared.Shutdown(ctx); err != nil {
+			c.Log.Warn("ipv6 shared proxy shutdown failed", "error", err)
+		}
 	}
-	for _, h := range c.devices {
-		h.Shutdown(ctx)
+	for alias, h := range c.devices {
+		if err := h.Shutdown(ctx); err != nil {
+			c.Log.Warn("device proxy shutdown failed", "device", alias, "error", err)
+		}
 	}
-	for _, h := range c.ipv6Devices {
-		h.Shutdown(ctx)
+	for alias, h := range c.ipv6Devices {
+		if err := h.Shutdown(ctx); err != nil {
+			c.Log.Warn("ipv6 device proxy shutdown failed", "device", alias, "error", err)
+		}
 	}
-	for _, h := range c.slots {
-		h.Shutdown(ctx)
+	for name, h := range c.slots {
+		if err := h.Shutdown(ctx); err != nil {
+			c.Log.Warn("slot proxy shutdown failed", "slot", name, "error", err)
+		}
 	}
-	for _, h := range c.ipv6Slots {
-		h.Shutdown(ctx)
+	for name, h := range c.ipv6Slots {
+		if err := h.Shutdown(ctx); err != nil {
+			c.Log.Warn("ipv6 slot proxy shutdown failed", "slot", name, "error", err)
+		}
 	}
 	c.mu.Unlock()
 	return nil

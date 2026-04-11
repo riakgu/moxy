@@ -108,7 +108,7 @@ func (c *Socks5Handler) ServeConn(conn net.Conn) {
 func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 	c.cancel()
 	if c.ln != nil {
-		c.ln.Close()
+		_ = c.ln.Close()
 	}
 
 	done := make(chan struct{})

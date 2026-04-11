@@ -72,8 +72,10 @@ func (c *HttpProxyHandler) Shutdown(ctx context.Context) error {
 func (c *HttpProxyHandler) ServeConn(conn net.Conn) {
 	ln := newSingleConnListener(conn)
 	srv := &http.Server{Handler: c.server.Handler}
-	srv.Serve(ln)
-	ln.Close()
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		c.Log.Warn("single-conn serve failed", "error", err)
+	}
+	_ = ln.Close()
 }
 
 // singleConnListener is a net.Listener that serves exactly one connection.

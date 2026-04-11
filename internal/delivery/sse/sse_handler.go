@@ -74,7 +74,7 @@ func (h *SSEHandler) Stream(c *fiber.Ctx) error {
 		// Send init snapshot
 		if snap, err := h.snapshot(); err == nil {
 			writeSSE(w, "init", snap)
-			w.Flush()
+			_ = w.Flush()
 		} else {
 			h.log.Warn("failed to build init snapshot", "error", err)
 		}
@@ -131,12 +131,12 @@ func writeSSE(w *bufio.Writer, event string, data interface{}) {
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(w, "event: %s\n", event)
+	_, _ = fmt.Fprintf(w, "event: %s\n", event)
 	// SSE spec: each line of data must be prefixed with "data: "
 	for _, line := range strings.Split(string(jsonBytes), "\n") {
-		fmt.Fprintf(w, "data: %s\n", line)
+		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
-	fmt.Fprint(w, "\n")
+	_, _ = fmt.Fprint(w, "\n")
 }
 
 // dedupeKey creates a unique key for deduplication.

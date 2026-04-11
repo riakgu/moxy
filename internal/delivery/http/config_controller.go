@@ -59,7 +59,7 @@ func (c *ConfigController) Update(ctx *fiber.Ctx) error {
 	}
 	if err := os.Rename(tmpPath, c.ConfigPath); err != nil {
 		c.Log.Error("failed to rename config", "error", err)
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to save config")
 	}
 

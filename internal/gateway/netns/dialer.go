@@ -60,14 +60,14 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 	if err != nil {
 		return nil, fmt.Errorf("open host namespace: %w", err)
 	}
-	defer origNs.Close()
+	defer func() { _ = origNs.Close() }()
 
 	// Open target namespace
 	targetNs, err := os.Open("/var/run/netns/" + slotName)
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer targetNs.Close()
+	defer func() { _ = targetNs.Close() }()
 
 	// Enter target namespace
 	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
@@ -81,7 +81,9 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 		resolved, err := d.Resolver.Resolve(host, nameserver, nat64Prefix)
 		if err != nil {
 			// Restore host namespace before returning error
-			unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+			if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+				d.Log.Error("failed to restore namespace after DNS error", "slot", slotName, "error", restoreErr)
+			}
 			return nil, fmt.Errorf("DNS64 resolve %s for %s: %w", host, slotName, err)
 		}
 		host = resolved
@@ -95,7 +97,7 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 	// Always restore host namespace, even if dial failed
 	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
 	}
@@ -136,13 +138,13 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 	if err != nil {
 		return nil, fmt.Errorf("open host namespace: %w", err)
 	}
-	defer origNs.Close()
+	defer func() { _ = origNs.Close() }()
 
 	targetNs, err := os.Open("/var/run/netns/" + slotName)
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer targetNs.Close()
+	defer func() { _ = targetNs.Close() }()
 
 	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
 		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
@@ -156,7 +158,9 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 			// Fallback to DNS64
 			resolved, err = d.Resolver.Resolve(host, nameserver, nat64Prefix)
 			if err != nil {
-				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+				if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+					d.Log.Error("failed to restore namespace after DNS error", "slot", slotName, "error", restoreErr)
+				}
 				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
 			}
 			d.Log.Debug("dns64 fallback used", "host", host, "slot", slotName, "resolved", resolved)
@@ -172,7 +176,7 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 
 	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
 	}
@@ -204,13 +208,13 @@ func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, n
 	if err != nil {
 		return nil, fmt.Errorf("open host namespace: %w", err)
 	}
-	defer origNs.Close()
+	defer func() { _ = origNs.Close() }()
 
 	targetNs, err := os.Open("/var/run/netns/" + slotName)
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer targetNs.Close()
+	defer func() { _ = targetNs.Close() }()
 
 	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
 		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
@@ -219,7 +223,9 @@ func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, n
 	if ip == nil {
 		resolved, err := d.Resolver.Resolve(host, nameserver, nat64Prefix)
 		if err != nil {
-			unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+			if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+				d.Log.Error("failed to restore namespace after DNS error", "slot", slotName, "error", restoreErr)
+			}
 			return nil, fmt.Errorf("DNS64 resolve %s for %s: %w", host, slotName, err)
 		}
 		host = resolved
@@ -232,7 +238,7 @@ func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, n
 
 	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
 	}
@@ -263,13 +269,13 @@ func (d *SetnsDialer) DialIPv6UDP(slotName string, addr string, nameserver strin
 	if err != nil {
 		return nil, fmt.Errorf("open host namespace: %w", err)
 	}
-	defer origNs.Close()
+	defer func() { _ = origNs.Close() }()
 
 	targetNs, err := os.Open("/var/run/netns/" + slotName)
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer targetNs.Close()
+	defer func() { _ = targetNs.Close() }()
 
 	if err := unix.Setns(int(targetNs.Fd()), unix.CLONE_NEWNET); err != nil {
 		return nil, fmt.Errorf("setns to %s: %w", slotName, err)
@@ -280,7 +286,9 @@ func (d *SetnsDialer) DialIPv6UDP(slotName string, addr string, nameserver strin
 		if nativeErr != nil {
 			resolved, err = d.Resolver.Resolve(host, nameserver, nat64Prefix)
 			if err != nil {
-				unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET)
+				if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
+					d.Log.Error("failed to restore namespace after DNS error", "slot", slotName, "error", restoreErr)
+				}
 				return nil, fmt.Errorf("DNS resolve %s for %s: native=%v, dns64=%w", host, slotName, nativeErr, err)
 			}
 			d.Log.Debug("udp dns64 fallback used", "host", host, "slot", slotName, "resolved", resolved)
@@ -297,7 +305,7 @@ func (d *SetnsDialer) DialIPv6UDP(slotName string, addr string, nameserver strin
 
 	if restoreErr := unix.Setns(int(origNs.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, fmt.Errorf("restore host namespace: %w", restoreErr)
 	}

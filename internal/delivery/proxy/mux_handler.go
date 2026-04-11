@@ -85,7 +85,7 @@ func (m *MuxHandler) handleConn(conn net.Conn) {
 	// Peek first byte to determine protocol
 	buf := make([]byte, 1)
 	if _, err := io.ReadFull(conn, buf); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
@@ -104,7 +104,7 @@ func (m *MuxHandler) handleConn(conn net.Conn) {
 func (m *MuxHandler) Shutdown(ctx context.Context) error {
 	m.cancel()
 	if m.ln != nil {
-		m.ln.Close()
+		_ = m.ln.Close()
 	}
 
 	done := make(chan struct{})

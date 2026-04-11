@@ -37,7 +37,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 	if err != nil {
 		return fmt.Errorf("get host namespace: %w", err)
 	}
-	defer hostNs.Close()
+	defer func() { _ = hostNs.Close() }()
 
 	// Always restore host namespace on exit
 	defer func() {
@@ -59,7 +59,7 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 			return fmt.Errorf("open existing namespace %s: %w", name, err)
 		}
 	}
-	defer newNs.Close()
+	defer func() { _ = newNs.Close() }()
 
 	// Switch BACK to host namespace to create and move the IPVLAN link
 	if err := netns.Set(hostNs); err != nil {
@@ -249,7 +249,7 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 	if err != nil {
 		return fmt.Errorf("get host namespace: %w", err)
 	}
-	defer hostNs.Close()
+	defer func() { _ = hostNs.Close() }()
 	defer func() {
 		if err := netns.Set(hostNs); err != nil {
 			p.Log.Error("failed to restore host namespace", "error", err)
@@ -261,11 +261,11 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 	if err != nil {
 		return fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
-	defer slotNs.Close()
+	defer func() { _ = slotNs.Close() }()
 
 	// In host namespace: delete old IPVLAN if it still exists (ignore errors)
 	if oldLink, err := netlink.LinkByName(ipvlanName); err == nil {
-		netlink.LinkDel(oldLink)
+		_ = netlink.LinkDel(oldLink)
 	}
 
 	// Also try to delete inside the namespace (it may be stuck there)
@@ -273,7 +273,7 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 		return fmt.Errorf("enter namespace %s for cleanup: %w", slotName, err)
 	}
 	if oldLink, err := netlink.LinkByName(ipvlanName); err == nil {
-		netlink.LinkDel(oldLink)
+		_ = netlink.LinkDel(oldLink)
 	}
 
 	// Switch back to host for IPVLAN creation
@@ -315,7 +315,7 @@ func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
 
 	// Bring up loopback (should already be up, but be safe)
 	if lo, err := netlink.LinkByName("lo"); err == nil {
-		netlink.LinkSetUp(lo)
+		_ = netlink.LinkSetUp(lo)
 	}
 
 	// Bring up IPVLAN

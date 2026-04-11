@@ -291,12 +291,7 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 	}
 }
 
-func (c *SlotMonitorUseCase) updateSlotStatus(name string, status string) {
-	if slot, ok := c.SlotRepo.Get(name); ok {
-		slot.Status = status
-		slot.LastCheckedAt = time.Now().UnixMilli()
-	}
-}
+
 
 func (c *SlotMonitorUseCase) updateIPv6(name string, ipv6 string) {
 	if slot, ok := c.SlotRepo.Get(name); ok {
@@ -313,7 +308,9 @@ func (c *SlotMonitorUseCase) updateIPv6Helper(slot *entity.Slot, ipv6 string) {
 
 	if ipv6 != oldIPv6 && slot.Interface != "" {
 		if oldIPv6 != "" {
-			c.Provisioner.RemoveNDPProxyEntry(oldIPv6, slot.Interface)
+			if err := c.Provisioner.RemoveNDPProxyEntry(oldIPv6, slot.Interface); err != nil {
+				c.Log.Warn("failed to remove old ndp proxy", "slot", slot.Name, "ipv6", oldIPv6, "error", err)
+			}
 		}
 		if err := c.Provisioner.AddNDPProxyEntry(ipv6, slot.Interface); err != nil {
 			c.Log.Warn("ndp proxy failed", "slot", slot.Name, "error", err)
