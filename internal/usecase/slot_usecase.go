@@ -359,6 +359,92 @@ func (uc *SlotUseCase) CleanupOrphans() (int, error) {
 	return cleaned, nil
 }
 
+func (c *SlotUseCase) SuspendByDevice(deviceAlias string) {
+	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
+	for _, name := range slotNames {
+		c.SlotRepo.SetStatus(name, entity.SlotStatusSuspended)
+		if c.Monitor != nil {
+			c.Monitor.StopSlot(name)
+		}
+	}
+}
+
+func (c *SlotUseCase) ResumeByDevice(deviceAlias string) {
+	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
+	for _, name := range slotNames {
+		c.SlotRepo.CompareAndSetStatus(name, entity.SlotStatusSuspended, entity.SlotStatusHealthy)
+	}
+}
+
+func (c *SlotUseCase) TeardownByDevice(deviceAlias string, drainTimeout time.Duration) int {
+	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
+	for _, name := range slotNames {
+		if c.Monitor != nil {
+			c.Monitor.StopSlot(name)
+		}
+		if drainTimeout > 0 {
+			if remaining := c.drainSlot(name, drainTimeout); remaining > 0 {
+				c.Log.Warn("forcing slot destroy", "device", deviceAlias, "slot", name, "active_connections", remaining)
+			}
+		}
+		if err := c.Provisioner.DestroySlot(name); err != nil {
+			c.Log.Warn("slot destroy failed", "device", deviceAlias, "slot", name, "error", err)
+		}
+	}
+	removed := c.SlotRepo.DeleteByDevice(deviceAlias)
+	c.Log.Info("slots teardown complete", "device", deviceAlias, "slots_removed", removed)
+	return removed
+}
+
+func (c *SlotUseCase) ReattachByDevice(deviceAlias string, iface string) int {
+	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
+	reattached := 0
+	for _, name := range slotNames {
+		if err := c.Provisioner.ReattachSlot(name, iface); err != nil {
+			c.Log.Warn("slot re-attach failed", "slot", name, "error", err)
+			c.SlotRepo.SetStatus(name, entity.SlotStatusUnhealthy)
+			continue
+		}
+		reattached++
+	}
+
+	// Resume suspended → healthy
+	c.ResumeByDevice(deviceAlias)
+
+	// Restart monitors for healthy slots
+	if c.Monitor != nil {
+		for _, name := range slotNames {
+			if slot, ok := c.SlotRepo.Get(name); ok && slot.Status == entity.SlotStatusHealthy {
+				c.Monitor.StopSlot(name)
+				c.Monitor.StartSlot(name)
+			}
+		}
+	}
+
+	return reattached
+}
+
+func (c *SlotUseCase) drainSlot(name string, timeout time.Duration) int64 {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		slot, ok := c.SlotRepo.Get(name)
+		if !ok {
+			return 0
+		}
+		conns := atomic.LoadInt64(&slot.ActiveConnections)
+		if conns <= 0 {
+			return 0
+		}
+		select {
+		case <-deadline:
+			return conns
+		case <-ticker.C:
+		}
+	}
+}
+
 // naturalSlotLess compares slot names by their numeric suffix (e.g., slot2 < slot10).
 func naturalSlotLess(a, b string) bool {
 	aNum, aErr := strconv.Atoi(strings.TrimPrefix(a, "slot"))

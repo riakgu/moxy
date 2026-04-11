@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 	"log/slog"
 
@@ -24,6 +23,10 @@ type ISPProber interface {
 
 type SlotProvisionService interface {
 	ProvisionSlots(deviceAlias, iface string, count int, nameserver, nat64Prefix string) (*model.ProvisionResponse, error)
+	SuspendByDevice(deviceAlias string)
+	ResumeByDevice(deviceAlias string)
+	TeardownByDevice(deviceAlias string, drainTimeout time.Duration) int
+	ReattachByDevice(deviceAlias string, iface string) int
 }
 
 // DeviceWatcher monitors USB device connections in real-time.
@@ -42,10 +45,9 @@ type DeviceUseCase struct {
 	Watcher       DeviceWatcher
 	GracePeriod   time.Duration
 	DrainTimeout  time.Duration
-	Monitor       *SlotMonitorUseCase
 	TrafficRepo   *repository.TrafficRepository
 	EventPub      EventPublisher
-	OnTeardown    func() // called after device teardown to sync proxy listeners
+	OnTeardown    func()
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
 }
@@ -79,11 +81,7 @@ func NewDeviceUseCase(
 	}
 }
 
-// SetMonitor sets the slot monitor for this use case.
-// Must be called after construction to break the circular dependency.
-func (c *DeviceUseCase) SetMonitor(m *SlotMonitorUseCase) {
-	c.Monitor = m
-}
+
 
 // publishDevice publishes the current state of a device as a device_updated event.
 func (c *DeviceUseCase) publishDevice(alias string) {
@@ -338,8 +336,7 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 		return
 	}
 
-	// Immediately suspend all slots (exclude from proxy routing)
-	c.suspendDeviceSlots(device.Alias)
+	c.SlotProvision.SuspendByDevice(device.Alias)
 	device.Status = entity.DeviceStatusDisconnected
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
@@ -357,14 +354,12 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 	c.Log.Info("grace period started", "device", device.Alias, "serial", serial, "duration", c.GracePeriod.String())
 }
 
-// smartReconnect attempts lightweight recovery after a transient USB disconnect.
 func (c *DeviceUseCase) smartReconnect(serial string) {
 	device, ok := c.DeviceRepo.GetBySerial(serial)
 	if !ok {
 		return
 	}
 
-	// 1. Verify interface came back
 	iface, err := c.ADB.DetectInterfaceForSerial(serial)
 	if err != nil {
 		c.Log.Warn("reconnect failed, interface not found", "device", device.Alias, "error", err)
@@ -373,54 +368,12 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	}
 	device.Interface = iface
 
-	// 2. Re-attach IPVLAN in existing namespaces
-	slotNames := c.SlotRepo.ListNamesForDevice(device.Alias)
-	reattached := 0
-	for _, name := range slotNames {
-		if err := c.Provisioner.ReattachSlot(name, iface); err != nil {
-			c.Log.Warn("slot re-attach failed", "slot", name, "error", err)
-			c.SlotRepo.SetStatus(name, entity.SlotStatusUnhealthy)
-			continue
-		}
-		reattached++
-	}
-
-	// 3. Resume slots that were successfully re-attached
-	c.resumeDeviceSlots(device.Alias)
-
-	// 4. Restart monitors for re-attached slots
-	if c.Monitor != nil {
-		for _, name := range slotNames {
-			if slot, ok := c.SlotRepo.Get(name); ok && slot.Status == entity.SlotStatusHealthy {
-				c.Monitor.StopSlot(name)
-				c.Monitor.StartSlot(name)
-			}
-		}
-	}
+	reattached := c.SlotProvision.ReattachByDevice(device.Alias, iface)
 
 	device.Status = entity.DeviceStatusOnline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
-	c.Log.Info("smart reconnect complete", "device", device.Alias, "reattached", reattached, "total", len(slotNames))
-}
-
-// suspendDeviceSlots marks all slots for a device as suspended.
-func (c *DeviceUseCase) suspendDeviceSlots(deviceAlias string) {
-	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
-	for _, name := range slotNames {
-		c.SlotRepo.SetStatus(name, entity.SlotStatusSuspended)
-		if c.Monitor != nil {
-			c.Monitor.StopSlot(name)
-		}
-	}
-}
-
-// resumeDeviceSlots marks suspended slots for a device as healthy.
-func (c *DeviceUseCase) resumeDeviceSlots(deviceAlias string) {
-	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
-	for _, name := range slotNames {
-		c.SlotRepo.CompareAndSetStatus(name, entity.SlotStatusSuspended, entity.SlotStatusHealthy)
-	}
+	c.Log.Info("smart reconnect complete", "device", device.Alias, "reattached", reattached)
 }
 
 // cancelAllGraceTimers stops all pending grace timers (used during shutdown).
@@ -565,54 +518,14 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 	return nil
 }
 
-// teardownDevice destroys namespaces and removes slots for a device.
-// It waits for active connections to drain before destroying each slot.
 func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
-	// Get slot names from in-memory repo (not filesystem)
-	slotNames := c.SlotRepo.ListNamesForDevice(device.Alias)
-	for _, name := range slotNames {
-		// Wait for active connections to drain
-		if c.DrainTimeout > 0 {
-			if remaining := c.drainSlot(name, c.DrainTimeout); remaining > 0 {
-				c.Log.Warn("forcing slot destroy", "device", device.Alias, "slot", name, "active_connections", remaining)
-			}
-		}
-		if err := c.Provisioner.DestroySlot(name); err != nil {
-			c.Log.Warn("slot destroy failed", "device", device.Alias, "slot", name, "error", err)
-		}
-	}
-	removed := c.SlotRepo.DeleteByDevice(device.Alias)
-	c.Log.Info("teardown complete", "device", device.Alias, "slots_removed", removed)
+	c.SlotProvision.TeardownByDevice(device.Alias, c.DrainTimeout)
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
 
-	// Notify delivery layer to clean up stale proxy listeners
 	if c.OnTeardown != nil {
 		c.OnTeardown()
-	}
-}
-
-// drainSlot waits for a slot's active connections to reach 0.
-// Returns the remaining connection count (0 = fully drained).
-func (c *DeviceUseCase) drainSlot(name string, timeout time.Duration) int64 {
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		slot, ok := c.SlotRepo.Get(name)
-		if !ok {
-			return 0
-		}
-		conns := atomic.LoadInt64(&slot.ActiveConnections)
-		if conns <= 0 {
-			return 0
-		}
-		select {
-		case <-deadline:
-			return conns
-		case <-ticker.C:
-		}
 	}
 }
 

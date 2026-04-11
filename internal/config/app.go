@@ -143,7 +143,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceUC := usecase.NewDeviceUseCase(deviceLog,
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
-	deviceUC.SetMonitor(slotMonitor)
 	deviceUC.EventPub = hub
 	// Traffic (must be before proxyUC so it can be injected)
 	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
