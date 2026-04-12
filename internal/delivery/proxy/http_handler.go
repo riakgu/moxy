@@ -13,13 +13,11 @@ import (
 	"github.com/elazarl/goproxy"
 )
 
-// HttpProxyHandler wraps elazarl/goproxy with graceful shutdown.
 type HttpProxyHandler struct {
 	Log    *slog.Logger
 	server *http.Server
 }
 
-// NewHttpProxyHandler creates a new HTTP proxy handler.
 func NewHttpProxyHandler(
 	log *slog.Logger,
 	connect ConnectFunc,
@@ -46,7 +44,6 @@ func NewHttpProxyHandler(
 	}
 }
 
-// ListenAndServe starts the HTTP proxy on the given address.
 func (c *HttpProxyHandler) ListenAndServe(addr string) error {
 	c.server.Addr = addr
 	c.Log.Info("http proxy listener started", "addr", addr)
@@ -63,12 +60,10 @@ func (c *HttpProxyHandler) ListenAndServe(addr string) error {
 	return err
 }
 
-// Shutdown stops accepting new connections and waits for active ones to drain.
 func (c *HttpProxyHandler) Shutdown(ctx context.Context) error {
 	return c.server.Shutdown(ctx)
 }
 
-// ServeConn handles a single pre-accepted connection.
 func (c *HttpProxyHandler) ServeConn(conn net.Conn) {
 	ln := newSingleConnListener(conn)
 	srv := &http.Server{Handler: c.server.Handler}
@@ -78,7 +73,6 @@ func (c *HttpProxyHandler) ServeConn(conn net.Conn) {
 	_ = ln.Close()
 }
 
-// singleConnListener is a net.Listener that serves exactly one connection.
 type singleConnListener struct {
 	conn net.Conn
 	once sync.Once

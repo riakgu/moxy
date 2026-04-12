@@ -22,7 +22,6 @@ func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *slog.Logger, port
 	return &DeviceController{DeviceUC: deviceUC, Log: log, PortHandler: portHandler, GetSlotNames: getSlotNames}
 }
 
-// syncPorts syncs both slot and device proxy ports after mutations.
 func (c *DeviceController) syncPorts() {
 	if c.PortHandler == nil {
 		return

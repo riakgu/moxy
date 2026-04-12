@@ -41,7 +41,6 @@ type SlotProvisionService interface {
 	ReattachByDevice(deviceAlias string, iface string) int
 }
 
-// DeviceWatcher monitors USB device connections in real-time.
 type DeviceWatcher interface {
 	Watch(ctx context.Context) <-chan model.DeviceEvent
 }
@@ -93,9 +92,6 @@ func NewDeviceUseCase(
 	}
 }
 
-
-
-// publishDevice publishes the current state of a device as a device_updated event.
 func (c *DeviceUseCase) publishDevice(alias string) {
 	if c.EventPub == nil {
 		return
@@ -107,7 +103,6 @@ func (c *DeviceUseCase) publishDevice(alias string) {
 	c.EventPub.Publish("device_updated", resp)
 }
 
-// publishDeviceRemoved publishes a device_removed event.
 func (c *DeviceUseCase) publishDeviceRemoved(alias string) {
 	if c.EventPub == nil {
 		return
@@ -115,7 +110,6 @@ func (c *DeviceUseCase) publishDeviceRemoved(alias string) {
 	c.EventPub.Publish("device_removed", map[string]string{"alias": alias})
 }
 
-// Scan discovers ADB devices and registers new ones as "detected".
 // No setup or provisioning — use Setup(alias) for that.
 func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	serials, err := c.ADB.ListDevices()
@@ -126,12 +120,11 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	resp := &model.ScanResponse{}
 	serialSet := make(map[string]bool, len(serials))
 
-	// Register new phones as "detected" — no setup, no provisioning
 	for _, serial := range serials {
 		serialSet[serial] = true
 
 		if _, exists := c.DeviceRepo.GetBySerial(serial); exists {
-			continue // already known
+			continue 
 		}
 
 		resp.Discovered++
@@ -144,7 +137,7 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 		c.publishDevice(device.Alias)
 	}
 
-	// Teardown disconnected phones (guarded by c.mu to prevent race with grace timer)
+	// guarded by c.mu to prevent race with grace timer
 	for _, device := range c.DeviceRepo.ListAll() {
 		if device.Status != entity.DeviceStatusOffline && !serialSet[device.Serial] {
 			c.mu.Lock()
@@ -159,7 +152,6 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 		}
 	}
 
-	// Build response
 	for _, device := range c.DeviceRepo.ListAll() {
 		slotCount := c.SlotRepo.CountByDevice(device.Alias)
 		uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
@@ -173,8 +165,6 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	return resp, nil
 }
 
-// Setup runs the full setup pipeline for a single detected device.
-// Configures tethering, network interface, DNS64, and auto-provisions 1 slot.
 func (c *DeviceUseCase) Setup(ctx context.Context, req *model.SetupDeviceRequest) (*model.SetupResponse, error) {
 	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
@@ -198,7 +188,6 @@ func (c *DeviceUseCase) Setup(ctx context.Context, req *model.SetupDeviceRequest
 		return nil, err
 	}
 
-	// Auto-provision 1 slot
 	var provResp *model.ProvisionResponse
 	prov, provErr := c.SlotProvision.ProvisionSlots(
 		device.Alias, device.Interface, 1,
@@ -219,12 +208,10 @@ func (c *DeviceUseCase) Setup(ctx context.Context, req *model.SetupDeviceRequest
 	}, nil
 }
 
-// ListADBDevices returns raw ADB serial numbers.
 func (c *DeviceUseCase) ListADBDevices() ([]string, error) {
 	return c.ADB.ListDevices()
 }
 
-// List returns all registered devices with slot counts.
 func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	devices := c.DeviceRepo.ListAll()
 	result := make([]model.DeviceResponse, 0, len(devices))
@@ -237,7 +224,6 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 	return result, nil
 }
 
-// GetByAlias returns a single device by alias.
 func (c *DeviceUseCase) GetByAlias(req *model.GetDeviceRequest) (*model.DeviceResponse, error) {
 	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
@@ -250,7 +236,6 @@ func (c *DeviceUseCase) GetByAlias(req *model.GetDeviceRequest) (*model.DeviceRe
 	return converter.DeviceToResponse(device, slotCount, uniqueIPs, rx, tx), nil
 }
 
-// Delete tears down a device and removes it from memory.
 func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
 	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
@@ -263,7 +248,6 @@ func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
 	return nil
 }
 
-// Provision adds more slots to a device.
 func (c *DeviceUseCase) Provision(req *model.ProvisionRequest) (*model.ProvisionResponse, error) {
 	device, ok := c.DeviceRepo.GetByAlias(req.Alias)
 	if !ok {
@@ -281,9 +265,6 @@ func (c *DeviceUseCase) Provision(req *model.ProvisionRequest) (*model.Provision
 	)
 }
 
-// StartWatching consumes events from the DeviceWatcher and handles
-// connect/disconnect with grace period and smart reconnect.
-// This replaces the old CheckHealth() polling approach.
 func (c *DeviceUseCase) StartWatching(ctx context.Context) {
 	events := c.Watcher.Watch(ctx)
 	c.Log.Info("watcher started")
@@ -310,9 +291,7 @@ func (c *DeviceUseCase) StartWatching(ctx context.Context) {
 	}
 }
 
-// handleConnect handles a device appearing on USB.
 func (c *DeviceUseCase) handleConnect(serial string) {
-	// Case 1: Reconnect within grace period
 	if timer, ok := c.graceTimers[serial]; ok {
 		timer.Stop()
 		delete(c.graceTimers, serial)
@@ -321,7 +300,6 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 		return
 	}
 
-	// Case 2: Already known device
 	if device, exists := c.DeviceRepo.GetBySerial(serial); exists {
 		// If device was offline/error (e.g. grace expired), reset to detected
 		if device.Status == entity.DeviceStatusOffline || device.Status == entity.DeviceStatusError {
@@ -333,7 +311,6 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 		return
 	}
 
-	// Case 3: Brand new device — register as detected
 	device := &entity.Device{
 		Alias:  c.DeviceRepo.NextAlias(),
 		Serial: serial,
@@ -344,7 +321,6 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	c.Log.Info("device detected", "device", device.Alias, "serial", serial)
 }
 
-// handleDisconnect handles a device being removed from USB.
 func (c *DeviceUseCase) handleDisconnect(serial string) {
 	device, ok := c.DeviceRepo.GetBySerial(serial)
 	if !ok || device.Status != entity.DeviceStatusOnline {
@@ -356,7 +332,6 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
 
-	// Start grace timer
 	alias := device.Alias
 	timer := time.AfterFunc(c.GracePeriod, func() {
 		c.mu.Lock()
@@ -391,7 +366,6 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 	c.Log.Info("smart reconnect complete", "device", device.Alias, "reattached", reattached)
 }
 
-// cancelAllGraceTimers stops all pending grace timers (used during shutdown).
 func (c *DeviceUseCase) cancelAllGraceTimers() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -401,7 +375,6 @@ func (c *DeviceUseCase) cancelAllGraceTimers() {
 	}
 }
 
-// setup runs the device setup steps (private — called by Setup).
 func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error {
 	type setupStep struct {
 		Name string
@@ -522,7 +495,6 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 		}
 	}
 
-	// Enable NDP proxy on the interface
 	if err := c.Provisioner.EnableNDPProxy(&model.EnableNDPProxyRequest{Interface: device.Interface}); err != nil {
 		c.Log.Warn("enable ndp proxy failed", "device", device.Alias, "interface", device.Interface, "error", err)
 	}
@@ -545,8 +517,6 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	}
 }
 
-// ListOnlineAliases returns aliases of all devices with status "online".
-// Used by controllers to sync per-device proxy ports.
 func (c *DeviceUseCase) ListOnlineAliases() []string {
 	devices := c.DeviceRepo.ListAll()
 	var aliases []string
@@ -557,5 +527,3 @@ func (c *DeviceUseCase) ListOnlineAliases() []string {
 	}
 	return aliases
 }
-
-

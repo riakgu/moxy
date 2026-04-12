@@ -38,7 +38,6 @@ type BootstrapResult struct {
 }
 
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
-	// Ring buffer for log streaming
 	ringSize := cfg.Viper.GetInt("log.ring_buffer_size")
 	if ringSize == 0 {
 		ringSize = 1000
@@ -46,10 +45,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	level := parseLevel(cfg.Viper.GetString("log.level"))
 	ringHandler := sse.NewRingHandler(ringSize, level)
 
-	// Recreate logger with ring handler
 	cfg.Logger = NewLoggerWithRing(cfg.Viper, ringHandler)
 
-	// Component child loggers
 	deviceLog := cfg.Logger.With("component", "device")
 	slotLog := cfg.Logger.With("component", "slot")
 	monitorLog := cfg.Logger.With("component", "slot.monitor")
@@ -60,7 +57,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	netnsLog := cfg.Logger.With("component", "netns")
 	sseLog := cfg.Logger.With("component", "sse")
 
-	// Repositories (all in-memory)
 	deviceRepo := repository.NewDeviceRepository(deviceLog)
 	slotRepo := repository.NewSlotRepository(slotLog)
 	maxTracked := cfg.Viper.GetInt("traffic.max_tracked")
@@ -69,7 +65,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	}
 	trafficRepo := repository.NewTrafficRepository(trafficLog, maxTracked)
 
-	// SSE Event Hub
 	sseMaxClients := cfg.Viper.GetInt("sse.max_clients")
 	if sseMaxClients == 0 {
 		sseMaxClients = 10
@@ -77,11 +72,9 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	hub := sse.NewEventHub(sseLog, sseMaxClients)
 	ringHandler.SetHub(hub)
 
-	// Gateways
 	adbGateway := adb.NewADBGateway(adbLog)
 	provisioner := netns.NewProvisioner(netnsLog)
 	discovery := netns.NewDiscovery(netnsLog, cfg.Viper.GetString("slots.ip_check_host"))
-	// DNS cache
 	resolver := netns.NewCachingResolver(dnsLog, netns.CacheConfig{
 		MaxEntriesPerDevice: cfg.Viper.GetInt("dns.cache_max_entries_per_device"),
 		MinTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
@@ -89,7 +82,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	})
 	dialer := netns.NewSetnsDialer(netnsLog, resolver)
 
-	// UseCases
 	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
 	strategy := usecase.NewBalancingStrategy(cfg.Viper.GetString("proxy.source_ip_strategy"))
 	slotUC := usecase.NewSlotUseCase(
@@ -98,7 +90,6 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		maxSlots,
 	)
 
-	// Slot monitor (per-slot discovery goroutines)
 	monitorConfig := usecase.SlotMonitorConfig{
 		FastInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_fast_interval_seconds")) * time.Second,
 		SteadyInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
@@ -124,12 +115,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	slotMonitor := usecase.NewSlotMonitorUseCase(monitorLog, slotRepo, discovery, provisioner, monitorConfig)
 	slotUC.SetMonitor(slotMonitor)
 
-	// Inject EventPublisher into usecases
 	slotUC.EventPub = hub
 	slotMonitor.EventPub = hub
 	ispProbe := netns.NewISPProbe(netnsLog)
 
-	// ADB device watcher (event-driven device monitoring)
 	adbWatcher := adb.NewADBWatcher(adbLog, cfg.Viper.GetInt("devices.watcher_reconnect_max_seconds")*1000)
 	gracePeriod := time.Duration(cfg.Viper.GetInt("devices.grace_period_seconds")) * time.Second
 	if gracePeriod == 0 {
@@ -144,13 +133,11 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
 		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
 	deviceUC.EventPub = hub
-	// Traffic (must be before proxyUC so it can be injected)
 	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
 
 	proxyUC := usecase.NewProxyUseCase(proxyLog, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
 	proxyUC.EventPub = hub
 
-	// Port-based handler (shared + device + per-slot mux listeners)
 	// Must be created before controllers so we can inject it.
 	proxyPort := cfg.Viper.GetInt("proxy.ipv4.port")
 	slotPortStart := cfg.Viper.GetInt("proxy.ipv4.slot_port_start")
@@ -168,23 +155,19 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		portHandler.SyncDevicesIPv6(onlineAliases)
 	}
 
-	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, deviceLog, portHandler, slotUC.GetSlotNames)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, slotLog, portHandler)
 
-	// DNS
 	dnsUC := usecase.NewDNSUseCase(dnsLog, resolver)
 	dnsCtrl := httpdelivery.NewDNSController(dnsUC, dnsLog)
 
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
 
-	// Config
 	configCtrl := httpdelivery.NewConfigController(
 		cfg.Logger.With("component", "config"),
 		"config.json",
 	)
 
-	// SSE handler
 	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
 	sseHeartbeat := cfg.Viper.GetInt("sse.heartbeat_seconds")
 	sseTrafficLimit := cfg.Viper.GetInt("sse.traffic_snapshot_limit")

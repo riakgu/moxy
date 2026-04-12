@@ -67,7 +67,6 @@ func parseLevel(s string) slog.Level {
 	}
 }
 
-// NewLogger creates a slog.Logger with stdout handler only.
 func NewLogger(v *viper.Viper) *slog.Logger {
 	level := parseLevel(v.GetString("log.level"))
 	opts := &slog.HandlerOptions{Level: level}
@@ -82,7 +81,6 @@ func NewLogger(v *viper.Viper) *slog.Logger {
 	return slog.New(handler)
 }
 
-// NewLoggerWithRing creates a slog.Logger that writes to stdout AND a ring buffer.
 func NewLoggerWithRing(v *viper.Viper, ring slog.Handler) *slog.Logger {
 	level := parseLevel(v.GetString("log.level"))
 	opts := &slog.HandlerOptions{Level: level}

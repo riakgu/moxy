@@ -10,8 +10,6 @@ type DeviceEvent struct {
 	Status string
 }
 
-// ---- SlotProvisioner gateway models ----
-
 type CreateSlotRequest struct {
 	SlotIndex int
 	Interface string
@@ -48,8 +46,6 @@ type ConfigureIPv6SLAACRequest struct {
 	Interface string
 }
 
-// ---- SlotDiscovery gateway models ----
-
 type ResolveSlotRequest struct {
 	SlotName string
 }
@@ -62,16 +58,12 @@ type SlotIPInfoResult struct {
 	RTT  string
 }
 
-// ---- ProxyDialer gateway models ----
-
 type DialRequest struct {
 	SlotName    string
 	Addr        string
 	Nameserver  string
 	NAT64Prefix string
 }
-
-// ---- ADB gateway models ----
 
 type ADBDeviceRequest struct {
 	Serial string
@@ -82,8 +74,6 @@ type ADBDeviceInfoResult struct {
 	Brand          string
 	AndroidVersion string
 }
-
-// ---- DNS cache gateway model ----
 
 type DNSCacheStats struct {
 	Nameserver  string

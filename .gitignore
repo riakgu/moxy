@@ -15,6 +15,7 @@ web/dashboard/dist/
 .agents/
 .agent/
 .claude/
+CLAUDE.md
 skills-lock.json
 
 # Docs

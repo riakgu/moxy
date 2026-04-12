@@ -33,7 +33,6 @@ func NewDiscovery(log *slog.Logger, ipCheckHost string) *Discovery {
 	}
 }
 
-// IPInfoResponse holds the parsed JSON from ip.moxy.my.id/json.
 type IPInfoResponse struct {
 	IP   string `json:"ip"`
 	City string `json:"city"`
@@ -42,13 +41,10 @@ type IPInfoResponse struct {
 	RTT  string `json:"rtt"`
 }
 
-// httpGetInNamespace performs a raw HTTPS GET inside a slot's network namespace.
-// Returns the HTTP response body bytes.
 func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Save host namespace
 	hostNs, err := netns.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get host namespace: %w", err)
@@ -59,7 +55,6 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		_ = netns.Set(hostNs)
 	}()
 
-	// Enter slot namespace
 	slotNs, err := netns.GetFromName(slotName)
 	if err != nil {
 		return nil, fmt.Errorf("open namespace %s: %w", slotName, err)
@@ -70,7 +65,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		return nil, fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// Resolve IP check host — uses namespace's /etc/resolv.conf
+	// Uses namespace's /etc/resolv.conf
 	resolver := &net.Resolver{PreferGo: true}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -81,7 +76,6 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		return nil, fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
 	}
 
-	// Dial TCP6 with TLS
 	var conn net.Conn
 	for _, ip := range ips {
 		if strings.Contains(ip, ":") {
@@ -106,17 +100,16 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Restore host namespace — the socket is already bound to the slot namespace
+	// The socket is already bound to the slot namespace
 	_ = netns.Set(hostNs)
 
-	// Write raw HTTP GET on the established TLS connection
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, d.IPCheckHost)
 	if _, err = conn.Write([]byte(req)); err != nil {
 		return nil, fmt.Errorf("write HTTP request for %s: %w", slotName, err)
 	}
 
-	// Read HTTP response properly (handles chunked encoding etc.)
+	// http.ReadResponse handles chunked encoding
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	if err != nil {
 		return nil, fmt.Errorf("read HTTP response for %s: %w", slotName, err)
@@ -131,8 +124,6 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 	return body, nil
 }
 
-// ResolveSlotIP returns the public IPv4 of a slot (plain text endpoint).
-// Used for lightweight steady-state checks.
 func (d *Discovery) ResolveSlotIP(req *model.ResolveSlotRequest) (string, error) {
 	slotName := req.SlotName
 	body, err := d.httpGetInNamespace(slotName, "/")
@@ -146,8 +137,6 @@ func (d *Discovery) ResolveSlotIP(req *model.ResolveSlotRequest) (string, error)
 	return ip, nil
 }
 
-// ResolveSlotIPInfo returns full IP metadata from the JSON endpoint.
-// Used during burst detection for rich metadata (city, ASN, RTT).
 func (d *Discovery) ResolveSlotIPInfo(req *model.ResolveSlotRequest) (*model.SlotIPInfoResult, error) {
 	slotName := req.SlotName
 	body, err := d.httpGetInNamespace(slotName, "/json")
@@ -172,7 +161,6 @@ func (d *Discovery) ResolveSlotIPv6(req *model.ResolveSlotRequest) (string, erro
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Save host namespace
 	hostNs, err := netns.Get()
 	if err != nil {
 		return "", fmt.Errorf("get host namespace: %w", err)
@@ -183,7 +171,6 @@ func (d *Discovery) ResolveSlotIPv6(req *model.ResolveSlotRequest) (string, erro
 		_ = netns.Set(hostNs)
 	}()
 
-	// Enter slot namespace
 	slotNs, err := netns.GetFromName(slotName)
 	if err != nil {
 		return "", fmt.Errorf("open namespace %s: %w", slotName, err)
@@ -194,7 +181,6 @@ func (d *Discovery) ResolveSlotIPv6(req *model.ResolveSlotRequest) (string, erro
 		return "", fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// List all links and find global IPv6 addresses
 	links, err := netlink.LinkList()
 	if err != nil {
 		return "", fmt.Errorf("list links in %s: %w", slotName, err)

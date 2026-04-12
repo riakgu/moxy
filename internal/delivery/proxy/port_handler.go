@@ -14,27 +14,22 @@ import (
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// PortBasedHandler manages three tiers of mux proxy listeners:
-// - Shared (load-balanced across all devices)
-// - Device-level (load-balanced across one device's slots)
-// - Per-slot (specific IP)
 type PortBasedHandler struct {
 	Log           *slog.Logger
 	proxyUC       *usecase.ProxyUseCase
-	proxyPort     int // shared + device-level base port
-	slotStart     int // per-slot base port
-	ipv6Port      int // IPv6 shared + device-level base port
-	ipv6SlotStart int // IPv6 per-slot base port
+	proxyPort     int 
+	slotStart     int 
+	ipv6Port      int 
+	ipv6SlotStart int 
 	mu            sync.Mutex
 	shared        *MuxHandler
-	devices       map[string]*MuxHandler // alias → handler
-	slots         map[string]*MuxHandler // slotName → handler
+	devices       map[string]*MuxHandler
+	slots         map[string]*MuxHandler 
 	ipv6Shared    *MuxHandler
 	ipv6Devices   map[string]*MuxHandler
 	ipv6Slots     map[string]*MuxHandler
 }
 
-// NewPortBasedHandler creates a new port-based handler.
 func NewPortBasedHandler(
 	log *slog.Logger,
 	proxyUC *usecase.ProxyUseCase,
@@ -57,7 +52,6 @@ func NewPortBasedHandler(
 	}
 }
 
-// StartShared starts the shared proxy port (load-balanced across all devices).
 func (c *PortBasedHandler) StartShared() {
 	if c.proxyPort <= 0 {
 		return
@@ -85,7 +79,6 @@ func (c *PortBasedHandler) StartShared() {
 	}()
 }
 
-// StartSharedIPv6 starts the shared IPv6-preferred proxy port.
 func (c *PortBasedHandler) StartSharedIPv6() {
 	if c.ipv6Port <= 0 {
 		return
@@ -113,7 +106,6 @@ func (c *PortBasedHandler) StartSharedIPv6() {
 	}()
 }
 
-// SyncDevices starts/stops device-level mux handlers.
 func (c *PortBasedHandler) SyncDevices(aliases []string) {
 	if c.proxyPort <= 0 {
 		return
@@ -126,7 +118,6 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 		desired[alias] = true
 	}
 
-	// Stop removed devices
 	for alias, handler := range c.devices {
 		if !desired[alias] {
 			c.Log.Info("device proxy stopped", "device", alias)
@@ -137,7 +128,6 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 		}
 	}
 
-	// Start new devices
 	for _, alias := range aliases {
 		if _, exists := c.devices[alias]; exists {
 			continue
@@ -177,7 +167,6 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 	}
 }
 
-// SyncDevicesIPv6 starts/stops device-level IPv6 mux handlers.
 func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 	if c.ipv6Port <= 0 {
 		return
@@ -239,7 +228,6 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 	}
 }
 
-// SyncSlots starts/stops per-slot mux handlers.
 func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	if c.slotStart <= 0 {
 		return
@@ -253,7 +241,6 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 		desired[name] = true
 	}
 
-	// Stop removed slots
 	for name, handler := range c.slots {
 		if !desired[name] {
 			c.Log.Info("slot proxy stopped", "slot", name)
@@ -264,7 +251,6 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 		}
 	}
 
-	// Start new slots
 	for _, name := range slotNames {
 		if _, exists := c.slots[name]; exists {
 			continue
@@ -302,7 +288,6 @@ func (c *PortBasedHandler) SyncSlots(slotNames []string) {
 	}
 }
 
-// SyncSlotsIPv6 starts/stops per-slot IPv6 mux handlers.
 func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 	if c.ipv6SlotStart <= 0 {
 		return
@@ -363,7 +348,6 @@ func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
 	}
 }
 
-// GetPortMappings returns current slot → port mappings.
 func (c *PortBasedHandler) GetPortMappings() map[string]int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -377,7 +361,6 @@ func (c *PortBasedHandler) GetPortMappings() map[string]int {
 	return mappings
 }
 
-// Shutdown stops all listeners.
 func (c *PortBasedHandler) Shutdown(ctx context.Context) error {
 	c.mu.Lock()
 	if c.shared != nil {
@@ -414,7 +397,6 @@ func (c *PortBasedHandler) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// extractSlotIndex parses "slot0" → 0, "slot5" → 5, etc.
 func extractSlotIndex(name string) int {
 	if strings.HasPrefix(name, "slot") {
 		n, err := strconv.Atoi(name[4:])
@@ -426,7 +408,6 @@ func extractSlotIndex(name string) int {
 	return -1
 }
 
-// deviceIndex extracts the numeric part from "dev1" → 1, "dev2" → 2.
 func deviceIndex(alias string) int {
 	if strings.HasPrefix(alias, "dev") {
 		n, err := strconv.Atoi(alias[3:])

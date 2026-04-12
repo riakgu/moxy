@@ -36,21 +36,18 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Save host namespace first (before any namespace switching)
 	hostNs, err := netns.Get()
 	if err != nil {
 		return fmt.Errorf("get host namespace: %w", err)
 	}
 	defer func() { _ = hostNs.Close() }()
 
-	// Always restore host namespace on exit
 	defer func() {
 		if err := netns.Set(hostNs); err != nil {
 			p.Log.Error("failed to restore host namespace", "error", err)
 		}
 	}()
 
-	// --- Create namespace ---
 	// NewNamed() switches the current thread INTO the new namespace!
 	newNs, err := netns.NewNamed(name)
 	if err != nil {
@@ -65,20 +62,15 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 	}
 	defer func() { _ = newNs.Close() }()
 
-	// Switch BACK to host namespace to create and move the IPVLAN link
 	if err := netns.Set(hostNs); err != nil {
 		return fmt.Errorf("restore host ns for link setup: %w", err)
 	}
 
-	// --- Host namespace: create IPVLAN and move it ---
-
-	// 1. Get parent interface
 	parent, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("get parent interface %s: %w", iface, err)
 	}
 
-	// 2. Create IPVLAN interface in L2 mode
 	ipvlan := &netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:        ipvlanName,
@@ -93,23 +85,19 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 		p.Log.Debug("ipvlan exists, reusing", "slot", name, "ipvlan", ipvlanName)
 	}
 
-	// Re-fetch the link to get its index
 	ipvlanLink, err := netlink.LinkByName(ipvlanName)
 	if err != nil {
 		return fmt.Errorf("get IPVLAN link %s: %w", ipvlanName, err)
 	}
 
-	// 3. Move IPVLAN into the namespace
 	if err := netlink.LinkSetNsFd(ipvlanLink, int(newNs)); err != nil {
 		return fmt.Errorf("move %s to namespace %s: %w", ipvlanName, name, err)
 	}
 
-	// --- Enter slot namespace for configuration ---
 	if err := netns.Set(newNs); err != nil {
 		return fmt.Errorf("enter namespace %s: %w", name, err)
 	}
 
-	// 4a. Bring up loopback
 	lo, err := netlink.LinkByName("lo")
 	if err != nil {
 		return fmt.Errorf("get loopback in %s: %w", name, err)
@@ -118,7 +106,6 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 		return fmt.Errorf("bring up loopback in %s: %w", name, err)
 	}
 
-	// 4b. Bring up IPVLAN
 	ipvlanInNs, err := netlink.LinkByName(ipvlanName)
 	if err != nil {
 		return fmt.Errorf("get %s in namespace %s: %w", ipvlanName, name, err)
@@ -127,7 +114,6 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 		return fmt.Errorf("bring up %s in %s: %w", ipvlanName, name, err)
 	}
 
-	// 4c. Enable accept_ra and autoconf via /proc/sys
 	sysctlBase := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", ipvlanName)
 	for _, kv := range [][2]string{
 		{"accept_ra", "2"},
@@ -139,7 +125,6 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 		}
 	}
 
-	// 4d. Set DNS64 nameserver
 	resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
 	if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
 		return fmt.Errorf("set DNS64 for %s: %w", name, err)
@@ -149,7 +134,6 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 	return nil
 }
 
-// ConfigureDHCP runs dhcpcd on the given interface to obtain an IPv4 address.
 func (p *Provisioner) ConfigureDHCP(req *model.ConfigureDHCPRequest) error {
 	iface := req.Interface
 	if err := exec.Command("dhcpcd", iface).Run(); err != nil {
@@ -158,8 +142,6 @@ func (p *Provisioner) ConfigureDHCP(req *model.ConfigureDHCPRequest) error {
 	return nil
 }
 
-// ConfigureIPv6SLAAC enables IPv6 Router Advertisement acceptance and
-// auto-configuration on the given host interface via /proc/sys writes.
 func (p *Provisioner) ConfigureIPv6SLAAC(req *model.ConfigureIPv6SLAACRequest) error {
 	iface := req.Interface
 	base := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", iface)
@@ -244,9 +226,6 @@ func (p *Provisioner) DestroySlot(req *model.DestroySlotRequest) error {
 	return nil
 }
 
-// ReattachSlot recreates the IPVLAN interface inside an existing namespace.
-// Used for smart reconnect after a transient USB disconnect — the namespace
-// still exists but the IPVLAN is orphaned because the parent interface was removed.
 func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 	slotName := req.SlotName
 	iface := req.Interface
@@ -270,14 +249,12 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		}
 	}()
 
-	// Open existing namespace
 	slotNs, err := netns.GetFromName(slotName)
 	if err != nil {
 		return fmt.Errorf("open namespace %s: %w", slotName, err)
 	}
 	defer func() { _ = slotNs.Close() }()
 
-	// In host namespace: delete old IPVLAN if it still exists (ignore errors)
 	if oldLink, err := netlink.LinkByName(ipvlanName); err == nil {
 		_ = netlink.LinkDel(oldLink)
 	}
@@ -290,18 +267,15 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		_ = netlink.LinkDel(oldLink)
 	}
 
-	// Switch back to host for IPVLAN creation
 	if err := netns.Set(hostNs); err != nil {
 		return fmt.Errorf("restore host ns for link setup: %w", err)
 	}
 
-	// Get parent interface
 	parent, err := netlink.LinkByName(iface)
 	if err != nil {
 		return fmt.Errorf("get parent interface %s: %w", iface, err)
 	}
 
-	// Create new IPVLAN
 	ipvlan := &netlink.IPVlan{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:        ipvlanName,
@@ -313,7 +287,6 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		return fmt.Errorf("create IPVLAN %s: %w", ipvlanName, err)
 	}
 
-	// Move IPVLAN into namespace
 	ipvlanLink, err := netlink.LinkByName(ipvlanName)
 	if err != nil {
 		return fmt.Errorf("get IPVLAN link %s: %w", ipvlanName, err)
@@ -322,7 +295,6 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		return fmt.Errorf("move %s to namespace %s: %w", ipvlanName, slotName, err)
 	}
 
-	// Enter namespace to configure
 	if err := netns.Set(slotNs); err != nil {
 		return fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
@@ -332,7 +304,6 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		_ = netlink.LinkSetUp(lo)
 	}
 
-	// Bring up IPVLAN
 	ipvlanInNs, err := netlink.LinkByName(ipvlanName)
 	if err != nil {
 		return fmt.Errorf("get %s in namespace %s: %w", ipvlanName, slotName, err)
@@ -341,7 +312,6 @@ func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
 		return fmt.Errorf("bring up %s in %s: %w", ipvlanName, slotName, err)
 	}
 
-	// Enable SLAAC
 	sysctlBase := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", ipvlanName)
 	for _, kv := range [][2]string{
 		{"accept_ra", "2"},
@@ -375,8 +345,6 @@ func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
 	return slots, nil
 }
 
-// CleanupNamespaces deletes slot* namespaces that are not in the keep list.
-// If keep is nil, all slot* namespaces are deleted. Returns count of deleted.
 func (p *Provisioner) CleanupNamespaces(req *model.CleanupNamespacesRequest) (int, error) {
 	keep := req.Keep
 	all, err := p.ListSlotNamespaces()

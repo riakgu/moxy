@@ -8,13 +8,11 @@ import (
 	"github.com/riakgu/moxy/internal/repository"
 )
 
-// TrafficUseCase provides traffic stats operations.
 type TrafficUseCase struct {
 	Log  *slog.Logger
 	Repo *repository.TrafficRepository
 }
 
-// NewTrafficUseCase creates a new TrafficUseCase.
 func NewTrafficUseCase(log *slog.Logger, repo *repository.TrafficRepository) *TrafficUseCase {
 	return &TrafficUseCase{
 		Log:  log,
@@ -22,25 +20,17 @@ func NewTrafficUseCase(log *slog.Logger, repo *repository.TrafficRepository) *Tr
 	}
 }
 
-// List returns all traffic entries sorted by connection count descending,
-// including summary totals computed from all entries.
 func (uc *TrafficUseCase) List() *model.TrafficListResponse {
 	return uc.buildResponse(-1)
 }
 
-// ListTop returns traffic entries capped to the top N by connection count.
-// Summary totals are computed from ALL entries (not just top N).
-// If n <= 0, returns all entries.
 func (uc *TrafficUseCase) ListTop(n int) *model.TrafficListResponse {
 	return uc.buildResponse(n)
 }
 
-// buildResponse builds the response, optionally capping entries to top N.
-// Summary totals always reflect all entries.
 func (uc *TrafficUseCase) buildResponse(limit int) *model.TrafficListResponse {
-	entries := uc.Repo.List() // already sorted by ConnectionCount desc
+	entries := uc.Repo.List()
 
-	// Compute summaries from ALL entries
 	var totalConn, totalActive int64
 	var totalTx, totalRx uint64
 	deviceTotals := make(map[string]model.DeviceTrafficTotal)
@@ -59,7 +49,6 @@ func (uc *TrafficUseCase) buildResponse(limit int) *model.TrafficListResponse {
 		responses = append(responses, converter.TrafficEntryToResponse(e))
 	}
 
-	// Cap entries if limit is set
 	if limit > 0 && len(responses) > limit {
 		responses = responses[:limit]
 	}

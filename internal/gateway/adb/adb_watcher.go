@@ -15,15 +15,11 @@ import (
 	"github.com/riakgu/moxy/internal/model"
 )
 
-// ADBWatcher maintains a persistent connection to the ADB server using
-// the track-devices protocol and emits DeviceEvent on a channel when
-// devices connect or disconnect.
 type ADBWatcher struct {
 	Log            *slog.Logger
 	MaxReconnectMs int
 }
 
-// NewADBWatcher creates a new ADB device watcher.
 func NewADBWatcher(log *slog.Logger, maxReconnectMs int) *ADBWatcher {
 	if maxReconnectMs <= 0 {
 		maxReconnectMs = 30000
@@ -58,7 +54,6 @@ func (w *ADBWatcher) Watch(ctx context.Context) <-chan model.DeviceEvent {
 			case <-time.After(backoff):
 			}
 
-			// Exponential backoff
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
@@ -71,7 +66,6 @@ func (w *ADBWatcher) Watch(ctx context.Context) <-chan model.DeviceEvent {
 
 // trackDevices connects once and streams until error or context cancellation.
 func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.DeviceEvent) error {
-	// Connect to ADB server
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", "localhost:5037")
 	if err != nil {
@@ -79,7 +73,6 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Close connection when context is cancelled
 	go func() {
 		<-ctx.Done()
 		_ = conn.Close()
@@ -93,7 +86,6 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 		return fmt.Errorf("send track-devices: %w", err)
 	}
 
-	// Read response: expect "OKAY"
 	resp := make([]byte, 4)
 	if _, err := io.ReadFull(conn, resp); err != nil {
 		return fmt.Errorf("read response: %w", err)
@@ -107,7 +99,6 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 	prev := make(map[string]string) // serial → status
 
 	for {
-		// Read 4-char hex length
 		lenBuf := make([]byte, 4)
 		if _, err := io.ReadFull(conn, lenBuf); err != nil {
 			return fmt.Errorf("read length: %w", err)
@@ -118,7 +109,6 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 			return fmt.Errorf("parse length %q: %w", string(lenBuf), err)
 		}
 
-		// Read payload
 		var payload []byte
 		if payloadLen > 0 {
 			payload = make([]byte, payloadLen)
@@ -127,10 +117,8 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 			}
 		}
 
-		// Parse device list
 		current := parseDeviceList(string(payload))
 
-		// Diff: detect connects
 		for serial, status := range current {
 			prevStatus, existed := prev[serial]
 			if status == "device" && (!existed || prevStatus != "device") {
@@ -142,7 +130,6 @@ func (w *ADBWatcher) trackDevices(ctx context.Context, events chan<- model.Devic
 			}
 		}
 
-		// Diff: detect disconnects
 		for serial, prevStatus := range prev {
 			if prevStatus == "device" {
 				curStatus, exists := current[serial]

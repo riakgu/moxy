@@ -26,14 +26,11 @@ func main() {
 
 	b.RouteConfig.Setup()
 
-	// Start SSE event hub
 	go b.EventHub.Run()
 
-	// Start shared proxy port
 	b.PortHandler.StartShared()
 	b.PortHandler.StartSharedIPv6()
 
-	// Cleanup orphaned namespaces from previous runs
 	log.Info("cleaning up orphaned namespaces")
 	if cleaned, err := b.SlotUseCase.CleanupOrphans(); err != nil {
 		log.Warn("namespace cleanup failed", "error", err)
@@ -41,11 +38,9 @@ func main() {
 		log.Info("orphaned namespaces cleaned", "count", cleaned)
 	}
 
-	// Event-driven device watcher (replaces old CheckHealth polling)
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	go b.DeviceUseCase.StartWatching(watchCtx)
 
-	// Start API listener
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 	go func() {
 		if err := app.Listen(apiAddr); err != nil {
@@ -54,7 +49,6 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -73,7 +67,6 @@ func main() {
 		log.Warn("proxy shutdown incomplete", "error", err)
 	}
 
-	// Stop API/dashboard
 	if err := app.ShutdownWithTimeout(drainTimeout); err != nil {
 		log.Error("api shutdown failed", "error", err)
 	}

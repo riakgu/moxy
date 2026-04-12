@@ -12,8 +12,6 @@ import (
 	"github.com/riakgu/moxy/internal/entity"
 )
 
-// SlotRepository is an in-memory, thread-safe store for slot entities.
-// It acts as the repository layer for slots (which have no database persistence).
 type SlotRepository struct {
 	Log     *slog.Logger
 	mu      sync.RWMutex
@@ -21,7 +19,6 @@ type SlotRepository struct {
 	slotSeq uint64
 }
 
-// NewSlotRepository creates a new in-memory slot repository.
 func NewSlotRepository(log *slog.Logger) *SlotRepository {
 	return &SlotRepository{
 		Log:   log,
@@ -29,22 +26,16 @@ func NewSlotRepository(log *slog.Logger) *SlotRepository {
 	}
 }
 
-// NextSlotIndex returns a globally unique slot index (1, 2, 3, ...).
 func (r *SlotRepository) NextSlotIndex() int {
 	return int(atomic.AddUint64(&r.slotSeq, 1))
 }
 
-// Put inserts or replaces a slot in the store.
 func (r *SlotRepository) Put(slot *entity.Slot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.slots[slot.Name] = slot
 }
 
-// Get returns a slot by name and whether it exists. The returned pointer
-// references the internal map entry — callers MUST NOT mutate fields
-// without appropriate synchronization. Use Put() or SetStatus() to
-// persist changes.
 func (r *SlotRepository) Get(name string) (*entity.Slot, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -52,14 +43,12 @@ func (r *SlotRepository) Get(name string) (*entity.Slot, bool) {
 	return slot, ok
 }
 
-// Delete removes a slot by name.
 func (r *SlotRepository) Delete(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.slots, name)
 }
 
-// SetStatus atomically updates a slot's status.
 func (r *SlotRepository) SetStatus(name string, status string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -178,7 +167,6 @@ func pairKey(ips []string) string {
 	return strings.Join(sorted, ",")
 }
 
-// ListHealthyForDevice returns healthy slots belonging to a specific device.
 func (r *SlotRepository) ListHealthyForDevice(deviceAlias string) []*entity.Slot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -191,7 +179,6 @@ func (r *SlotRepository) ListHealthyForDevice(deviceAlias string) []*entity.Slot
 	return result
 }
 
-// ListNamesForDevice returns slot names belonging to a specific device.
 func (r *SlotRepository) ListNamesForDevice(deviceAlias string) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -204,7 +191,6 @@ func (r *SlotRepository) ListNamesForDevice(deviceAlias string) []string {
 	return names
 }
 
-// IncrementConnections atomically increments the active connection count for a slot.
 func (r *SlotRepository) IncrementConnections(name string) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -213,7 +199,6 @@ func (r *SlotRepository) IncrementConnections(name string) {
 	}
 }
 
-// DecrementConnections atomically decrements the active connection count for a slot.
 func (r *SlotRepository) DecrementConnections(name string) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -222,7 +207,6 @@ func (r *SlotRepository) DecrementConnections(name string) {
 	}
 }
 
-// ListAllNames returns the names of all slots currently tracked in memory.
 func (r *SlotRepository) ListAllNames() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

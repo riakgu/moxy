@@ -62,13 +62,11 @@ func NewSlotUseCase(
 	}
 }
 
-// SetMonitor sets the slot monitor for this use case.
 // Must be called after construction to break the circular dependency.
 func (c *SlotUseCase) SetMonitor(m *SlotMonitorUseCase) {
 	c.Monitor = m
 }
 
-// publishSlot publishes the current state of a slot as a slot_updated event.
 func (c *SlotUseCase) publishSlot(name string) {
 	if c.EventPub == nil {
 		return
@@ -80,7 +78,6 @@ func (c *SlotUseCase) publishSlot(name string) {
 	c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 }
 
-// publishSlotRemoved publishes a slot_removed event.
 func (c *SlotUseCase) publishSlotRemoved(name string) {
 	if c.EventPub == nil {
 		return
@@ -112,7 +109,6 @@ func (c *SlotUseCase) GetByName(request *model.GetSlotRequest) (*model.SlotRespo
 	return converter.SlotToResponse(slot), nil
 }
 
-// parseSlotIndex extracts the slot index from names like "slot3"
 func parseSlotIndex(slotName string) (int, error) {
 	if !strings.HasPrefix(slotName, "slot") {
 		return 0, fmt.Errorf("invalid slot name %s: missing slot prefix", slotName)
@@ -124,10 +120,7 @@ func parseSlotIndex(slotName string) (int, error) {
 	return idx, nil
 }
 
-// rerollSlotNamespace destroys and recreates a slot's namespace to get a new IP.
-// Returns the new IPv4, IPv6, and any error.
 func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface string, dns64 string) (newIPv4, newIPv6 string, err error) {
-	// Get current state
 	var oldIPv6 string
 	if s, ok := c.SlotRepo.Get(slotName); ok {
 		oldIPv6 = s.IPv6Address
@@ -139,14 +132,12 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 		}
 	}
 
-	// Remove old NDP proxy
 	if oldIPv6 != "" {
 		if err := c.Provisioner.RemoveNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: oldIPv6, Interface: iface}); err != nil {
 			c.Log.Warn("failed to remove old ndp proxy", "slot", slotName, "ipv6", oldIPv6, "error", err)
 		}
 	}
 
-	// Destroy + recreate
 	if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: slotName}); err != nil {
 		c.Log.Warn("failed to destroy slot for reroll", "slot", slotName, "error", err)
 	}
@@ -156,7 +147,6 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 
 	time.Sleep(slaacWaitDuration)
 
-	// Resolve new IPs
 	resolveReq := &model.ResolveSlotRequest{SlotName: slotName}
 	newIPv4, err = c.Discovery.ResolveSlotIP(resolveReq)
 	if err != nil {
@@ -164,14 +154,12 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 	}
 	newIPv6, _ = c.Discovery.ResolveSlotIPv6(resolveReq)
 
-	// Add new NDP proxy
 	if newIPv6 != "" {
 		if err := c.Provisioner.AddNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: newIPv6, Interface: iface}); err != nil {
 			c.Log.Warn("failed to add ndp proxy", "slot", slotName, "ipv6", newIPv6, "error", err)
 		}
 	}
 
-	// Update slot in repo
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
 		slot.PublicIPv4s = []string{newIPv4}
 		slot.IPv6Address = newIPv6
@@ -207,7 +195,6 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 		return nil, err
 	}
 
-	// Restart monitor in FAST_CHECK mode
 	if c.Monitor != nil {
 		c.Monitor.StopSlot(request.SlotName)
 		c.Monitor.StartSlot(request.SlotName)
@@ -220,15 +207,12 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 }
 
 func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int, nameserver string, nat64Prefix string) (*model.ProvisionResponse, error) {
-	// Use auto-detected nameserver for resolv.conf inside namespaces
 	dns64 := nameserver
 
-	// Enable NDP proxy on the interface
 	if err := c.Provisioner.EnableNDPProxy(&model.EnableNDPProxyRequest{Interface: iface}); err != nil {
 		return nil, fmt.Errorf("enable NDP proxy: %w", err)
 	}
 
-	// count = total desired slots (declarative)
 	existingCount := c.SlotRepo.CountByDevice(deviceAlias)
 
 	if existingCount >= count {
@@ -240,7 +224,6 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		}, nil
 	}
 
-	// Check max slots limit
 	target := count
 	if c.MaxSlots > 0 && target > c.MaxSlots {
 		c.Log.Warn("slot count capped", "max", c.MaxSlots)
@@ -254,7 +237,6 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		toCreate = 0
 	}
 
-	// Use globally unique slot indices
 	var createdNames []string
 	for i := 0; i < toCreate; i++ {
 		idx := c.SlotRepo.NextSlotIndex()
@@ -279,17 +261,14 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		created++
 	}
 
-	// Wait for SLAAC
 	time.Sleep(slaacWaitDuration)
 
-	// Start per-slot monitors (handles IP discovery + NDP proxy)
 	for _, name := range createdNames {
 		if c.Monitor != nil {
 			c.Monitor.StartSlot(name)
 		}
 	}
 
-	// Count unique IP pairs (exit points)
 	pairSet := make(map[string]bool)
 	for _, s := range c.SlotRepo.ListAll() {
 		if s.Status == entity.SlotStatusHealthy {
@@ -314,10 +293,8 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	}, nil
 }
 
-
 func (c *SlotUseCase) DestroySlot(req *model.DeleteSlotRequest) error {
 	slotName := req.SlotName
-	// Stop monitor goroutine first
 	if c.Monitor != nil {
 		c.Monitor.StopSlot(slotName)
 	}
@@ -330,7 +307,6 @@ func (c *SlotUseCase) DestroySlot(req *model.DeleteSlotRequest) error {
 		return model.ErrSlotBusy
 	}
 
-	// Capture before deleting from repo
 	ipv6 := slot.IPv6Address
 	iface := slot.Interface
 	c.SlotRepo.Delete(slotName)
@@ -350,8 +326,6 @@ func (c *SlotUseCase) DestroySlot(req *model.DeleteSlotRequest) error {
 	return nil
 }
 
-// CleanupOrphans removes network namespaces that exist on disk but are not
-// tracked in the in-memory SlotRepository.
 func (uc *SlotUseCase) CleanupOrphans() (int, error) {
 	tracked := uc.SlotRepo.ListAllNames()
 	cleaned, err := uc.Provisioner.CleanupNamespaces(&model.CleanupNamespacesRequest{Keep: tracked})
@@ -410,10 +384,8 @@ func (c *SlotUseCase) ReattachByDevice(deviceAlias string, iface string) int {
 		reattached++
 	}
 
-	// Resume suspended → healthy
 	c.ResumeByDevice(deviceAlias)
 
-	// Restart monitors for healthy slots
 	if c.Monitor != nil {
 		for _, name := range slotNames {
 			if slot, ok := c.SlotRepo.Get(name); ok && slot.Status == entity.SlotStatusHealthy {
@@ -447,7 +419,6 @@ func (c *SlotUseCase) drainSlot(name string, timeout time.Duration) int64 {
 	}
 }
 
-// naturalSlotLess compares slot names by their numeric suffix (e.g., slot2 < slot10).
 func naturalSlotLess(a, b string) bool {
 	aNum, aErr := strconv.Atoi(strings.TrimPrefix(a, "slot"))
 	bNum, bErr := strconv.Atoi(strings.TrimPrefix(b, "slot"))

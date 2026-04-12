@@ -9,7 +9,6 @@ import (
 	"github.com/riakgu/moxy/internal/entity"
 )
 
-// DeviceRepository is a thread-safe in-memory store for devices, keyed by serial.
 type DeviceRepository struct {
 	mu       sync.RWMutex
 	devices  map[string]*entity.Device // keyed by serial
@@ -24,16 +23,12 @@ func NewDeviceRepository(log *slog.Logger) *DeviceRepository {
 	}
 }
 
-// Put stores or updates a device.
 func (r *DeviceRepository) Put(device *entity.Device) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.devices[device.Serial] = device
 }
 
-// GetBySerial returns a device by its ADB serial. The returned pointer
-// references the internal map entry — callers MUST NOT mutate fields
-// without appropriate synchronization. Use Put() to persist changes.
 func (r *DeviceRepository) GetBySerial(serial string) (*entity.Device, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -41,9 +36,6 @@ func (r *DeviceRepository) GetBySerial(serial string) (*entity.Device, bool) {
 	return d, ok
 }
 
-// GetByAlias returns a device by its alias (e.g., "dev1"). The returned
-// pointer references the internal map entry — callers MUST NOT mutate
-// fields without appropriate synchronization. Use Put() to persist changes.
 func (r *DeviceRepository) GetByAlias(alias string) (*entity.Device, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -55,16 +47,12 @@ func (r *DeviceRepository) GetByAlias(alias string) (*entity.Device, bool) {
 	return nil, false
 }
 
-// Delete removes a device by serial.
 func (r *DeviceRepository) Delete(serial string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.devices, serial)
 }
 
-// ListAll returns all devices. The returned pointers reference the
-// internal map entries — callers MUST NOT mutate fields without
-// appropriate synchronization. Use Put() to persist changes.
 func (r *DeviceRepository) ListAll() []*entity.Device {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -75,7 +63,6 @@ func (r *DeviceRepository) ListAll() []*entity.Device {
 	return result
 }
 
-// NextAlias generates the next device alias (dev1, dev2, ...).
 func (r *DeviceRepository) NextAlias() string {
 	n := atomic.AddUint64(&r.aliasSeq, 1)
 	return fmt.Sprintf("dev%d", n)

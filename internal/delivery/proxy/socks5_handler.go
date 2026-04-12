@@ -12,12 +12,8 @@ import (
 	"github.com/things-go/go-socks5"
 )
 
-// ConnectFunc dials a target address through a slot's network namespace.
-// The network parameter is "tcp" for CONNECT or "udp" for UDP ASSOCIATE.
-// The implementation handles slot selection and connection tracking.
 type ConnectFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
-// Socks5Handler wraps things-go/go-socks5 with graceful shutdown.
 type Socks5Handler struct {
 	server *socks5.Server
 	Log    *slog.Logger
@@ -27,16 +23,12 @@ type Socks5Handler struct {
 	cancel context.CancelFunc
 }
 
-// passthroughResolver is a no-op DNS resolver for go-socks5.
-// It returns nil IP so that the FQDN passes through to our Dial function,
-// where the CachingResolver handles DNS resolution with caching.
 type passthroughResolver struct{}
 
 func (r passthroughResolver) Resolve(ctx context.Context, name string) (context.Context, net.IP, error) {
 	return ctx, nil, nil
 }
 
-// NewSocks5Handler creates a new SOCKS5 proxy handler.
 func NewSocks5Handler(
 	log *slog.Logger,
 	connect ConnectFunc,
@@ -62,7 +54,6 @@ func NewSocks5Handler(
 	}
 }
 
-// ListenAndServe starts the SOCKS5 proxy on the given address.
 func (c *Socks5Handler) ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -93,7 +84,6 @@ func (c *Socks5Handler) ListenAndServe(addr string) error {
 	}
 }
 
-// ServeConn handles a single pre-accepted connection.
 func (c *Socks5Handler) ServeConn(conn net.Conn) {
 	c.wg.Add(1)
 	go func() {
@@ -104,7 +94,6 @@ func (c *Socks5Handler) ServeConn(conn net.Conn) {
 	}()
 }
 
-// Shutdown stops accepting new connections and waits for active ones to drain.
 func (c *Socks5Handler) Shutdown(ctx context.Context) error {
 	c.cancel()
 	if c.ln != nil {

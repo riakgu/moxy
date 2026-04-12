@@ -121,7 +121,6 @@ func (c *ProxyUseCase) selectSlot(slots []*entity.Slot) (*entity.Slot, error) {
 	return c.Strategy(slots), nil
 }
 
-// PickSlot selects a healthy slot across all devices using the balancing strategy.
 func (c *ProxyUseCase) PickSlot() (string, error) {
 	slots := c.SlotRepo.ListHealthy()
 	slot, err := c.selectSlot(slots)
@@ -131,7 +130,6 @@ func (c *ProxyUseCase) PickSlot() (string, error) {
 	return slot.Name, nil
 }
 
-// PickSlotForDevice selects a healthy slot for a specific device.
 func (c *ProxyUseCase) PickSlotForDevice(deviceAlias string) (string, error) {
 	slots := c.SlotRepo.ListHealthyForDevice(deviceAlias)
 	slot, err := c.selectSlot(slots)

@@ -22,7 +22,6 @@ func NewADBGateway(log *slog.Logger) *ADBGateway {
 	return &ADBGateway{Log: log}
 }
 
-// ListDevices returns ADB serial numbers of connected devices
 func (g *ADBGateway) ListDevices() ([]string, error) {
 	out, err := exec.Command("adb", "devices").Output()
 	if err != nil {
@@ -43,7 +42,6 @@ func (g *ADBGateway) ListDevices() ([]string, error) {
 	return serials, nil
 }
 
-// adbShell runs a command on the device and returns trimmed output
 func (g *ADBGateway) adbShell(serial string, args ...string) (string, error) {
 	cmdArgs := append([]string{"-s", serial, "shell"}, args...)
 	out, err := exec.Command("adb", cmdArgs...).CombinedOutput()
@@ -56,7 +54,6 @@ func (g *ADBGateway) IsScreenUnlocked(req *model.ADBDeviceRequest) (bool, error)
 	if err != nil {
 		return false, fmt.Errorf("check screen: %w", err)
 	}
-	// If mDreamingLockscreen=false, screen is unlocked
 	return strings.Contains(out, "mDreamingLockscreen=false"), nil
 }
 
@@ -80,7 +77,6 @@ func (g *ADBGateway) DisableWifi(req *model.ADBDeviceRequest) error {
 	return err
 }
 
-// GetDeviceInfo reads device model, brand, and Android version from system properties.
 func (g *ADBGateway) GetDeviceInfo(req *model.ADBDeviceRequest) *model.ADBDeviceInfoResult {
 	serial := req.Serial
 	m, _ := g.adbShell(serial, "getprop", "ro.product.model")
@@ -91,10 +87,8 @@ func (g *ADBGateway) GetDeviceInfo(req *model.ADBDeviceRequest) *model.ADBDevice
 
 func (g *ADBGateway) GetCarrier(req *model.ADBDeviceRequest) (string, error) {
 	serial := req.Serial
-	// 1. Get data subscription ID
 	subId, err := g.adbShell(serial, "settings", "get", "global", "multi_sim_data_call")
 	if err == nil && subId != "" && subId != "null" {
-		// 2. Parse dumpsys isub to find carrier name for that subscription
 		out, err := g.adbShell(serial, "dumpsys", "isub")
 		if err == nil {
 			target := fmt.Sprintf("id=%s ", subId)
@@ -134,9 +128,6 @@ func (g *ADBGateway) GetCarrier(req *model.ADBDeviceRequest) (string, error) {
 	return "", fmt.Errorf("no carrier found for %s", serial)
 }
 
-// GetDNSServers reads the phone's carrier-assigned DNS servers from
-// `dumpsys connectivity`. Returns IPv6 DNS addresses from the internet
-// connection (not IMS). These are typically the carrier's DNS64 servers.
 func (g *ADBGateway) GetDNSServers(req *model.ADBDeviceRequest) ([]string, error) {
 	serial := req.Serial
 	out, err := g.adbShell(serial, "dumpsys", "connectivity")
@@ -146,7 +137,6 @@ func (g *ADBGateway) GetDNSServers(req *model.ADBDeviceRequest) ([]string, error
 
 	var ipv6Servers []string
 	for _, line := range strings.Split(out, "\n") {
-		// Only look at the internet connection (skip IMS, etc.)
 		if !strings.Contains(line, "extra: internet") {
 			continue
 		}
@@ -172,7 +162,6 @@ func (g *ADBGateway) GetDNSServers(req *model.ADBDeviceRequest) ([]string, error
 			if addr == "" {
 				continue
 			}
-			// Keep only IPv6 addresses
 			ip := net.ParseIP(addr)
 			if ip != nil && ip.To4() == nil {
 				ipv6Servers = append(ipv6Servers, ip.String())
@@ -183,9 +172,6 @@ func (g *ADBGateway) GetDNSServers(req *model.ADBDeviceRequest) ([]string, error
 	return ipv6Servers, nil
 }
 
-// DetectInterfaceForSerial finds the USB tethering interface that belongs to
-// a specific phone by matching the ADB serial against the USB device serial
-// exposed in sysfs at /sys/class/net/<iface>/device/../serial.
 func (g *ADBGateway) DetectInterfaceForSerial(req *model.ADBDeviceRequest) (string, error) {
 	serial := req.Serial
 	ifaces, err := net.Interfaces()
@@ -214,13 +200,10 @@ func (g *ADBGateway) DetectInterfaceForSerial(req *model.ADBDeviceRequest) (stri
 	return "", fmt.Errorf("no tethering interface found for serial %s", serial)
 }
 
-// readUSBSerial resolves the sysfs device path for a network interface
-// and reads the USB device serial.
 // Chain: /sys/class/net/<iface>/device -> symlink -> USB interface -> parent -> serial file
 func (g *ADBGateway) readUSBSerial(ifaceName string) (string, error) {
 	devicePath := fmt.Sprintf("/sys/class/net/%s/device", ifaceName)
 
-	// EvalSymlinks resolves all symlinks (like readlink -f)
 	resolved, err := filepath.EvalSymlinks(devicePath)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", devicePath, err)

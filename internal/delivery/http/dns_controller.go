@@ -9,13 +9,11 @@ import (
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
-// DNSController handles DNS-related API endpoints.
 type DNSController struct {
 	UseCase *usecase.DNSUseCase
 	Log     *slog.Logger
 }
 
-// NewDNSController creates a new DNSController.
 func NewDNSController(useCase *usecase.DNSUseCase, log *slog.Logger) *DNSController {
 	return &DNSController{
 		UseCase: useCase,
@@ -23,8 +21,6 @@ func NewDNSController(useCase *usecase.DNSUseCase, log *slog.Logger) *DNSControl
 	}
 }
 
-// Stats returns DNS cache statistics.
-// GET /api/dns/stats
 func (c *DNSController) Stats(ctx *fiber.Ctx) error {
 	stats := c.UseCase.GetCacheStats()
 

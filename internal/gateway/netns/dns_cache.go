@@ -16,16 +16,12 @@ import (
 	"github.com/miekg/dns"
 )
 
-// CacheConfig holds DNS cache configuration.
 type CacheConfig struct {
-	MaxEntriesPerDevice int           // LRU cap per device cache (default: 10000)
-	MinTTL              time.Duration // Floor for DNS TTLs (default: 30s)
-	MaxTTL              time.Duration // Ceiling for DNS TTLs (default: 300s)
+	MaxEntriesPerDevice int           
+	MinTTL              time.Duration 
+	MaxTTL              time.Duration
 }
 
-// CachingResolver caches DNS64 resolutions per-device.
-// Keyed by (nameserver, NAT64Prefix) so devices sharing the same ISP config share a cache.
-// Thread-safe. Must be called while the OS thread is inside the target network namespace.
 type CachingResolver struct {
 	log    *slog.Logger
 	config CacheConfig
@@ -39,8 +35,8 @@ type deviceCacheKey struct {
 }
 
 type deviceCache struct {
-	entries map[string]*list.Element // hostname → list element
-	order   *list.List              // front = most recently used
+	entries map[string]*list.Element 
+	order   *list.List             
 	hits    int64
 	misses  int64
 }
@@ -57,8 +53,6 @@ const negativeEntry = "NXAAAA"
 // negativeCacheTTL is how long to cache "no native AAAA" results
 const negativeCacheTTL = 60 * time.Second
 
-// NewCachingResolver creates a new CachingResolver with the given config.
-// Zero-value config fields are replaced with sensible defaults.
 func NewCachingResolver(log *slog.Logger, config CacheConfig) *CachingResolver {
 	if config.MaxEntriesPerDevice <= 0 {
 		config.MaxEntriesPerDevice = 10000
@@ -76,13 +70,6 @@ func NewCachingResolver(log *slog.Logger, config CacheConfig) *CachingResolver {
 	}
 }
 
-// Resolve resolves a hostname to an IPv6 address via DNS64, using a per-device cache.
-// Must be called while the calling OS thread is inside the target network namespace
-// (the DNS64 nameserver is only reachable through the slot's network).
-//
-// On cache hit (and not expired), returns the cached IPv6 address immediately.
-// On cache miss or expiry, queries the DNS64 server via miekg/dns, caches the result
-// with the response TTL (clamped to [MinTTL, MaxTTL]), and returns the IPv6 address.
 func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (string, error) {
 	key := deviceCacheKey{Nameserver: nameserver, NAT64Prefix: nat64Prefix}
 
@@ -96,31 +83,26 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 		cr.caches[key] = dc
 	}
 
-	// Check cache
 	if elem, ok := dc.entries[hostname]; ok {
 		entry := elem.Value.(*dnsEntry)
 		if time.Now().Before(entry.expiresAt) {
-			// Cache hit — move to front (most recently used)
 			dc.order.MoveToFront(elem)
 			atomic.AddInt64(&dc.hits, 1)
 			ipv6 := entry.ipv6
 			cr.mu.Unlock()
 			return ipv6, nil
 		}
-		// Expired — remove from cache
 		dc.order.Remove(elem)
 		delete(dc.entries, hostname)
 	}
 	atomic.AddInt64(&dc.misses, 1)
 	cr.mu.Unlock()
 
-	// Cache miss — resolve via DNS64
 	ipv6, ttl, err := cr.resolveDNS(hostname, nameserver, nat64Prefix)
 	if err != nil {
 		return "", err
 	}
 
-	// Clamp TTL
 	if ttl < cr.config.MinTTL {
 		ttl = cr.config.MinTTL
 	}
@@ -128,12 +110,9 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 		ttl = cr.config.MaxTTL
 	}
 
-	// Store in cache
 	cr.mu.Lock()
-	// Re-check: the device cache should still exist (we created it above)
 	dc = cr.caches[key]
 	if dc != nil {
-		// Remove old entry if it was re-added concurrently
 		if elem, ok := dc.entries[hostname]; ok {
 			dc.order.Remove(elem)
 			delete(dc.entries, hostname)
@@ -147,7 +126,6 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 		elem := dc.order.PushFront(entry)
 		dc.entries[hostname] = elem
 
-		// LRU eviction
 		for dc.order.Len() > cr.config.MaxEntriesPerDevice {
 			oldest := dc.order.Back()
 			if oldest != nil {
@@ -162,7 +140,6 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 	return ipv6, nil
 }
 
-// Stats returns cache statistics for all device caches.
 func (cr *CachingResolver) Stats() []model.DNSCacheStats {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
@@ -180,9 +157,6 @@ func (cr *CachingResolver) Stats() []model.DNSCacheStats {
 	return stats
 }
 
-// resolveDNS queries the DNS64 nameserver for AAAA records using miekg/dns.
-// Returns the first IPv6 address and the response TTL.
-// Must be called while inside the target network namespace.
 func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) (string, time.Duration, error) {
 	// Ensure hostname is FQDN for DNS wire format
 	fqdn := dns.Fqdn(hostname)
@@ -206,7 +180,6 @@ func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) 
 		return "", 0, fmt.Errorf("DNS query %s via %s: rcode %s", hostname, nameserver, dns.RcodeToString[resp.Rcode])
 	}
 
-	// Find first AAAA answer
 	for _, ans := range resp.Answer {
 		if aaaa, ok := ans.(*dns.AAAA); ok {
 			ip := aaaa.AAAA.String()
@@ -246,10 +219,6 @@ func (cr *CachingResolver) resolveDNS(hostname, nameserver, nat64Prefix string) 
 	return "", 0, fmt.Errorf("no AAAA or A record for %s via %s", hostname, nameserver)
 }
 
-// ResolveNative resolves a hostname to a genuine IPv6 address (not DNS64-synthesized).
-// Uses a separate cache key space ("native") to avoid collisions with DNS64 results.
-// Caches negative results (no native AAAA) for 60s to avoid repeated failed lookups.
-// Must be called while inside the target network namespace.
 func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix string) (string, error) {
 	key := deviceCacheKey{Nameserver: nameserver, NAT64Prefix: "native"}
 
@@ -263,7 +232,6 @@ func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix strin
 		cr.caches[key] = dc
 	}
 
-	// Check cache
 	if elem, ok := dc.entries[hostname]; ok {
 		entry := elem.Value.(*dnsEntry)
 		if time.Now().Before(entry.expiresAt) {
@@ -282,17 +250,13 @@ func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix strin
 	atomic.AddInt64(&dc.misses, 1)
 	cr.mu.Unlock()
 
-	// Cache miss — resolve natively
 	ipv6, ttl, err := cr.resolveDNSNative(hostname, nameserver, nat64Prefix)
 
-	// Determine what to cache
 	cacheValue := ipv6
 	if err != nil {
-		// Negative cache: remember "no native AAAA" to avoid repeated lookups
 		cacheValue = negativeEntry
 		ttl = negativeCacheTTL
 	} else {
-		// Clamp TTL for positive results
 		if ttl < cr.config.MinTTL {
 			ttl = cr.config.MinTTL
 		}
@@ -301,7 +265,6 @@ func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix strin
 		}
 	}
 
-	// Store in cache
 	cr.mu.Lock()
 	dc = cr.caches[key]
 	if dc != nil {
@@ -335,9 +298,6 @@ func (cr *CachingResolver) ResolveNative(hostname, nameserver, nat64Prefix strin
 	return ipv6, nil
 }
 
-// resolveDNSNative queries for real AAAA records (not DNS64-synthesized).
-// Filters out any AAAA starting with the NAT64 prefix.
-// Returns error if no genuine AAAA found.
 func (cr *CachingResolver) resolveDNSNative(hostname, nameserver, nat64Prefix string) (string, time.Duration, error) {
 	fqdn := dns.Fqdn(hostname)
 
@@ -360,7 +320,6 @@ func (cr *CachingResolver) resolveDNSNative(hostname, nameserver, nat64Prefix st
 		return "", 0, fmt.Errorf("native DNS query %s via %s: rcode %s", hostname, nameserver, dns.RcodeToString[resp.Rcode])
 	}
 
-	// Find first AAAA that is NOT a DNS64-synthesized address
 	for _, ans := range resp.Answer {
 		if aaaa, ok := ans.(*dns.AAAA); ok {
 			ip := aaaa.AAAA.String()

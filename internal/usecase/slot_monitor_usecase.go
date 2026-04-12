@@ -22,7 +22,7 @@ type SlotMonitorConfig struct {
 	SteadyInterval     time.Duration
 	RecoveryInterval   time.Duration
 	FastTicks          int
-	UnhealthyThreshold int // consecutive failures before marking unhealthy (default 3)
+	UnhealthyThreshold int
 }
 
 type SlotMonitorUseCase struct {
@@ -54,7 +54,7 @@ func NewSlotMonitorUseCase(
 	}
 }
 
-// StartSlot spawns a monitor goroutine for the given slot. Idempotent.
+// Idempotent.
 func (c *SlotMonitorUseCase) StartSlot(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -70,7 +70,6 @@ func (c *SlotMonitorUseCase) StartSlot(name string) {
 	c.Log.Debug("monitor started", "slot", name)
 }
 
-// StopSlot cancels the monitor goroutine for the given slot.
 func (c *SlotMonitorUseCase) StopSlot(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -82,7 +81,6 @@ func (c *SlotMonitorUseCase) StopSlot(name string) {
 	}
 }
 
-// StopAll cancels all monitor goroutines.
 func (c *SlotMonitorUseCase) StopAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -103,14 +101,12 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	}
 
 	// Rotation verification state (goroutine-local)
-	var pendingOldIPs []string // snapshot of pool before unknown IP appeared (nil = no verification)
-	absenceCount := 0          // consecutive fast checks where no pendingOldIP was seen
+	var pendingOldIPs []string 
+	absenceCount := 0      
 
-	// Initial burst: discover pool IPs + metadata
 	c.burstDetect(name)
 
 	for {
-		// Determine interval
 		interval := c.Config.SteadyInterval
 		state := "steady"
 		if fastTicks > 0 {
@@ -130,14 +126,12 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			slot.MonitorState = state
 		}
 
-		// Sleep or exit
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
 		}
 
-		// Single lightweight check (plain text, just IP)
 		resolveReq := &model.ResolveSlotRequest{SlotName: name}
 		ip, err := c.Discovery.ResolveSlotIP(resolveReq)
 		if err != nil {
@@ -174,9 +168,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		slot.Status = entity.SlotStatusHealthy
 
 		if !containsIP(slot.PublicIPv4s, ip) {
-			// Unknown IP — add to pool and start/continue rotation verification
 			if pendingOldIPs == nil {
-				// First unknown IP: snapshot the current pool before mutation
 				pendingOldIPs = make([]string, len(slot.PublicIPv4s))
 				copy(pendingOldIPs, slot.PublicIPv4s)
 				absenceCount = 0
@@ -185,18 +177,14 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			c.Log.Info("pool ip added", "slot", name, "ip", ip, "pool", poolKey(slot.PublicIPv4s))
 			fastTicks = c.Config.FastTicks
 		} else if pendingOldIPs != nil {
-			// Verification in progress — check if this IP is from the old pool
 			if containsIP(pendingOldIPs, ip) {
-				// Old IP still active — pool expansion, not rotation
 				c.Log.Info("pool expansion confirmed", "slot", name, "pool", poolKey(slot.PublicIPv4s))
 				pendingOldIPs = nil
 				absenceCount = 0
 			} else {
-				// IP is known but not from old pool — old IPs still absent
 				absenceCount++
 				c.Log.Debug("rotation verification", "slot", name, "absence", fmt.Sprintf("%d/%d", absenceCount, c.Config.FastTicks))
 				if absenceCount >= c.Config.FastTicks {
-					// Confirmed rotation: old IPs never reappeared
 					oldPool := poolKey(pendingOldIPs)
 					slot.PublicIPv4s = removeIPs(slot.PublicIPv4s, pendingOldIPs)
 					slot.IPChangeCount++
@@ -204,7 +192,6 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 					c.Log.Info("pool rotated", "slot", name, "old", oldPool, "new", poolKey(slot.PublicIPv4s))
 					pendingOldIPs = nil
 					absenceCount = 0
-					// Refresh metadata for the new pool
 					c.burstDetect(name)
 				}
 			}
@@ -215,18 +202,12 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 		}
 
-		// Update IPv6 (rarely changes but keep fresh)
+		// IPv6 rarely changes but keep it fresh
 		newIPv6, _ := c.Discovery.ResolveSlotIPv6(resolveReq)
 		c.updateIPv6(name, newIPv6)
 	}
 }
 
-// burstDetect makes up to 5 rapid IP checks using the JSON endpoint
-// to discover pool IPs and collect metadata (city, ASN, RTT).
-// On initial discovery, sets the pool. On subsequent calls (post-rotation),
-// merges new IPs into the existing pool. No classification logic —
-// rotation detection is handled by the sustained absence verification
-// in monitorSlot.
 func (c *SlotMonitorUseCase) burstDetect(name string) {
 	seen := make(map[string]bool)
 	var ips []string
@@ -268,12 +249,10 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 	}
 
 	if len(slot.PublicIPv4s) == 0 {
-		// Initial discovery
 		slot.PublicIPv4s = ips
 		slot.IPChangedAt = now
 		c.Log.Info("pool discovered", "slot", name, "pool", poolKey(ips))
 	} else {
-		// Merge any new IPs from burst into existing pool
 		for _, ip := range ips {
 			if !containsIP(slot.PublicIPv4s, ip) {
 				slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
@@ -293,8 +272,6 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 		c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 	}
 }
-
-
 
 func (c *SlotMonitorUseCase) updateIPv6(name string, ipv6 string) {
 	if slot, ok := c.SlotRepo.Get(name); ok {

@@ -12,7 +12,6 @@ import (
 	"github.com/riakgu/moxy/internal/entity"
 )
 
-// TrafficRepository is an in-memory, thread-safe store for per-destination traffic stats.
 type TrafficRepository struct {
 	Log        *slog.Logger
 	mu         sync.RWMutex
@@ -20,7 +19,6 @@ type TrafficRepository struct {
 	maxEntries int
 }
 
-// NewTrafficRepository creates a new traffic stats repository.
 func NewTrafficRepository(log *slog.Logger, maxEntries int) *TrafficRepository {
 	if maxEntries <= 0 {
 		maxEntries = 5000
@@ -32,10 +30,6 @@ func NewTrafficRepository(log *slog.Logger, maxEntries int) *TrafficRepository {
 	}
 }
 
-// Record gets or creates a traffic entry for the given key.
-// Increments ConnectionCount and updates LastSeenAt. Sets FirstSeenAt if new.
-// Does NOT increment ActiveConnections — caller does that after successful dial.
-// Returns the entry pointer so trackedConn can atomically update byte counters.
 func (r *TrafficRepository) Record(key entity.TrafficKey) *entity.TrafficEntry {
 	now := time.Now().UnixMilli()
 
@@ -74,7 +68,6 @@ func (r *TrafficRepository) Record(key entity.TrafficKey) *entity.TrafficEntry {
 	return entry
 }
 
-// List returns a snapshot of all entries, sorted by ConnectionCount descending.
 func (r *TrafficRepository) List() []*entity.TrafficEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -101,7 +94,6 @@ func (r *TrafficRepository) List() []*entity.TrafficEntry {
 	return result
 }
 
-// TotalByDevice sums RxBytes and TxBytes across all entries for a device.
 func (r *TrafficRepository) TotalByDevice(alias string) (rx, tx uint64) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -115,8 +107,6 @@ func (r *TrafficRepository) TotalByDevice(alias string) (rx, tx uint64) {
 	return rx, tx
 }
 
-// evictLowest removes the entry with the lowest ConnectionCount.
-// Must be called with write lock held.
 func (r *TrafficRepository) evictLowest() {
 	var lowestKey entity.TrafficKey
 	var lowestCount int64 = -1

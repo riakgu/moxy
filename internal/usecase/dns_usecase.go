@@ -6,18 +6,15 @@ import (
 	"github.com/riakgu/moxy/internal/model"
 )
 
-// DNSStatsProvider abstracts DNS cache statistics retrieval.
 type DNSStatsProvider interface {
 	Stats() []model.DNSCacheStats
 }
 
-// DNSUseCase provides DNS cache operations.
 type DNSUseCase struct {
 	Log      *slog.Logger
 	Resolver DNSStatsProvider
 }
 
-// NewDNSUseCase creates a new DNSUseCase.
 func NewDNSUseCase(log *slog.Logger, resolver DNSStatsProvider) *DNSUseCase {
 	return &DNSUseCase{
 		Log:      log,
@@ -25,7 +22,6 @@ func NewDNSUseCase(log *slog.Logger, resolver DNSStatsProvider) *DNSUseCase {
 	}
 }
 
-// GetCacheStats returns DNS cache statistics as a response model.
 func (uc *DNSUseCase) GetCacheStats() *model.DNSCacheStatsResponse {
 	rawStats := uc.Resolver.Stats()
 
