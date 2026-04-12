@@ -20,7 +20,7 @@ type SnapshotFunc func() (*InitPayload, error)
 type InitPayload struct {
 	Devices  []model.DeviceResponse          `json:"devices"`
 	Slots    []model.SlotResponse            `json:"slots"`
-	Logs     []LogEntry                      `json:"logs,omitempty"`
+	Logs     []model.LogEntry                 `json:"logs,omitempty"`
 	Traffic  *model.TrafficListResponse      `json:"traffic,omitempty"`
 	DNSStats *model.DNSCacheStatsResponse    `json:"dns_stats,omitempty"`
 }

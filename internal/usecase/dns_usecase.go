@@ -3,11 +3,12 @@ package usecase
 import (
 	"log/slog"
 
+	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 )
 
 type DNSStatsProvider interface {
-	Stats() []model.DNSCacheStats
+	Stats() []entity.DNSCacheStats
 }
 
 type DNSUseCase struct {

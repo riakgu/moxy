@@ -16,6 +16,7 @@ import (
 	"github.com/riakgu/moxy/internal/delivery/sse"
 	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/gateway/netns"
+	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -43,7 +44,8 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 		ringSize = 1000
 	}
 	level := parseLevel(cfg.Viper.GetString("log.level"))
-	ringHandler := sse.NewRingHandler(ringSize, level)
+	logRepo := repository.NewLogRepository(nil, ringSize)
+	ringHandler := sse.NewRingHandler(logRepo, level)
 
 	cfg.Logger = NewLoggerWithRing(cfg.Viper, ringHandler)
 
@@ -75,10 +77,10 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	adbGateway := adb.NewADBGateway(adbLog)
 	provisioner := netns.NewProvisioner(netnsLog)
 	discovery := netns.NewDiscovery(netnsLog, cfg.Viper.GetString("slots.ip_check_host"))
-	resolver := netns.NewCachingResolver(dnsLog, netns.CacheConfig{
-		MaxEntriesPerDevice: cfg.Viper.GetInt("dns.cache_max_entries_per_device"),
-		MinTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
-		MaxTTL:              time.Duration(cfg.Viper.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
+	dnsRepo := repository.NewDNSCacheRepository(dnsLog, cfg.Viper.GetInt("dns.cache_max_entries_per_device"))
+	resolver := netns.NewCachingResolver(dnsLog, dnsRepo, netns.CacheConfig{
+		MinTTL: time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
+		MaxTTL: time.Duration(cfg.Viper.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
 	})
 	dialer := netns.NewSetnsDialer(netnsLog, resolver)
 
@@ -158,7 +160,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, deviceLog, portHandler, slotUC.GetSlotNames)
 	slotCtrl := httpdelivery.NewSlotController(slotUC, slotLog, portHandler)
 
-	dnsUC := usecase.NewDNSUseCase(dnsLog, resolver)
+	dnsUC := usecase.NewDNSUseCase(dnsLog, dnsRepo)
 	dnsCtrl := httpdelivery.NewDNSController(dnsUC, dnsLog)
 
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
@@ -186,7 +188,7 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 			return nil, err
 		}
 		slots := slotUC.ListAll()
-		logs := ringHandler.GetRecent()
+		logs := converter.LogEntriesToResponse(logRepo.GetRecent())
 		traffic := trafficUC.ListTop(sseTrafficLimit)
 		dnsStats := dnsUC.GetCacheStats()
 		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs, Traffic: traffic, DNSStats: dnsStats}, nil
