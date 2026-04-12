@@ -14,7 +14,7 @@ export interface Device {
   interface: string
   nameserver: string
   nat64_prefix: string
-  status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
+  status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected' | 'removed'
   setup_step?: string
   slot_count: number
   unique_ips: number
@@ -103,6 +103,7 @@ export interface MoxyConfig {
     drain_timeout_seconds: number
   }
   slots: {
+    max_slots: number
     max_slots_per_device: number
     max_pool_size: number
     ip_check_host: string

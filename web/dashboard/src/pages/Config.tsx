@@ -51,6 +51,7 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'Slots',
     group: 'slots',
     fields: [
+      { key: 'max_slots', label: 'Max Slots', type: 'number', min: 1, max: 10000, description: 'Global maximum slots across all devices' },
       { key: 'max_slots_per_device', label: 'Max Slots Per Device', type: 'number', min: 1, max: 1000, description: 'Maximum network namespaces per USB device' },
       { key: 'max_pool_size', label: 'Max Pool Size', type: 'number', min: 1, description: 'Maximum IPs tracked per slot (oldest evicted when exceeded)' },
       { key: 'ip_check_host', label: 'IP Check Host', type: 'text', description: 'Hostname used for IP discovery checks' },

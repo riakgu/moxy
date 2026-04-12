@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { Device, Slot, TrafficList, DNSCacheStats } from '../api/types'
 import { setupDevice } from '../api/devices'
-import { provisionDevice, deleteDevice } from '../api/devices'
+import { provisionDevice, deleteDevice, resetDevice } from '../api/devices'
 import { changeSlotIP, deleteSlot } from '../api/slots'
 import StatsBar from '../components/StatsBar'
 import DeviceCard from '../components/DeviceCard'
@@ -66,9 +66,18 @@ export default function Dashboard() {
   const handleDeleteDevice = async (alias: string) => {
     try {
       await deleteDevice(alias)
-      addToast(`Deleted ${alias}`, 'success')
+      addToast(`Removed ${alias}`, 'success')
     } catch (e) {
-      addToast(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+      addToast(`Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+    }
+  }
+
+  const handleResetDevice = async (alias: string) => {
+    try {
+      await resetDevice(alias)
+      addToast(`Reset ${alias} — ready for re-setup`, 'success')
+    } catch (e) {
+      addToast(`Reset failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
@@ -165,6 +174,7 @@ export default function Dashboard() {
                 slots={slots.filter((s) => s.device_alias === device.alias)}
                 onProvision={handleProvision}
                 onDeleteDevice={handleDeleteDevice}
+                onResetDevice={handleResetDevice}
                 onSetupDevice={handleSetupDevice}
                 onChangeSlotIP={handleChangeSlotIP}
                 onDeleteSlot={handleDeleteSlot}

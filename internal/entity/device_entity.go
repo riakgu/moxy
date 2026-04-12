@@ -7,6 +7,7 @@ const (
 	DeviceStatusOnline       = "online"
 	DeviceStatusError        = "error"
 	DeviceStatusDisconnected = "disconnected"
+	DeviceStatusRemoved      = "removed"
 )
 
 type Device struct {

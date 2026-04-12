@@ -3,7 +3,9 @@
 package repository
 
 import (
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,21 +15,66 @@ import (
 )
 
 type SlotRepository struct {
-	Log     *slog.Logger
-	mu      sync.RWMutex
-	slots   map[string]*entity.Slot
-	slotSeq uint64
+	Log      *slog.Logger
+	mu       sync.RWMutex
+	slots    map[string]*entity.Slot
+	maxSlots int
+	freeList []int
+	usedSet  map[int]bool
 }
 
-func NewSlotRepository(log *slog.Logger) *SlotRepository {
+func NewSlotRepository(log *slog.Logger, maxSlots int) *SlotRepository {
+	if maxSlots <= 0 {
+		maxSlots = 1000
+	}
+	freeList := make([]int, maxSlots)
+	for i := 0; i < maxSlots; i++ {
+		freeList[i] = maxSlots - i // [maxSlots, ..., 2, 1] — pop gives 1 first
+	}
 	return &SlotRepository{
-		Log:   log,
-		slots: make(map[string]*entity.Slot),
+		Log:      log,
+		slots:    make(map[string]*entity.Slot),
+		maxSlots: maxSlots,
+		freeList: freeList,
+		usedSet:  make(map[int]bool),
 	}
 }
 
-func (r *SlotRepository) NextSlotIndex() int {
-	return int(atomic.AddUint64(&r.slotSeq, 1))
+func (r *SlotRepository) NextSlotIndex() (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.freeList) == 0 {
+		return 0, fmt.Errorf("slot pool exhausted (max %d)", r.maxSlots)
+	}
+	idx := r.freeList[len(r.freeList)-1]
+	r.freeList = r.freeList[:len(r.freeList)-1]
+	r.usedSet[idx] = true
+	return idx, nil
+}
+
+func (r *SlotRepository) releaseIndex(idx int) {
+	if !r.usedSet[idx] {
+		return
+	}
+	delete(r.usedSet, idx)
+	r.freeList = append(r.freeList, idx)
+}
+
+func parseSlotIdx(name string) (int, bool) {
+	if !strings.HasPrefix(name, "slot") {
+		return 0, false
+	}
+	idx, err := strconv.Atoi(name[4:])
+	if err != nil {
+		return 0, false
+	}
+	return idx, true
+}
+
+func (r *SlotRepository) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.slots)
 }
 
 func (r *SlotRepository) Put(slot *entity.Slot) {
@@ -46,7 +93,12 @@ func (r *SlotRepository) Get(name string) (*entity.Slot, bool) {
 func (r *SlotRepository) Delete(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.slots, name)
+	if _, ok := r.slots[name]; ok {
+		delete(r.slots, name)
+		if idx, ok := parseSlotIdx(name); ok {
+			r.releaseIndex(idx)
+		}
+	}
 }
 
 func (r *SlotRepository) SetStatus(name string, status string) {
@@ -113,6 +165,9 @@ func (r *SlotRepository) DeleteByDevice(deviceAlias string) int {
 	for name, slot := range r.slots {
 		if slot.DeviceAlias == deviceAlias {
 			delete(r.slots, name)
+			if idx, ok := parseSlotIdx(name); ok {
+				r.releaseIndex(idx)
+			}
 			removed++
 		}
 	}

@@ -37,13 +37,13 @@ type SlotDiscovery interface {
 const slaacWaitDuration = 5 * time.Second
 
 type SlotUseCase struct {
-	Log         *slog.Logger
-	SlotRepo    *repository.SlotRepository
-	Discovery   SlotDiscovery
-	Provisioner SlotProvisioner
-	MaxSlots    int
-	Monitor     *SlotMonitorUseCase
-	EventPub    EventPublisher
+	Log              *slog.Logger
+	SlotRepo         *repository.SlotRepository
+	Discovery        SlotDiscovery
+	Provisioner      SlotProvisioner
+	MaxSlotsPerDevice int
+	Monitor          *SlotMonitorUseCase
+	EventPub         EventPublisher
 }
 
 func NewSlotUseCase(
@@ -51,14 +51,17 @@ func NewSlotUseCase(
 	slotRepo *repository.SlotRepository,
 	discovery SlotDiscovery,
 	provisioner SlotProvisioner,
-	maxSlots int,
+	maxSlotsPerDevice int,
 ) *SlotUseCase {
+	if maxSlotsPerDevice <= 0 {
+		maxSlotsPerDevice = 250
+	}
 	return &SlotUseCase{
-		Log:         log,
-		SlotRepo:    slotRepo,
-		Discovery:   discovery,
-		Provisioner: provisioner,
-		MaxSlots:    maxSlots,
+		Log:              log,
+		SlotRepo:         slotRepo,
+		Discovery:        discovery,
+		Provisioner:      provisioner,
+		MaxSlotsPerDevice: maxSlotsPerDevice,
 	}
 }
 
@@ -215,6 +218,13 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 
 	existingCount := c.SlotRepo.CountByDevice(deviceAlias)
 
+	// Per-device cap
+	maxForDevice := c.MaxSlotsPerDevice
+	if count > maxForDevice {
+		c.Log.Warn("slot count capped by per-device limit", "device", deviceAlias, "requested", count, "max", maxForDevice)
+		count = maxForDevice
+	}
+
 	if existingCount >= count {
 		c.Log.Info("slots sufficient, skipping", "device", deviceAlias, "existing", existingCount, "requested", count)
 		return &model.ProvisionResponse{
@@ -224,22 +234,17 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		}, nil
 	}
 
-	target := count
-	if c.MaxSlots > 0 && target > c.MaxSlots {
-		c.Log.Warn("slot count capped", "max", c.MaxSlots)
-		target = c.MaxSlots
-	}
-
 	created := 0
 	failed := 0
-	toCreate := target - existingCount
-	if toCreate < 0 {
-		toCreate = 0
-	}
+	toCreate := count - existingCount
 
 	var createdNames []string
 	for i := 0; i < toCreate; i++ {
-		idx := c.SlotRepo.NextSlotIndex()
+		idx, err := c.SlotRepo.NextSlotIndex()
+		if err != nil {
+			c.Log.Warn("slot pool exhausted", "device", deviceAlias, "created_so_far", created, "error", err)
+			break
+		}
 		slotName := fmt.Sprintf("slot%d", idx)
 		c.Log.Info("provisioning slot", "slot", slotName, "progress", fmt.Sprintf("%d/%d", i+1, toCreate))
 		if err := c.Provisioner.CreateSlot(&model.CreateSlotRequest{SlotIndex: idx, Interface: iface, DNS64: dns64}); err != nil {
@@ -366,6 +371,7 @@ func (c *SlotUseCase) TeardownByDevice(deviceAlias string, drainTimeout time.Dur
 		if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: name}); err != nil {
 			c.Log.Warn("slot destroy failed", "device", deviceAlias, "slot", name, "error", err)
 		}
+		c.publishSlotRemoved(name)
 	}
 	removed := c.SlotRepo.DeleteByDevice(deviceAlias)
 	c.Log.Info("slots teardown complete", "device", deviceAlias, "slots_removed", removed)

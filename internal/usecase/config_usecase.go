@@ -117,8 +117,11 @@ func (uc *ConfigUseCase) validateConfig(cfg *model.MoxyConfig) map[string]string
 		errs["devices.drain_timeout_seconds"] = "must be >= 1"
 	}
 
-	if cfg.Slots.MaxSlotsPerDevice < 1 || cfg.Slots.MaxSlotsPerDevice > 1000 {
-		errs["slots.max_slots_per_device"] = "must be between 1 and 1000"
+	if cfg.Slots.MaxSlots < 1 || cfg.Slots.MaxSlots > 10000 {
+		errs["slots.max_slots"] = "must be between 1 and 10000"
+	}
+	if cfg.Slots.MaxSlotsPerDevice < 1 || cfg.Slots.MaxSlotsPerDevice > cfg.Slots.MaxSlots {
+		errs["slots.max_slots_per_device"] = fmt.Sprintf("must be between 1 and %d (max_slots)", cfg.Slots.MaxSlots)
 	}
 	if cfg.Slots.MaxPoolSize < 1 {
 		errs["slots.max_pool_size"] = "must be >= 1"

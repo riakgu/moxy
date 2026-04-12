@@ -99,6 +99,12 @@ func (c *SlotController) Cleanup(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	if c.PortHandler != nil {
+		slotNames := c.UseCase.GetSlotNames()
+		c.PortHandler.SyncSlots(slotNames)
+		c.PortHandler.SyncSlotsIPv6(slotNames)
+	}
+
 	return ctx.JSON(model.WebResponse[model.CleanupResponse]{
 		Data: model.CleanupResponse{Cleaned: cleaned},
 	})

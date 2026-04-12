@@ -21,7 +21,8 @@
         "drain_timeout_seconds": 10
     },
     "slots": {
-        "max_slots_per_device": 250,
+        "max_slots": 1000,
+        "max_slots_per_device": 500,
         "max_pool_size": 3,
         "ip_check_host": "ip.moxy.my.id",
         "monitor_fast_interval_seconds": 10,

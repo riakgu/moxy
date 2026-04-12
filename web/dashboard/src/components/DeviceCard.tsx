@@ -7,6 +7,7 @@ interface DeviceCardProps {
   slots: Slot[]
   onProvision: (alias: string, count: number) => Promise<void>
   onDeleteDevice: (alias: string) => Promise<void>
+  onResetDevice: (alias: string) => Promise<void>
   onSetupDevice: (alias: string) => Promise<void>
   onChangeSlotIP: (name: string) => Promise<void>
   onDeleteSlot: (name: string) => Promise<void>
@@ -22,6 +23,7 @@ const deviceStatusStyles: Record<string, { dot: string; text: string; class: str
   disconnected: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Disconnected', class: 'text-accent-amber' },
   error: { dot: 'bg-accent-red', text: 'Error', class: 'text-accent-red' },
   offline: { dot: 'bg-text-muted', text: 'Offline', class: 'text-text-muted' },
+  removed: { dot: 'bg-text-muted', text: 'Removed', class: 'text-text-muted' },
 }
 
 const setupStepLabels: Record<string, string> = {
@@ -48,7 +50,7 @@ const formatBytes = (bytes: number): string => {
 }
 
 export default function DeviceCard({
-  device, slots, onProvision, onDeleteDevice, onSetupDevice,
+  device, slots, onProvision, onDeleteDevice, onResetDevice, onSetupDevice,
   onChangeSlotIP, onDeleteSlot, host, animationDelay, trafficTotals,
 }: DeviceCardProps) {
   const [expanded, setExpanded] = useState(false)
@@ -56,6 +58,7 @@ export default function DeviceCard({
   const [provisioning, setProvisioning] = useState(false)
   const [settingUp, setSettingUp] = useState(false)
   const [deletingDevice, setDeletingDevice] = useState(false)
+  const [resettingDevice, setResettingDevice] = useState(false)
 
   const isDetected = device.status === 'detected'
   const isOnline = device.status === 'online'
@@ -82,12 +85,22 @@ export default function DeviceCard({
   }
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete ${device.alias}? This will destroy all its slots and namespaces.`)) return
+    if (!window.confirm(`Remove ${device.alias}? This will destroy all its slots and prevent auto-reconnect.`)) return
     setDeletingDevice(true)
     try {
       await onDeleteDevice(device.alias)
     } finally {
       setDeletingDevice(false)
+    }
+  }
+
+  const handleReset = async () => {
+    if (!window.confirm(`Reset ${device.alias}? This will destroy all its slots but keep the device as detected.`)) return
+    setResettingDevice(true)
+    try {
+      await onResetDevice(device.alias)
+    } finally {
+      setResettingDevice(false)
     }
   }
 
@@ -201,12 +214,20 @@ export default function DeviceCard({
               </button>
             </div>
             <button
+              onClick={handleReset}
+              disabled={resettingDevice}
+              className="px-3 py-1.5 text-xs font-medium rounded bg-accent-amber/10 text-accent-amber
+                hover:bg-accent-amber/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
+            >
+              {resettingDevice ? 'Resetting...' : 'Reset'}
+            </button>
+            <button
               onClick={handleDelete}
               disabled={deletingDevice}
               className="px-3 py-1.5 text-xs font-medium rounded bg-accent-red/10 text-accent-red
                 hover:bg-accent-red/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
             >
-              {deletingDevice ? 'Deleting...' : 'Delete Device'}
+              {deletingDevice ? 'Removing...' : 'Remove'}
             </button>
           </>
         )}

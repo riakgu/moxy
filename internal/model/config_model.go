@@ -36,6 +36,7 @@ type DevicesConfig struct {
 }
 
 type SlotsConfig struct {
+	MaxSlots                       int    `json:"max_slots"`
 	MaxSlotsPerDevice              int    `json:"max_slots_per_device"`
 	MaxPoolSize                    int    `json:"max_pool_size"`
 	IPCheckHost                    string `json:"ip_check_host"`

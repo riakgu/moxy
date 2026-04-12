@@ -118,7 +118,7 @@ func (b *bootstrapper) initLogging() {
 
 func (b *bootstrapper) initRepositories() {
 	b.deviceRepo = repository.NewDeviceRepository(b.deviceLog)
-	b.slotRepo = repository.NewSlotRepository(b.slotLog)
+	b.slotRepo = repository.NewSlotRepository(b.slotLog, b.v.GetInt("slots.max_slots"))
 	b.trafficRepo = repository.NewTrafficRepository(b.trafficLog, b.v.GetInt("traffic.max_tracked"))
 	b.dnsRepo = repository.NewDNSCacheRepository(b.dnsLog, b.v.GetInt("dns.cache_max_entries_per_device"))
 }

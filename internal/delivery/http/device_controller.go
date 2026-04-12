@@ -81,6 +81,14 @@ func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
 	return ctx.JSON(model.WebResponse[bool]{Data: true})
 }
 
+func (c *DeviceController) Reset(ctx *fiber.Ctx) error {
+	if err := c.DeviceUC.Reset(&model.DeleteDeviceRequest{Alias: ctx.Params("alias")}); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	c.syncPorts()
+	return ctx.JSON(model.WebResponse[bool]{Data: true})
+}
+
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 	req := new(model.ProvisionRequest)
 	if err := ctx.BodyParser(req); err != nil {

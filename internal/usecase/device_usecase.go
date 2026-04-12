@@ -249,8 +249,23 @@ func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
 		return fmt.Errorf("device %s not found", alias)
 	}
 	c.teardownDevice(device)
-	c.DeviceRepo.Delete(device.Serial)
+	device.Status = entity.DeviceStatusRemoved
+	c.DeviceRepo.Put(device)
 	c.publishDeviceRemoved(alias)
+	return nil
+}
+
+func (c *DeviceUseCase) Reset(req *model.DeleteDeviceRequest) error {
+	alias := req.Alias
+	device, ok := c.DeviceRepo.GetByAlias(alias)
+	if !ok {
+		return fmt.Errorf("device %s not found", alias)
+	}
+	c.teardownDevice(device)
+	device.Status = entity.DeviceStatusDetected
+	device.SetupStep = ""
+	c.DeviceRepo.Put(device)
+	c.publishDevice(alias)
 	return nil
 }
 
@@ -307,6 +322,10 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	}
 
 	if device, exists := c.DeviceRepo.GetBySerial(serial); exists {
+		// Skip removed devices — watcher should not re-add them
+		if device.Status == entity.DeviceStatusRemoved {
+			return
+		}
 		// If device was offline/error (e.g. grace expired), reset to detected
 		if device.Status == entity.DeviceStatusOffline || device.Status == entity.DeviceStatusError {
 			device.Status = entity.DeviceStatusDetected

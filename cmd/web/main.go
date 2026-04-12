@@ -56,10 +56,19 @@ func main() {
 	log.Info("shutdown initiated")
 	watchCancel()
 	b.SlotMonitor.StopAll()
+
+	// Teardown all slots (destroy namespaces) before closing ports
+	log.Info("tearing down all slots")
+	drainTimeout := time.Duration(v.GetInt("devices.drain_timeout_seconds")) * time.Second
+	devices, _ := b.DeviceUseCase.List()
+	for _, d := range devices {
+		b.SlotUseCase.TeardownByDevice(d.Alias, drainTimeout)
+	}
+
 	b.EventHub.Shutdown()
 
-	drainTimeout := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+	shutdownDrain := time.Duration(v.GetInt("server.shutdown_drain_seconds")) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 	defer cancel()
 
 	log.Info("stopping proxy listeners")
@@ -67,7 +76,7 @@ func main() {
 		log.Warn("proxy shutdown incomplete", "error", err)
 	}
 
-	if err := app.ShutdownWithTimeout(drainTimeout); err != nil {
+	if err := app.ShutdownWithTimeout(shutdownDrain); err != nil {
 		log.Error("api shutdown failed", "error", err)
 	}
 
