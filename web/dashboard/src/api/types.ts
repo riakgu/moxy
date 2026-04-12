@@ -104,6 +104,7 @@ export interface MoxyConfig {
   }
   slots: {
     max_slots_per_device: number
+    max_pool_size: number
     ip_check_host: string
     monitor_fast_interval_seconds: number
     monitor_steady_interval_seconds: number

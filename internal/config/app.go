@@ -149,6 +149,7 @@ func (b *bootstrapper) initUseCases() {
 		RecoveryInterval:   time.Duration(b.v.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
 		FastTicks:          b.v.GetInt("slots.monitor_fast_ticks"),
 		UnhealthyThreshold: b.v.GetInt("slots.monitor_unhealthy_threshold"),
+		MaxPoolSize:        b.v.GetInt("slots.max_pool_size"),
 	}
 	b.slotMonitor = usecase.NewSlotMonitorUseCase(b.monitorLog, b.slotRepo, b.discovery, b.provisioner, monitorConfig)
 	b.slotUC.SetMonitor(b.slotMonitor)

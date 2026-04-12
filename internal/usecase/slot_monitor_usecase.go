@@ -4,7 +4,6 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ type SlotMonitorConfig struct {
 	RecoveryInterval   time.Duration
 	FastTicks          int
 	UnhealthyThreshold int
+	MaxPoolSize        int
 }
 
 type SlotMonitorUseCase struct {
@@ -58,6 +58,9 @@ func NewSlotMonitorUseCase(
 	}
 	if config.UnhealthyThreshold == 0 {
 		config.UnhealthyThreshold = 3
+	}
+	if config.MaxPoolSize == 0 {
+		config.MaxPoolSize = 3
 	}
 	return &SlotMonitorUseCase{
 		Log:         log,
@@ -111,10 +114,6 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	fastTicks := c.Config.FastTicks
 	consecutiveFails := 0
 	threshold := c.Config.UnhealthyThreshold
-
-	// Rotation verification state (goroutine-local)
-	var pendingOldIPs []string 
-	absenceCount := 0      
 
 	c.burstDetect(name)
 
@@ -180,32 +179,19 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		slot.Status = entity.SlotStatusHealthy
 
 		if !containsIP(slot.PublicIPv4s, ip) {
-			if pendingOldIPs == nil {
-				pendingOldIPs = make([]string, len(slot.PublicIPv4s))
-				copy(pendingOldIPs, slot.PublicIPv4s)
-				absenceCount = 0
-			}
 			slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
-			c.Log.Info("pool ip added", "slot", name, "ip", ip, "pool", poolKey(slot.PublicIPv4s))
+			c.capPool(slot)
+			slot.IPChangeCount++
+			slot.IPChangedAt = time.Now().UnixMilli()
+			c.Log.Info("ip changed", "slot", name, "ip", ip, "pool", poolKey(slot.PublicIPv4s))
 			fastTicks = c.Config.FastTicks
-		} else if pendingOldIPs != nil {
-			if containsIP(pendingOldIPs, ip) {
-				c.Log.Info("pool expansion confirmed", "slot", name, "pool", poolKey(slot.PublicIPv4s))
-				pendingOldIPs = nil
-				absenceCount = 0
-			} else {
-				absenceCount++
-				c.Log.Debug("rotation verification", "slot", name, "absence", fmt.Sprintf("%d/%d", absenceCount, c.Config.FastTicks))
-				if absenceCount >= c.Config.FastTicks {
-					oldPool := poolKey(pendingOldIPs)
-					slot.PublicIPv4s = removeIPs(slot.PublicIPv4s, pendingOldIPs)
-					slot.IPChangeCount++
-					slot.IPChangedAt = time.Now().UnixMilli()
-					c.Log.Info("pool rotated", "slot", name, "old", oldPool, "new", poolKey(slot.PublicIPv4s))
-					pendingOldIPs = nil
-					absenceCount = 0
-					c.burstDetect(name)
-				}
+
+			// Refresh geo info on IP change
+			if info, err := c.Discovery.ResolveSlotIPInfo(resolveReq); err == nil {
+				slot.City = info.City
+				slot.ASN = info.ASN
+				slot.Org = info.Org
+				slot.RTT = info.RTT
 			}
 		}
 
@@ -271,6 +257,7 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 			}
 		}
 	}
+	c.capPool(slot)
 
 	slot.City = city
 	slot.ASN = asn
@@ -282,6 +269,12 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 
 	if c.EventPub != nil {
 		c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+	}
+}
+
+func (c *SlotMonitorUseCase) capPool(slot *entity.Slot) {
+	if len(slot.PublicIPv4s) > c.Config.MaxPoolSize {
+		slot.PublicIPv4s = slot.PublicIPv4s[len(slot.PublicIPv4s)-c.Config.MaxPoolSize:]
 	}
 }
 
@@ -328,19 +321,4 @@ func poolKey(ips []string) string {
 	copy(sorted, ips)
 	sort.Strings(sorted)
 	return strings.Join(sorted, ", ")
-}
-
-// removeIPs returns a new slice with all IPs in 'remove' excluded from 'pool'.
-func removeIPs(pool, remove []string) []string {
-	removeSet := make(map[string]bool, len(remove))
-	for _, ip := range remove {
-		removeSet[ip] = true
-	}
-	var result []string
-	for _, ip := range pool {
-		if !removeSet[ip] {
-			result = append(result, ip)
-		}
-	}
-	return result
 }

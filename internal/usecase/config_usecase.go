@@ -120,6 +120,9 @@ func (uc *ConfigUseCase) validateConfig(cfg *model.MoxyConfig) map[string]string
 	if cfg.Slots.MaxSlotsPerDevice < 1 || cfg.Slots.MaxSlotsPerDevice > 1000 {
 		errs["slots.max_slots_per_device"] = "must be between 1 and 1000"
 	}
+	if cfg.Slots.MaxPoolSize < 1 {
+		errs["slots.max_pool_size"] = "must be >= 1"
+	}
 	if cfg.Slots.IPCheckHost == "" {
 		errs["slots.ip_check_host"] = "must not be empty"
 	}
