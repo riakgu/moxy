@@ -16,6 +16,7 @@ import (
 	"github.com/riakgu/moxy/internal/delivery/sse"
 	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/gateway/netns"
+	"github.com/riakgu/moxy/internal/gateway/systemd"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 	"github.com/riakgu/moxy/internal/usecase"
@@ -165,9 +166,11 @@ func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
 
 	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
 
+	systemdGW := systemd.NewSystemdGateway(cfg.Logger.With("component", "systemd"), "moxy")
+	configUC := usecase.NewConfigUseCase(cfg.Logger.With("component", "config"), "config.json", systemdGW)
 	configCtrl := httpdelivery.NewConfigController(
 		cfg.Logger.With("component", "config"),
-		"config.json",
+		configUC,
 	)
 
 	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
