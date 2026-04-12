@@ -21,50 +21,13 @@ type ProxyDialer interface {
 	DialIPv6UDP(req *model.DialRequest) (*net.UDPConn, error)
 }
 
-type BalancingStrategy func(slots []*entity.Slot) *entity.Slot
-
-func NewBalancingStrategy(name string) BalancingStrategy {
-	switch name {
-	case "round-robin":
-		return newRoundRobin()
-	case "least-connections":
-		return leastConnections
-	default:
-		return randomBalancing
-	}
-}
-
-func randomBalancing(slots []*entity.Slot) *entity.Slot {
-	return slots[rand.Intn(len(slots))]
-}
-
-func newRoundRobin() BalancingStrategy {
-	var index uint64
-	return func(slots []*entity.Slot) *entity.Slot {
-		idx := atomic.AddUint64(&index, 1)
-		return slots[idx%uint64(len(slots))]
-	}
-}
-
-func leastConnections(slots []*entity.Slot) *entity.Slot {
-	best := slots[0]
-	bestConns := atomic.LoadInt64(&best.ActiveConnections)
-	for _, slot := range slots[1:] {
-		conns := atomic.LoadInt64(&slot.ActiveConnections)
-		if conns < bestConns {
-			best = slot
-			bestConns = conns
-		}
-	}
-	return best
-}
-
 type ProxyUseCase struct {
 	Log           *slog.Logger
 	SlotRepo      *repository.SlotRepository
 	DeviceRepo    *repository.DeviceRepository
 	Dialer        ProxyDialer
-	Strategy      BalancingStrategy
+	strategy      string
+	rrIndex       uint64
 	TrafficRepo   *repository.TrafficRepository
 	EventPub      EventPublisher
 	TrafficUC     *TrafficUseCase
@@ -77,7 +40,7 @@ func NewProxyUseCase(
 	slotRepo *repository.SlotRepository,
 	deviceRepo *repository.DeviceRepository,
 	dialer ProxyDialer,
-	strategy BalancingStrategy,
+	strategy string,
 	trafficRepo *repository.TrafficRepository,
 ) *ProxyUseCase {
 	return &ProxyUseCase{
@@ -85,7 +48,7 @@ func NewProxyUseCase(
 		SlotRepo:    slotRepo,
 		DeviceRepo:  deviceRepo,
 		Dialer:      dialer,
-		Strategy:    strategy,
+		strategy:    strategy,
 		TrafficRepo: trafficRepo,
 	}
 }
@@ -118,7 +81,36 @@ func (c *ProxyUseCase) selectSlot(slots []*entity.Slot) (*entity.Slot, error) {
 	if len(slots) == 0 {
 		return nil, model.ErrNoSlotsAvailable
 	}
-	return c.Strategy(slots), nil
+	switch c.strategy {
+	case "round-robin":
+		return c.roundRobin(slots), nil
+	case "least-connections":
+		return c.leastConnections(slots), nil
+	default:
+		return c.random(slots), nil
+	}
+}
+
+func (c *ProxyUseCase) random(slots []*entity.Slot) *entity.Slot {
+	return slots[rand.Intn(len(slots))]
+}
+
+func (c *ProxyUseCase) roundRobin(slots []*entity.Slot) *entity.Slot {
+	idx := atomic.AddUint64(&c.rrIndex, 1)
+	return slots[idx%uint64(len(slots))]
+}
+
+func (c *ProxyUseCase) leastConnections(slots []*entity.Slot) *entity.Slot {
+	best := slots[0]
+	bestConns := atomic.LoadInt64(&best.ActiveConnections)
+	for _, slot := range slots[1:] {
+		conns := atomic.LoadInt64(&slot.ActiveConnections)
+		if conns < bestConns {
+			best = slot
+			bestConns = conns
+		}
+	}
+	return best
 }
 
 func (c *ProxyUseCase) PickSlot() (string, error) {
