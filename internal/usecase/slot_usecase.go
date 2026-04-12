@@ -16,22 +16,22 @@ import (
 )
 
 type SlotProvisioner interface {
-	CreateSlot(slotIndex int, iface string, dns64 string) error
-	DestroySlot(name string) error
-	ReattachSlot(slotName string, iface string) error
-	EnableNDPProxy(iface string) error
-	AddNDPProxyEntry(ipv6 string, iface string) error
-	RemoveNDPProxyEntry(ipv6 string, iface string) error
+	CreateSlot(req *model.CreateSlotRequest) error
+	DestroySlot(req *model.DestroySlotRequest) error
+	ReattachSlot(req *model.ReattachSlotRequest) error
+	EnableNDPProxy(req *model.EnableNDPProxyRequest) error
+	AddNDPProxyEntry(req *model.NDPProxyEntryRequest) error
+	RemoveNDPProxyEntry(req *model.NDPProxyEntryRequest) error
 	ListSlotNamespaces() ([]string, error)
-	CleanupNamespaces(keep []string) (int, error)
-	ConfigureDHCP(iface string) error
-	ConfigureIPv6SLAAC(iface string) error
+	CleanupNamespaces(req *model.CleanupNamespacesRequest) (int, error)
+	ConfigureDHCP(req *model.ConfigureDHCPRequest) error
+	ConfigureIPv6SLAAC(req *model.ConfigureIPv6SLAACRequest) error
 }
 
 type SlotDiscovery interface {
-	ResolveSlotIP(slotName string) (string, error)
-	ResolveSlotIPInfo(slotName string) (ip, city, asn, org, rtt string, err error)
-	ResolveSlotIPv6(slotName string) (string, error)
+	ResolveSlotIP(req *model.ResolveSlotRequest) (string, error)
+	ResolveSlotIPInfo(req *model.ResolveSlotRequest) (*model.SlotIPInfoResult, error)
+	ResolveSlotIPv6(req *model.ResolveSlotRequest) (string, error)
 }
 
 const slaacWaitDuration = 5 * time.Second
@@ -141,31 +141,32 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 
 	// Remove old NDP proxy
 	if oldIPv6 != "" {
-		if err := c.Provisioner.RemoveNDPProxyEntry(oldIPv6, iface); err != nil {
+		if err := c.Provisioner.RemoveNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: oldIPv6, Interface: iface}); err != nil {
 			c.Log.Warn("failed to remove old ndp proxy", "slot", slotName, "ipv6", oldIPv6, "error", err)
 		}
 	}
 
 	// Destroy + recreate
-	if err := c.Provisioner.DestroySlot(slotName); err != nil {
+	if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: slotName}); err != nil {
 		c.Log.Warn("failed to destroy slot for reroll", "slot", slotName, "error", err)
 	}
-	if err := c.Provisioner.CreateSlot(slotIndex, iface, dns64); err != nil {
+	if err := c.Provisioner.CreateSlot(&model.CreateSlotRequest{SlotIndex: slotIndex, Interface: iface, DNS64: dns64}); err != nil {
 		return "", "", fmt.Errorf("recreate %s: %w", slotName, err)
 	}
 
 	time.Sleep(slaacWaitDuration)
 
 	// Resolve new IPs
-	newIPv4, err = c.Discovery.ResolveSlotIP(slotName)
+	resolveReq := &model.ResolveSlotRequest{SlotName: slotName}
+	newIPv4, err = c.Discovery.ResolveSlotIP(resolveReq)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve %s: %w", slotName, err)
 	}
-	newIPv6, _ = c.Discovery.ResolveSlotIPv6(slotName)
+	newIPv6, _ = c.Discovery.ResolveSlotIPv6(resolveReq)
 
 	// Add new NDP proxy
 	if newIPv6 != "" {
-		if err := c.Provisioner.AddNDPProxyEntry(newIPv6, iface); err != nil {
+		if err := c.Provisioner.AddNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: newIPv6, Interface: iface}); err != nil {
 			c.Log.Warn("failed to add ndp proxy", "slot", slotName, "ipv6", newIPv6, "error", err)
 		}
 	}
@@ -190,10 +191,10 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 
 	slot, ok := c.SlotRepo.Get(request.SlotName)
 	if !ok {
-		return nil, entity.ErrSlotNotFound
+		return nil, model.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		return nil, entity.ErrSlotBusy
+		return nil, model.ErrSlotBusy
 	}
 
 	slot.Status = entity.SlotStatusDiscovering
@@ -223,7 +224,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 	dns64 := nameserver
 
 	// Enable NDP proxy on the interface
-	if err := c.Provisioner.EnableNDPProxy(iface); err != nil {
+	if err := c.Provisioner.EnableNDPProxy(&model.EnableNDPProxyRequest{Interface: iface}); err != nil {
 		return nil, fmt.Errorf("enable NDP proxy: %w", err)
 	}
 
@@ -259,7 +260,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		idx := c.SlotRepo.NextSlotIndex()
 		slotName := fmt.Sprintf("slot%d", idx)
 		c.Log.Info("provisioning slot", "slot", slotName, "progress", fmt.Sprintf("%d/%d", i+1, toCreate))
-		if err := c.Provisioner.CreateSlot(idx, iface, dns64); err != nil {
+		if err := c.Provisioner.CreateSlot(&model.CreateSlotRequest{SlotIndex: idx, Interface: iface, DNS64: dns64}); err != nil {
 			c.Log.Error("provision failed", "slot", slotName, "error", err)
 			failed++
 			continue
@@ -314,7 +315,8 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 }
 
 
-func (c *SlotUseCase) DestroySlot(slotName string) error {
+func (c *SlotUseCase) DestroySlot(req *model.DeleteSlotRequest) error {
+	slotName := req.SlotName
 	// Stop monitor goroutine first
 	if c.Monitor != nil {
 		c.Monitor.StopSlot(slotName)
@@ -322,10 +324,10 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 
 	slot, ok := c.SlotRepo.Get(slotName)
 	if !ok {
-		return entity.ErrSlotNotFound
+		return model.ErrSlotNotFound
 	}
 	if atomic.LoadInt64(&slot.ActiveConnections) > 0 {
-		return entity.ErrSlotBusy
+		return model.ErrSlotBusy
 	}
 
 	// Capture before deleting from repo
@@ -335,12 +337,12 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 	c.publishSlotRemoved(slotName)
 
 	if ipv6 != "" && iface != "" {
-		if err := c.Provisioner.RemoveNDPProxyEntry(ipv6, iface); err != nil {
+		if err := c.Provisioner.RemoveNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: ipv6, Interface: iface}); err != nil {
 			c.Log.Warn("ndp proxy removal failed", "slot", slotName, "error", err)
 		}
 	}
 
-	if err := c.Provisioner.DestroySlot(slotName); err != nil {
+	if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: slotName}); err != nil {
 		return fmt.Errorf("destroy %s: %w", slotName, err)
 	}
 
@@ -352,7 +354,7 @@ func (c *SlotUseCase) DestroySlot(slotName string) error {
 // tracked in the in-memory SlotRepository.
 func (uc *SlotUseCase) CleanupOrphans() (int, error) {
 	tracked := uc.SlotRepo.ListAllNames()
-	cleaned, err := uc.Provisioner.CleanupNamespaces(tracked)
+	cleaned, err := uc.Provisioner.CleanupNamespaces(&model.CleanupNamespacesRequest{Keep: tracked})
 	if err != nil {
 		return 0, fmt.Errorf("cleanup orphans: %w", err)
 	}
@@ -387,7 +389,7 @@ func (c *SlotUseCase) TeardownByDevice(deviceAlias string, drainTimeout time.Dur
 				c.Log.Warn("forcing slot destroy", "device", deviceAlias, "slot", name, "active_connections", remaining)
 			}
 		}
-		if err := c.Provisioner.DestroySlot(name); err != nil {
+		if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: name}); err != nil {
 			c.Log.Warn("slot destroy failed", "device", deviceAlias, "slot", name, "error", err)
 		}
 	}
@@ -400,7 +402,7 @@ func (c *SlotUseCase) ReattachByDevice(deviceAlias string, iface string) int {
 	slotNames := c.SlotRepo.ListNamesForDevice(deviceAlias)
 	reattached := 0
 	for _, name := range slotNames {
-		if err := c.Provisioner.ReattachSlot(name, iface); err != nil {
+		if err := c.Provisioner.ReattachSlot(&model.ReattachSlotRequest{SlotName: name, Interface: iface}); err != nil {
 			c.Log.Warn("slot re-attach failed", "slot", name, "error", err)
 			c.SlotRepo.SetStatus(name, entity.SlotStatusUnhealthy)
 			continue

@@ -3,18 +3,22 @@ package usecase
 import (
 	"log/slog"
 
-	"github.com/riakgu/moxy/internal/gateway/netns"
 	"github.com/riakgu/moxy/internal/model"
 )
+
+// DNSStatsProvider abstracts DNS cache statistics retrieval.
+type DNSStatsProvider interface {
+	Stats() []model.DNSCacheStats
+}
 
 // DNSUseCase provides DNS cache operations.
 type DNSUseCase struct {
 	Log      *slog.Logger
-	Resolver *netns.CachingResolver
+	Resolver DNSStatsProvider
 }
 
 // NewDNSUseCase creates a new DNSUseCase.
-func NewDNSUseCase(log *slog.Logger, resolver *netns.CachingResolver) *DNSUseCase {
+func NewDNSUseCase(log *slog.Logger, resolver DNSStatsProvider) *DNSUseCase {
 	return &DNSUseCase{
 		Log:      log,
 		Resolver: resolver,

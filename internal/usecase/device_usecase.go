@@ -11,7 +11,6 @@ import (
 	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
-	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
@@ -19,6 +18,19 @@ import (
 
 type ISPProber interface {
 	Probe(hintDNS []string) (*model.ISPProbeResult, error)
+}
+
+type ADBOperator interface {
+	ListDevices() ([]string, error)
+	IsScreenUnlocked(req *model.ADBDeviceRequest) (bool, error)
+	EnableTethering(req *model.ADBDeviceRequest) error
+	EnableData(req *model.ADBDeviceRequest) error
+	DismissDataDialog(req *model.ADBDeviceRequest) error
+	DisableWifi(req *model.ADBDeviceRequest) error
+	GetDeviceInfo(req *model.ADBDeviceRequest) *model.ADBDeviceInfoResult
+	GetCarrier(req *model.ADBDeviceRequest) (string, error)
+	GetDNSServers(req *model.ADBDeviceRequest) ([]string, error)
+	DetectInterfaceForSerial(req *model.ADBDeviceRequest) (string, error)
 }
 
 type SlotProvisionService interface {
@@ -37,7 +49,7 @@ type DeviceWatcher interface {
 type DeviceUseCase struct {
 	Log           *slog.Logger
 	DeviceRepo    *repository.DeviceRepository
-	ADB           *adb.ADBGateway
+	ADB           ADBOperator
 	Provisioner   SlotProvisioner
 	SlotRepo      *repository.SlotRepository
 	SlotProvision SlotProvisionService
@@ -55,7 +67,7 @@ type DeviceUseCase struct {
 func NewDeviceUseCase(
 	log *slog.Logger,
 	deviceRepo *repository.DeviceRepository,
-	adbGW *adb.ADBGateway,
+	adbGW ADBOperator,
 	provisioner SlotProvisioner,
 	slotRepo *repository.SlotRepository,
 	slotProvision SlotProvisionService,
@@ -88,7 +100,7 @@ func (c *DeviceUseCase) publishDevice(alias string) {
 	if c.EventPub == nil {
 		return
 	}
-	resp, err := c.GetByAlias(alias)
+	resp, err := c.GetByAlias(&model.GetDeviceRequest{Alias: alias})
 	if err != nil {
 		return
 	}
@@ -163,13 +175,14 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 
 // Setup runs the full setup pipeline for a single detected device.
 // Configures tethering, network interface, DNS64, and auto-provisions 1 slot.
-func (c *DeviceUseCase) Setup(ctx context.Context, alias string) (*model.SetupResponse, error) {
+func (c *DeviceUseCase) Setup(ctx context.Context, req *model.SetupDeviceRequest) (*model.SetupResponse, error) {
+	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
 	if !ok {
 		return nil, fmt.Errorf("device %s not found", alias)
 	}
 	if device.Status != entity.DeviceStatusDetected {
-		return nil, entity.ErrDeviceNotDetected
+		return nil, model.ErrDeviceNotDetected
 	}
 
 	device.Status = entity.DeviceStatusSetup
@@ -225,7 +238,8 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 }
 
 // GetByAlias returns a single device by alias.
-func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) {
+func (c *DeviceUseCase) GetByAlias(req *model.GetDeviceRequest) (*model.DeviceResponse, error) {
+	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
 	if !ok {
 		return nil, fmt.Errorf("device %s not found", alias)
@@ -237,7 +251,8 @@ func (c *DeviceUseCase) GetByAlias(alias string) (*model.DeviceResponse, error) 
 }
 
 // Delete tears down a device and removes it from memory.
-func (c *DeviceUseCase) Delete(alias string) error {
+func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
+	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
 	if !ok {
 		return fmt.Errorf("device %s not found", alias)
@@ -360,7 +375,7 @@ func (c *DeviceUseCase) smartReconnect(serial string) {
 		return
 	}
 
-	iface, err := c.ADB.DetectInterfaceForSerial(serial)
+	iface, err := c.ADB.DetectInterfaceForSerial(&model.ADBDeviceRequest{Serial: serial})
 	if err != nil {
 		c.Log.Warn("reconnect failed, interface not found", "device", device.Alias, "error", err)
 		c.teardownDevice(device)
@@ -395,7 +410,8 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 
 	steps := []setupStep{
 		{"screen_unlocked", func() error {
-			ok, err := c.ADB.IsScreenUnlocked(device.Serial)
+			adbReq := &model.ADBDeviceRequest{Serial: device.Serial}
+			ok, err := c.ADB.IsScreenUnlocked(adbReq)
 			if err != nil {
 				return err
 			}
@@ -404,23 +420,23 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			}
 			return nil
 		}},
-		{"enabled_tethering", func() error { return c.ADB.EnableTethering(device.Serial) }},
+		{"enabled_tethering", func() error { return c.ADB.EnableTethering(&model.ADBDeviceRequest{Serial: device.Serial}) }},
 		{"interface_detected", func() error {
-			iface, err := c.ADB.DetectInterfaceForSerial(device.Serial)
+			iface, err := c.ADB.DetectInterfaceForSerial(&model.ADBDeviceRequest{Serial: device.Serial})
 			if err != nil {
 				return err
 			}
 			device.Interface = iface
 			return nil
 		}},
-		{"enabled_data", func() error { return c.ADB.EnableData(device.Serial) }},
-		{"dismissed_dialog", func() error { return c.ADB.DismissDataDialog(device.Serial) }},
-		{"disabled_wifi", func() error { return c.ADB.DisableWifi(device.Serial) }},
+		{"enabled_data", func() error { return c.ADB.EnableData(&model.ADBDeviceRequest{Serial: device.Serial}) }},
+		{"dismissed_dialog", func() error { return c.ADB.DismissDataDialog(&model.ADBDeviceRequest{Serial: device.Serial}) }},
+		{"disabled_wifi", func() error { return c.ADB.DisableWifi(&model.ADBDeviceRequest{Serial: device.Serial}) }},
 		{"dhcp_configured", func() error {
-			return c.Provisioner.ConfigureDHCP(device.Interface)
+			return c.Provisioner.ConfigureDHCP(&model.ConfigureDHCPRequest{Interface: device.Interface})
 		}},
 		{"ipv6_configured", func() error {
-			if err := c.Provisioner.ConfigureIPv6SLAAC(device.Interface); err != nil {
+			if err := c.Provisioner.ConfigureIPv6SLAAC(&model.ConfigureIPv6SLAACRequest{Interface: device.Interface}); err != nil {
 				return err
 			}
 			// Wait for SLAAC (cancellable)
@@ -460,7 +476,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			}
 
 			// Read carrier-assigned DNS from the phone (most reliable source)
-			adbDNS, err := c.ADB.GetDNSServers(device.Serial)
+			adbDNS, err := c.ADB.GetDNSServers(&model.ADBDeviceRequest{Serial: device.Serial})
 			if err != nil {
 				c.Log.Warn("adb dns discovery failed", "device", device.Alias, "error", err)
 			} else if len(adbDNS) > 0 {
@@ -477,7 +493,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			return nil
 		}},
 		{"carrier_detected", func() error {
-			carrier, err := c.ADB.GetCarrier(device.Serial)
+			carrier, err := c.ADB.GetCarrier(&model.ADBDeviceRequest{Serial: device.Serial})
 			if err != nil {
 				return err
 			}
@@ -485,10 +501,10 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			return nil
 		}},
 		{"device_info", func() error {
-			model, brand, version := c.ADB.GetDeviceInfo(device.Serial)
-			device.Model = model
-			device.Brand = brand
-			device.AndroidVersion = version
+			info := c.ADB.GetDeviceInfo(&model.ADBDeviceRequest{Serial: device.Serial})
+			device.Model = info.Model
+			device.Brand = info.Brand
+			device.AndroidVersion = info.AndroidVersion
 			return nil
 		}},
 	}
@@ -507,7 +523,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 	}
 
 	// Enable NDP proxy on the interface
-	if err := c.Provisioner.EnableNDPProxy(device.Interface); err != nil {
+	if err := c.Provisioner.EnableNDPProxy(&model.EnableNDPProxyRequest{Interface: device.Interface}); err != nil {
 		c.Log.Warn("enable ndp proxy failed", "device", device.Alias, "interface", device.Interface, "error", err)
 	}
 

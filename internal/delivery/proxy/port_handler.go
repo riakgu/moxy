@@ -64,15 +64,14 @@ func (c *PortBasedHandler) StartShared() {
 	}
 	addr := fmt.Sprintf(":%d", c.proxyPort)
 	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-		slots := c.proxyUC.SlotRepo.ListHealthy()
-		slot, err := c.proxyUC.SelectSlot(slots)
+		slotName, err := c.proxyUC.PickSlot()
 		if err != nil {
 			return nil, err
 		}
 		if network == "udp" {
-			return c.proxyUC.ConnectUDP(slot.Name, targetAddr)
+			return c.proxyUC.ConnectUDP(slotName, targetAddr)
 		}
-		return c.proxyUC.Connect(slot.Name, targetAddr)
+		return c.proxyUC.Connect(slotName, targetAddr)
 	}
 	c.shared = NewMuxHandler(c.Log, connect)
 	if err := c.shared.Listen(addr); err != nil {
@@ -93,15 +92,14 @@ func (c *PortBasedHandler) StartSharedIPv6() {
 	}
 	addr := fmt.Sprintf(":%d", c.ipv6Port)
 	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-		slots := c.proxyUC.SlotRepo.ListHealthy()
-		slot, err := c.proxyUC.SelectSlot(slots)
+		slotName, err := c.proxyUC.PickSlot()
 		if err != nil {
 			return nil, err
 		}
 		if network == "udp" {
-			return c.proxyUC.ConnectIPv6UDP(slot.Name, targetAddr)
+			return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
 		}
-		return c.proxyUC.ConnectIPv6(slot.Name, targetAddr)
+		return c.proxyUC.ConnectIPv6(slotName, targetAddr)
 	}
 	c.ipv6Shared = NewMuxHandler(c.Log, connect)
 	if err := c.ipv6Shared.Listen(addr); err != nil {
@@ -153,15 +151,14 @@ func (c *PortBasedHandler) SyncDevices(aliases []string) {
 
 		deviceAlias := alias // capture for closure
 		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			slots := c.proxyUC.SlotRepo.ListHealthyForDevice(deviceAlias)
-			slot, err := c.proxyUC.SelectSlot(slots)
+			slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
 			if err != nil {
 				return nil, err
 			}
 			if network == "udp" {
-				return c.proxyUC.ConnectUDP(slot.Name, targetAddr)
+				return c.proxyUC.ConnectUDP(slotName, targetAddr)
 			}
-			return c.proxyUC.Connect(slot.Name, targetAddr)
+			return c.proxyUC.Connect(slotName, targetAddr)
 		}
 
 		handler := NewMuxHandler(c.Log, connect)
@@ -216,15 +213,14 @@ func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
 
 		deviceAlias := alias
 		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			slots := c.proxyUC.SlotRepo.ListHealthyForDevice(deviceAlias)
-			slot, err := c.proxyUC.SelectSlot(slots)
+			slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
 			if err != nil {
 				return nil, err
 			}
 			if network == "udp" {
-				return c.proxyUC.ConnectIPv6UDP(slot.Name, targetAddr)
+				return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
 			}
-			return c.proxyUC.ConnectIPv6(slot.Name, targetAddr)
+			return c.proxyUC.ConnectIPv6(slotName, targetAddr)
 		}
 
 		handler := NewMuxHandler(c.Log, connect)

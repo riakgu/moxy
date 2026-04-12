@@ -11,6 +11,7 @@ import (
 	"time"
 	"log/slog"
 
+	"github.com/riakgu/moxy/internal/model"
 	"golang.org/x/sys/unix"
 )
 
@@ -38,12 +39,15 @@ func toNAT64(ipv4 net.IP, prefix string) string {
 //
 // nameserver is the DNS64 server for domain resolution (falls back to Google DNS64 if empty).
 // nat64Prefix is the NAT64 /96 prefix for IPv4→IPv6 translation (falls back to 64:ff9b:: if empty).
-func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error) {
+func (d *SetnsDialer) Dial(req *model.DialRequest) (net.Conn, error) {
+	slotName := req.SlotName
+	addr := req.Addr
+	nameserver := req.Nameserver
+	nat64Prefix := req.NAT64Prefix
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
 	}
-
 
 	// Check if host is a raw IPv4 — convert to NAT64 before entering namespace
 	ip := net.ParseIP(host)
@@ -115,7 +119,11 @@ func (d *SetnsDialer) Dial(slotName string, addr string, nameserver string, nat6
 //  2. Fall back to DNS64/NAT64 if no native AAAA exists
 //
 // Raw IPv4 addresses are converted to NAT64. Raw IPv6 addresses dial directly.
-func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error) {
+func (d *SetnsDialer) DialIPv6(req *model.DialRequest) (net.Conn, error) {
+	slotName := req.SlotName
+	addr := req.Addr
+	nameserver := req.Nameserver
+	nat64Prefix := req.NAT64Prefix
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
@@ -190,7 +198,11 @@ func (d *SetnsDialer) DialIPv6(slotName string, addr string, nameserver string, 
 
 // DialUDP connects via UDP through the network namespace identified by slotName.
 // Same setns pattern as Dial() but creates a *net.UDPConn instead of TCP.
-func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error) {
+func (d *SetnsDialer) DialUDP(req *model.DialRequest) (*net.UDPConn, error) {
+	slotName := req.SlotName
+	addr := req.Addr
+	nameserver := req.Nameserver
+	nat64Prefix := req.NAT64Prefix
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
@@ -251,7 +263,11 @@ func (d *SetnsDialer) DialUDP(slotName string, addr string, nameserver string, n
 }
 
 // DialIPv6UDP connects via UDP preferring native IPv6, falls back to NAT64.
-func (d *SetnsDialer) DialIPv6UDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error) {
+func (d *SetnsDialer) DialIPv6UDP(req *model.DialRequest) (*net.UDPConn, error) {
+	slotName := req.SlotName
+	addr := req.Addr
+	nameserver := req.Nameserver
+	nat64Prefix := req.NAT64Prefix
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address %s: %w", addr, err)

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 )
@@ -137,7 +138,8 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		}
 
 		// Single lightweight check (plain text, just IP)
-		ip, err := c.Discovery.ResolveSlotIP(name)
+		resolveReq := &model.ResolveSlotRequest{SlotName: name}
+		ip, err := c.Discovery.ResolveSlotIP(resolveReq)
 		if err != nil {
 			if slot, ok := c.SlotRepo.Get(name); ok {
 				if slot.Status == entity.SlotStatusSuspended {
@@ -214,7 +216,7 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		}
 
 		// Update IPv6 (rarely changes but keep fresh)
-		newIPv6, _ := c.Discovery.ResolveSlotIPv6(name)
+		newIPv6, _ := c.Discovery.ResolveSlotIPv6(resolveReq)
 		c.updateIPv6(name, newIPv6)
 	}
 }
@@ -230,25 +232,26 @@ func (c *SlotMonitorUseCase) burstDetect(name string) {
 	var ips []string
 	var city, asn, org, rtt string
 
+	resolveReq := &model.ResolveSlotRequest{SlotName: name}
 	for i := 0; i < 5; i++ {
-		gotIP, gotCity, gotASN, gotOrg, gotRTT, err := c.Discovery.ResolveSlotIPInfo(name)
+		info, err := c.Discovery.ResolveSlotIPInfo(resolveReq)
 		if err != nil {
 			c.Log.Warn("burst check failed", "slot", name, "attempt", i+1, "error", err)
 			continue
 		}
 		if city == "" {
-			city = gotCity
-			asn = gotASN
-			org = gotOrg
-			rtt = gotRTT
+			city = info.City
+			asn = info.ASN
+			org = info.Org
+			rtt = info.RTT
 		}
-		if !seen[gotIP] {
-			seen[gotIP] = true
-			ips = append(ips, gotIP)
+		if !seen[info.IP] {
+			seen[info.IP] = true
+			ips = append(ips, info.IP)
 		}
 	}
 
-	ipv6, _ := c.Discovery.ResolveSlotIPv6(name)
+	ipv6, _ := c.Discovery.ResolveSlotIPv6(resolveReq)
 
 	slot, ok := c.SlotRepo.Get(name)
 	if !ok {
@@ -308,11 +311,11 @@ func (c *SlotMonitorUseCase) updateIPv6Helper(slot *entity.Slot, ipv6 string) {
 
 	if ipv6 != oldIPv6 && slot.Interface != "" {
 		if oldIPv6 != "" {
-			if err := c.Provisioner.RemoveNDPProxyEntry(oldIPv6, slot.Interface); err != nil {
+			if err := c.Provisioner.RemoveNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: oldIPv6, Interface: slot.Interface}); err != nil {
 				c.Log.Warn("failed to remove old ndp proxy", "slot", slot.Name, "ipv6", oldIPv6, "error", err)
 			}
 		}
-		if err := c.Provisioner.AddNDPProxyEntry(ipv6, slot.Interface); err != nil {
+		if err := c.Provisioner.AddNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: ipv6, Interface: slot.Interface}); err != nil {
 			c.Log.Warn("ndp proxy failed", "slot", slot.Name, "error", err)
 		}
 	}

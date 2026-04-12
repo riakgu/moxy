@@ -12,6 +12,7 @@ import (
 	"time"
 	"log/slog"
 
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/miekg/dns"
 )
 
@@ -20,15 +21,6 @@ type CacheConfig struct {
 	MaxEntriesPerDevice int           // LRU cap per device cache (default: 10000)
 	MinTTL              time.Duration // Floor for DNS TTLs (default: 30s)
 	MaxTTL              time.Duration // Ceiling for DNS TTLs (default: 300s)
-}
-
-// DeviceCacheStats holds statistics for a single device's DNS cache.
-type DeviceCacheStats struct {
-	Nameserver  string
-	NAT64Prefix string
-	Entries     int
-	Hits        int64
-	Misses      int64
 }
 
 // CachingResolver caches DNS64 resolutions per-device.
@@ -171,13 +163,13 @@ func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (st
 }
 
 // Stats returns cache statistics for all device caches.
-func (cr *CachingResolver) Stats() []DeviceCacheStats {
+func (cr *CachingResolver) Stats() []model.DNSCacheStats {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
-	stats := make([]DeviceCacheStats, 0, len(cr.caches))
+	stats := make([]model.DNSCacheStats, 0, len(cr.caches))
 	for key, dc := range cr.caches {
-		stats = append(stats, DeviceCacheStats{
+		stats = append(stats, model.DNSCacheStats{
 			Nameserver:  key.Nameserver,
 			NAT64Prefix: key.NAT64Prefix,
 			Entries:     dc.order.Len(),

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"log/slog"
+
+	"github.com/riakgu/moxy/internal/model"
 )
 
 type ADBGateway struct {
@@ -48,7 +50,8 @@ func (g *ADBGateway) adbShell(serial string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func (g *ADBGateway) IsScreenUnlocked(serial string) (bool, error) {
+func (g *ADBGateway) IsScreenUnlocked(req *model.ADBDeviceRequest) (bool, error) {
+	serial := req.Serial
 	out, err := g.adbShell(serial, "dumpsys", "window", "|", "grep", "mDreamingLockscreen")
 	if err != nil {
 		return false, fmt.Errorf("check screen: %w", err)
@@ -57,35 +60,37 @@ func (g *ADBGateway) IsScreenUnlocked(serial string) (bool, error) {
 	return strings.Contains(out, "mDreamingLockscreen=false"), nil
 }
 
-func (g *ADBGateway) EnableTethering(serial string) error {
-	_, err := g.adbShell(serial, "svc", "usb", "setFunctions", "rndis")
+func (g *ADBGateway) EnableTethering(req *model.ADBDeviceRequest) error {
+	_, err := g.adbShell(req.Serial, "svc", "usb", "setFunctions", "rndis")
 	return err
 }
 
-func (g *ADBGateway) EnableData(serial string) error {
-	_, err := g.adbShell(serial, "svc", "data", "enable")
+func (g *ADBGateway) EnableData(req *model.ADBDeviceRequest) error {
+	_, err := g.adbShell(req.Serial, "svc", "data", "enable")
 	return err
 }
 
-func (g *ADBGateway) DismissDataDialog(serial string) error {
-	_, err := g.adbShell(serial, "input", "keyevent", "BACK")
+func (g *ADBGateway) DismissDataDialog(req *model.ADBDeviceRequest) error {
+	_, err := g.adbShell(req.Serial, "input", "keyevent", "BACK")
 	return err
 }
 
-func (g *ADBGateway) DisableWifi(serial string) error {
-	_, err := g.adbShell(serial, "svc", "wifi", "disable")
+func (g *ADBGateway) DisableWifi(req *model.ADBDeviceRequest) error {
+	_, err := g.adbShell(req.Serial, "svc", "wifi", "disable")
 	return err
 }
 
 // GetDeviceInfo reads device model, brand, and Android version from system properties.
-func (g *ADBGateway) GetDeviceInfo(serial string) (model, brand, androidVersion string) {
-	model, _ = g.adbShell(serial, "getprop", "ro.product.model")
-	brand, _ = g.adbShell(serial, "getprop", "ro.product.brand")
-	androidVersion, _ = g.adbShell(serial, "getprop", "ro.build.version.release")
-	return
+func (g *ADBGateway) GetDeviceInfo(req *model.ADBDeviceRequest) *model.ADBDeviceInfoResult {
+	serial := req.Serial
+	m, _ := g.adbShell(serial, "getprop", "ro.product.model")
+	b, _ := g.adbShell(serial, "getprop", "ro.product.brand")
+	v, _ := g.adbShell(serial, "getprop", "ro.build.version.release")
+	return &model.ADBDeviceInfoResult{Model: m, Brand: b, AndroidVersion: v}
 }
 
-func (g *ADBGateway) GetCarrier(serial string) (string, error) {
+func (g *ADBGateway) GetCarrier(req *model.ADBDeviceRequest) (string, error) {
+	serial := req.Serial
 	// 1. Get data subscription ID
 	subId, err := g.adbShell(serial, "settings", "get", "global", "multi_sim_data_call")
 	if err == nil && subId != "" && subId != "null" {
@@ -132,7 +137,8 @@ func (g *ADBGateway) GetCarrier(serial string) (string, error) {
 // GetDNSServers reads the phone's carrier-assigned DNS servers from
 // `dumpsys connectivity`. Returns IPv6 DNS addresses from the internet
 // connection (not IMS). These are typically the carrier's DNS64 servers.
-func (g *ADBGateway) GetDNSServers(serial string) ([]string, error) {
+func (g *ADBGateway) GetDNSServers(req *model.ADBDeviceRequest) ([]string, error) {
+	serial := req.Serial
 	out, err := g.adbShell(serial, "dumpsys", "connectivity")
 	if err != nil {
 		return nil, fmt.Errorf("dumpsys connectivity: %w", err)
@@ -180,7 +186,8 @@ func (g *ADBGateway) GetDNSServers(serial string) ([]string, error) {
 // DetectInterfaceForSerial finds the USB tethering interface that belongs to
 // a specific phone by matching the ADB serial against the USB device serial
 // exposed in sysfs at /sys/class/net/<iface>/device/../serial.
-func (g *ADBGateway) DetectInterfaceForSerial(serial string) (string, error) {
+func (g *ADBGateway) DetectInterfaceForSerial(req *model.ADBDeviceRequest) (string, error) {
+	serial := req.Serial
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "", fmt.Errorf("list interfaces: %w", err)

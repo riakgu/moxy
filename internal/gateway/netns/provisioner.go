@@ -11,6 +11,7 @@ import (
 	"strings"
 	"log/slog"
 
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
@@ -24,7 +25,10 @@ func NewProvisioner(log *slog.Logger) *Provisioner {
 	return &Provisioner{Log: log}
 }
 
-func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) error {
+func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
+	slotIndex := req.SlotIndex
+	iface := req.Interface
+	dns64 := req.DNS64
 	name := fmt.Sprintf("slot%d", slotIndex)
 	ipvlanName := fmt.Sprintf("ipvlan%d", slotIndex)
 
@@ -146,7 +150,8 @@ func (p *Provisioner) CreateSlot(slotIndex int, iface string, dns64 string) erro
 }
 
 // ConfigureDHCP runs dhcpcd on the given interface to obtain an IPv4 address.
-func (p *Provisioner) ConfigureDHCP(iface string) error {
+func (p *Provisioner) ConfigureDHCP(req *model.ConfigureDHCPRequest) error {
+	iface := req.Interface
 	if err := exec.Command("dhcpcd", iface).Run(); err != nil {
 		return fmt.Errorf("dhcpcd on %s: %w", iface, err)
 	}
@@ -155,7 +160,8 @@ func (p *Provisioner) ConfigureDHCP(iface string) error {
 
 // ConfigureIPv6SLAAC enables IPv6 Router Advertisement acceptance and
 // auto-configuration on the given host interface via /proc/sys writes.
-func (p *Provisioner) ConfigureIPv6SLAAC(iface string) error {
+func (p *Provisioner) ConfigureIPv6SLAAC(req *model.ConfigureIPv6SLAACRequest) error {
+	iface := req.Interface
 	base := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s", iface)
 	for _, kv := range [][2]string{
 		{"accept_ra", "2"},
@@ -169,7 +175,8 @@ func (p *Provisioner) ConfigureIPv6SLAAC(iface string) error {
 	return nil
 }
 
-func (p *Provisioner) EnableNDPProxy(iface string) error {
+func (p *Provisioner) EnableNDPProxy(req *model.EnableNDPProxyRequest) error {
+	iface := req.Interface
 	path := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface)
 	if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
 		return fmt.Errorf("enable NDP proxy on %s: %w", iface, err)
@@ -177,7 +184,9 @@ func (p *Provisioner) EnableNDPProxy(iface string) error {
 	return nil
 }
 
-func (p *Provisioner) AddNDPProxyEntry(ipv6 string, iface string) error {
+func (p *Provisioner) AddNDPProxyEntry(req *model.NDPProxyEntryRequest) error {
+	ipv6 := req.IPv6
+	iface := req.Interface
 	if ipv6 == "" {
 		return nil
 	}
@@ -202,7 +211,9 @@ func (p *Provisioner) AddNDPProxyEntry(ipv6 string, iface string) error {
 	return nil
 }
 
-func (p *Provisioner) RemoveNDPProxyEntry(ipv6 string, iface string) error {
+func (p *Provisioner) RemoveNDPProxyEntry(req *model.NDPProxyEntryRequest) error {
+	ipv6 := req.IPv6
+	iface := req.Interface
 	if ipv6 == "" {
 		return nil
 	}
@@ -225,7 +236,8 @@ func (p *Provisioner) RemoveNDPProxyEntry(ipv6 string, iface string) error {
 	return nil
 }
 
-func (p *Provisioner) DestroySlot(name string) error {
+func (p *Provisioner) DestroySlot(req *model.DestroySlotRequest) error {
+	name := req.Name
 	if err := netns.DeleteNamed(name); err != nil {
 		return fmt.Errorf("delete namespace %s: %w", name, err)
 	}
@@ -235,7 +247,9 @@ func (p *Provisioner) DestroySlot(name string) error {
 // ReattachSlot recreates the IPVLAN interface inside an existing namespace.
 // Used for smart reconnect after a transient USB disconnect — the namespace
 // still exists but the IPVLAN is orphaned because the parent interface was removed.
-func (p *Provisioner) ReattachSlot(slotName string, iface string) error {
+func (p *Provisioner) ReattachSlot(req *model.ReattachSlotRequest) error {
+	slotName := req.SlotName
+	iface := req.Interface
 	var slotIndex int
 	if _, err := fmt.Sscanf(slotName, "slot%d", &slotIndex); err != nil {
 		return fmt.Errorf("parse slot name %s: %w", slotName, err)
@@ -363,7 +377,8 @@ func (p *Provisioner) ListSlotNamespaces() ([]string, error) {
 
 // CleanupNamespaces deletes slot* namespaces that are not in the keep list.
 // If keep is nil, all slot* namespaces are deleted. Returns count of deleted.
-func (p *Provisioner) CleanupNamespaces(keep []string) (int, error) {
+func (p *Provisioner) CleanupNamespaces(req *model.CleanupNamespacesRequest) (int, error) {
+	keep := req.Keep
 	all, err := p.ListSlotNamespaces()
 	if err != nil {
 		return 0, err
@@ -379,7 +394,7 @@ func (p *Provisioner) CleanupNamespaces(keep []string) (int, error) {
 		if _, ok := keepSet[name]; ok {
 			continue
 		}
-		if err := p.DestroySlot(name); err != nil {
+		if err := p.DestroySlot(&model.DestroySlotRequest{Name: name}); err != nil {
 			p.Log.Warn("namespace cleanup failed", "slot", name, "error", err)
 			continue
 		}

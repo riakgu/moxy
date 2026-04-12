@@ -28,3 +28,15 @@ type SetupResponse struct {
 	Device    DeviceResponse     `json:"device"`
 	Provision *ProvisionResponse `json:"provision,omitempty"`
 }
+
+type GetDeviceRequest struct {
+	Alias string
+}
+
+type DeleteDeviceRequest struct {
+	Alias string
+}
+
+type SetupDeviceRequest struct {
+	Alias string
+}

@@ -7,7 +7,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/riakgu/moxy/internal/delivery/proxy"
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -56,10 +55,10 @@ func (c *SlotController) ChangeIP(ctx *fiber.Ctx) error {
 
 	response, err := c.UseCase.RecycleSlot(request)
 	if err != nil {
-		if errors.Is(err, entity.ErrSlotNotFound) {
+		if errors.Is(err, model.ErrSlotNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, err.Error())
 		}
-		if errors.Is(err, entity.ErrSlotBusy) {
+		if errors.Is(err, model.ErrSlotBusy) {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -73,11 +72,11 @@ func (c *SlotController) ChangeIP(ctx *fiber.Ctx) error {
 func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 	slotName := ctx.Params("slotName")
 
-	if err := c.UseCase.DestroySlot(slotName); err != nil {
-		if errors.Is(err, entity.ErrSlotNotFound) {
+	if err := c.UseCase.DestroySlot(&model.DeleteSlotRequest{SlotName: slotName}); err != nil {
+		if errors.Is(err, model.ErrSlotNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, err.Error())
 		}
-		if errors.Is(err, entity.ErrSlotBusy) {
+		if errors.Is(err, model.ErrSlotBusy) {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())

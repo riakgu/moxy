@@ -7,7 +7,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/riakgu/moxy/internal/delivery/proxy"
-	"github.com/riakgu/moxy/internal/entity"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
@@ -68,7 +67,7 @@ func (c *DeviceController) List(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Get(ctx *fiber.Ctx) error {
-	resp, err := c.DeviceUC.GetByAlias(ctx.Params("alias"))
+	resp, err := c.DeviceUC.GetByAlias(&model.GetDeviceRequest{Alias: ctx.Params("alias")})
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
@@ -76,7 +75,7 @@ func (c *DeviceController) Get(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
-	if err := c.DeviceUC.Delete(ctx.Params("alias")); err != nil {
+	if err := c.DeviceUC.Delete(&model.DeleteDeviceRequest{Alias: ctx.Params("alias")}); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	c.syncPorts()
@@ -99,10 +98,9 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
-	alias := ctx.Params("alias")
-	resp, err := c.DeviceUC.Setup(ctx.UserContext(), alias)
+	resp, err := c.DeviceUC.Setup(ctx.UserContext(), &model.SetupDeviceRequest{Alias: ctx.Params("alias")})
 	if err != nil {
-		if errors.Is(err, entity.ErrDeviceNotDetected) {
+		if errors.Is(err, model.ErrDeviceNotDetected) {
 			return fiber.NewError(fiber.StatusConflict, err.Error())
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())

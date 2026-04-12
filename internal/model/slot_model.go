@@ -46,3 +46,7 @@ type CleanupResponse struct {
 	Cleaned int `json:"cleaned"`
 }
 
+type DeleteSlotRequest struct {
+	SlotName string
+}
+

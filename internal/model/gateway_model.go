@@ -9,3 +9,86 @@ type DeviceEvent struct {
 	Serial string
 	Status string
 }
+
+// ---- SlotProvisioner gateway models ----
+
+type CreateSlotRequest struct {
+	SlotIndex int
+	Interface string
+	DNS64     string
+}
+
+type DestroySlotRequest struct {
+	Name string
+}
+
+type ReattachSlotRequest struct {
+	SlotName  string
+	Interface string
+}
+
+type EnableNDPProxyRequest struct {
+	Interface string
+}
+
+type NDPProxyEntryRequest struct {
+	IPv6      string
+	Interface string
+}
+
+type CleanupNamespacesRequest struct {
+	Keep []string
+}
+
+type ConfigureDHCPRequest struct {
+	Interface string
+}
+
+type ConfigureIPv6SLAACRequest struct {
+	Interface string
+}
+
+// ---- SlotDiscovery gateway models ----
+
+type ResolveSlotRequest struct {
+	SlotName string
+}
+
+type SlotIPInfoResult struct {
+	IP   string
+	City string
+	ASN  string
+	Org  string
+	RTT  string
+}
+
+// ---- ProxyDialer gateway models ----
+
+type DialRequest struct {
+	SlotName    string
+	Addr        string
+	Nameserver  string
+	NAT64Prefix string
+}
+
+// ---- ADB gateway models ----
+
+type ADBDeviceRequest struct {
+	Serial string
+}
+
+type ADBDeviceInfoResult struct {
+	Model          string
+	Brand          string
+	AndroidVersion string
+}
+
+// ---- DNS cache gateway model ----
+
+type DNSCacheStats struct {
+	Nameserver  string
+	NAT64Prefix string
+	Entries     int
+	Hits        int64
+	Misses      int64
+}

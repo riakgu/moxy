@@ -16,6 +16,7 @@ import (
 	"time"
 	"log/slog"
 
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
@@ -132,7 +133,8 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 
 // ResolveSlotIP returns the public IPv4 of a slot (plain text endpoint).
 // Used for lightweight steady-state checks.
-func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
+func (d *Discovery) ResolveSlotIP(req *model.ResolveSlotRequest) (string, error) {
+	slotName := req.SlotName
 	body, err := d.httpGetInNamespace(slotName, "/")
 	if err != nil {
 		return "", err
@@ -146,19 +148,27 @@ func (d *Discovery) ResolveSlotIP(slotName string) (string, error) {
 
 // ResolveSlotIPInfo returns full IP metadata from the JSON endpoint.
 // Used during burst detection for rich metadata (city, ASN, RTT).
-func (d *Discovery) ResolveSlotIPInfo(slotName string) (ip, city, asn, org, rtt string, err error) {
+func (d *Discovery) ResolveSlotIPInfo(req *model.ResolveSlotRequest) (*model.SlotIPInfoResult, error) {
+	slotName := req.SlotName
 	body, err := d.httpGetInNamespace(slotName, "/json")
 	if err != nil {
-		return "", "", "", "", "", err
+		return nil, err
 	}
 	var info IPInfoResponse
 	if err := json.Unmarshal(body, &info); err != nil {
-		return "", "", "", "", "", fmt.Errorf("parse IP info for %s: %w", slotName, err)
+		return nil, fmt.Errorf("parse IP info for %s: %w", slotName, err)
 	}
-	return info.IP, info.City, info.ASN, info.Org, info.RTT, nil
+	return &model.SlotIPInfoResult{
+		IP:   info.IP,
+		City: info.City,
+		ASN:  info.ASN,
+		Org:  info.Org,
+		RTT:  info.RTT,
+	}, nil
 }
 
-func (d *Discovery) ResolveSlotIPv6(slotName string) (string, error) {
+func (d *Discovery) ResolveSlotIPv6(req *model.ResolveSlotRequest) (string, error) {
+	slotName := req.SlotName
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 

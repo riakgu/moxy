@@ -9,15 +9,16 @@ import (
 	"log/slog"
 
 	"github.com/riakgu/moxy/internal/entity"
+	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
 )
 
 type ProxyDialer interface {
-	Dial(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
-	DialIPv6(slotName string, addr string, nameserver string, nat64Prefix string) (net.Conn, error)
-	DialUDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error)
-	DialIPv6UDP(slotName string, addr string, nameserver string, nat64Prefix string) (*net.UDPConn, error)
+	Dial(req *model.DialRequest) (net.Conn, error)
+	DialIPv6(req *model.DialRequest) (net.Conn, error)
+	DialUDP(req *model.DialRequest) (*net.UDPConn, error)
+	DialIPv6UDP(req *model.DialRequest) (*net.UDPConn, error)
 }
 
 type BalancingStrategy func(slots []*entity.Slot) *entity.Slot
@@ -90,34 +91,54 @@ func NewProxyUseCase(
 }
 
 func (c *ProxyUseCase) Connect(slotName string, targetAddr string) (net.Conn, error) {
-	return c.dial(slotName, targetAddr, "ipv4", "tcp", func(ns, addr, dns, nat64 string) (net.Conn, error) {
-		return c.Dialer.Dial(ns, addr, dns, nat64)
+	return c.dial(slotName, targetAddr, "ipv4", "tcp", func(req *model.DialRequest) (net.Conn, error) {
+		return c.Dialer.Dial(req)
 	})
 }
 
 func (c *ProxyUseCase) ConnectIPv6(slotName string, targetAddr string) (net.Conn, error) {
-	return c.dial(slotName, targetAddr, "ipv6", "tcp", func(ns, addr, dns, nat64 string) (net.Conn, error) {
-		return c.Dialer.DialIPv6(ns, addr, dns, nat64)
+	return c.dial(slotName, targetAddr, "ipv6", "tcp", func(req *model.DialRequest) (net.Conn, error) {
+		return c.Dialer.DialIPv6(req)
 	})
 }
 
 func (c *ProxyUseCase) ConnectUDP(slotName string, targetAddr string) (net.Conn, error) {
-	return c.dial(slotName, targetAddr, "ipv4", "udp", func(ns, addr, dns, nat64 string) (net.Conn, error) {
-		return c.Dialer.DialUDP(ns, addr, dns, nat64)
+	return c.dial(slotName, targetAddr, "ipv4", "udp", func(req *model.DialRequest) (net.Conn, error) {
+		return c.Dialer.DialUDP(req)
 	})
 }
 
 func (c *ProxyUseCase) ConnectIPv6UDP(slotName string, targetAddr string) (net.Conn, error) {
-	return c.dial(slotName, targetAddr, "ipv6", "udp", func(ns, addr, dns, nat64 string) (net.Conn, error) {
-		return c.Dialer.DialIPv6UDP(ns, addr, dns, nat64)
+	return c.dial(slotName, targetAddr, "ipv6", "udp", func(req *model.DialRequest) (net.Conn, error) {
+		return c.Dialer.DialIPv6UDP(req)
 	})
 }
 
-func (c *ProxyUseCase) SelectSlot(slots []*entity.Slot) (*entity.Slot, error) {
+func (c *ProxyUseCase) selectSlot(slots []*entity.Slot) (*entity.Slot, error) {
 	if len(slots) == 0 {
-		return nil, entity.ErrNoSlotsAvailable
+		return nil, model.ErrNoSlotsAvailable
 	}
 	return c.Strategy(slots), nil
+}
+
+// PickSlot selects a healthy slot across all devices using the balancing strategy.
+func (c *ProxyUseCase) PickSlot() (string, error) {
+	slots := c.SlotRepo.ListHealthy()
+	slot, err := c.selectSlot(slots)
+	if err != nil {
+		return "", err
+	}
+	return slot.Name, nil
+}
+
+// PickSlotForDevice selects a healthy slot for a specific device.
+func (c *ProxyUseCase) PickSlotForDevice(deviceAlias string) (string, error) {
+	slots := c.SlotRepo.ListHealthyForDevice(deviceAlias)
+	slot, err := c.selectSlot(slots)
+	if err != nil {
+		return "", err
+	}
+	return slot.Name, nil
 }
 
 func (c *ProxyUseCase) dial(
@@ -125,7 +146,7 @@ func (c *ProxyUseCase) dial(
 	targetAddr string,
 	protocol string,
 	transport string,
-	dialFn func(ns, addr, dns, nat64 string) (net.Conn, error),
+	dialFn func(req *model.DialRequest) (net.Conn, error),
 ) (net.Conn, error) {
 	c.SlotRepo.IncrementConnections(slotName)
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
@@ -137,7 +158,12 @@ func (c *ProxyUseCase) dial(
 
 	nameserver, nat64Prefix := c.getSlotConfig(slotName)
 
-	conn, err := dialFn(slotName, targetAddr, nameserver, nat64Prefix)
+	conn, err := dialFn(&model.DialRequest{
+		SlotName:    slotName,
+		Addr:        targetAddr,
+		Nameserver:  nameserver,
+		NAT64Prefix: nat64Prefix,
+	})
 	if err != nil {
 		c.SlotRepo.DecrementConnections(slotName)
 		c.Log.Warn("dial failed", "slot", slotName, "target", targetAddr, "protocol", protocol, "transport", transport, "error", err)
