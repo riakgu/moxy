@@ -39,185 +39,216 @@ type BootstrapResult struct {
 	RingHandler   *sse.RingHandler
 }
 
+type bootstrapper struct {
+	cfg *BootstrapConfig
+	v   *viper.Viper
+
+	// logging
+	logRepo     *repository.LogRepository
+	ringHandler *sse.RingHandler
+
+	// component loggers
+	deviceLog  *slog.Logger
+	slotLog    *slog.Logger
+	monitorLog *slog.Logger
+	proxyLog   *slog.Logger
+	dnsLog     *slog.Logger
+	trafficLog *slog.Logger
+	adbLog     *slog.Logger
+	netnsLog   *slog.Logger
+	sseLog     *slog.Logger
+
+	// repositories
+	deviceRepo  *repository.DeviceRepository
+	slotRepo    *repository.SlotRepository
+	trafficRepo *repository.TrafficRepository
+	dnsRepo     *repository.DNSCacheRepository
+
+	// gateways
+	adbGateway *adb.ADBGateway
+	adbWatcher *adb.ADBWatcher
+	provisioner *netns.Provisioner
+	discovery   *netns.Discovery
+	resolver    *netns.CachingResolver
+	dialer      *netns.SetnsDialer
+	ispProbe    *netns.ISPProbe
+
+	// usecases
+	slotUC      *usecase.SlotUseCase
+	slotMonitor *usecase.SlotMonitorUseCase
+	deviceUC    *usecase.DeviceUseCase
+	trafficUC   *usecase.TrafficUseCase
+	proxyUC     *usecase.ProxyUseCase
+	dnsUC       *usecase.DNSUseCase
+	configUC    *usecase.ConfigUseCase
+
+	// delivery
+	hub         *sse.EventHub
+	portHandler *proxy.PortBasedHandler
+	routeConfig *route.RouteConfig
+}
+
 func Bootstrap(cfg *BootstrapConfig) *BootstrapResult {
-	ringSize := cfg.Viper.GetInt("log.ring_buffer_size")
-	if ringSize == 0 {
-		ringSize = 1000
-	}
-	level := parseLevel(cfg.Viper.GetString("log.level"))
-	logRepo := repository.NewLogRepository(nil, ringSize)
-	ringHandler := sse.NewRingHandler(logRepo, level)
+	b := &bootstrapper{cfg: cfg, v: cfg.Viper}
+	b.initLogging()
+	b.initRepositories()
+	b.initGateways()
+	b.initUseCases()
+	b.initDelivery()
+	return b.result()
+}
 
-	cfg.Logger = NewLoggerWithRing(cfg.Viper, ringHandler)
+func (b *bootstrapper) initLogging() {
+	level := parseLevel(b.v.GetString("log.level"))
+	b.logRepo = repository.NewLogRepository(nil, b.v.GetInt("log.ring_buffer_size"))
+	b.ringHandler = sse.NewRingHandler(b.logRepo, level)
 
-	deviceLog := cfg.Logger.With("component", "device")
-	slotLog := cfg.Logger.With("component", "slot")
-	monitorLog := cfg.Logger.With("component", "slot.monitor")
-	proxyLog := cfg.Logger.With("component", "proxy")
-	dnsLog := cfg.Logger.With("component", "dns")
-	trafficLog := cfg.Logger.With("component", "traffic")
-	adbLog := cfg.Logger.With("component", "adb")
-	netnsLog := cfg.Logger.With("component", "netns")
-	sseLog := cfg.Logger.With("component", "sse")
+	b.cfg.Logger = NewLoggerWithRing(b.cfg.Viper, b.ringHandler)
 
-	deviceRepo := repository.NewDeviceRepository(deviceLog)
-	slotRepo := repository.NewSlotRepository(slotLog)
-	maxTracked := cfg.Viper.GetInt("traffic.max_tracked")
-	if maxTracked == 0 {
-		maxTracked = 5000
-	}
-	trafficRepo := repository.NewTrafficRepository(trafficLog, maxTracked)
+	b.deviceLog = b.cfg.Logger.With("component", "device")
+	b.slotLog = b.cfg.Logger.With("component", "slot")
+	b.monitorLog = b.cfg.Logger.With("component", "slot.monitor")
+	b.proxyLog = b.cfg.Logger.With("component", "proxy")
+	b.dnsLog = b.cfg.Logger.With("component", "dns")
+	b.trafficLog = b.cfg.Logger.With("component", "traffic")
+	b.adbLog = b.cfg.Logger.With("component", "adb")
+	b.netnsLog = b.cfg.Logger.With("component", "netns")
+	b.sseLog = b.cfg.Logger.With("component", "sse")
+}
 
-	sseMaxClients := cfg.Viper.GetInt("sse.max_clients")
-	if sseMaxClients == 0 {
-		sseMaxClients = 10
-	}
-	hub := sse.NewEventHub(sseLog, sseMaxClients)
-	ringHandler.SetHub(hub)
+func (b *bootstrapper) initRepositories() {
+	b.deviceRepo = repository.NewDeviceRepository(b.deviceLog)
+	b.slotRepo = repository.NewSlotRepository(b.slotLog)
+	b.trafficRepo = repository.NewTrafficRepository(b.trafficLog, b.v.GetInt("traffic.max_tracked"))
+	b.dnsRepo = repository.NewDNSCacheRepository(b.dnsLog, b.v.GetInt("dns.cache_max_entries_per_device"))
+}
 
-	adbGateway := adb.NewADBGateway(adbLog)
-	provisioner := netns.NewProvisioner(netnsLog)
-	discovery := netns.NewDiscovery(netnsLog, cfg.Viper.GetString("slots.ip_check_host"))
-	dnsRepo := repository.NewDNSCacheRepository(dnsLog, cfg.Viper.GetInt("dns.cache_max_entries_per_device"))
-	resolver := netns.NewCachingResolver(dnsLog, dnsRepo, netns.CacheConfig{
-		MinTTL: time.Duration(cfg.Viper.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
-		MaxTTL: time.Duration(cfg.Viper.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
+func (b *bootstrapper) initGateways() {
+	b.adbGateway = adb.NewADBGateway(b.adbLog)
+	b.adbWatcher = adb.NewADBWatcher(b.adbLog, b.v.GetInt("devices.watcher_reconnect_max_seconds")*1000)
+	b.provisioner = netns.NewProvisioner(b.netnsLog)
+	b.discovery = netns.NewDiscovery(b.netnsLog, b.v.GetString("slots.ip_check_host"))
+	b.resolver = netns.NewCachingResolver(b.dnsLog, b.dnsRepo, netns.CacheConfig{
+		MinTTL: time.Duration(b.v.GetInt("dns.cache_min_ttl_seconds")) * time.Second,
+		MaxTTL: time.Duration(b.v.GetInt("dns.cache_max_ttl_seconds")) * time.Second,
 	})
-	dialer := netns.NewSetnsDialer(netnsLog, resolver)
+	b.dialer = netns.NewSetnsDialer(b.netnsLog, b.resolver)
+	b.ispProbe = netns.NewISPProbe(b.netnsLog)
+}
 
-	maxSlots := cfg.Viper.GetInt("slots.max_slots_per_device")
-	strategy := usecase.NewBalancingStrategy(cfg.Viper.GetString("proxy.source_ip_strategy"))
-	slotUC := usecase.NewSlotUseCase(
-		slotLog, slotRepo, discovery,
-		provisioner,
-		maxSlots,
+func (b *bootstrapper) initUseCases() {
+	b.slotUC = usecase.NewSlotUseCase(
+		b.slotLog, b.slotRepo, b.discovery,
+		b.provisioner,
+		b.v.GetInt("slots.max_slots_per_device"),
 	)
 
 	monitorConfig := usecase.SlotMonitorConfig{
-		FastInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_fast_interval_seconds")) * time.Second,
-		SteadyInterval:     time.Duration(cfg.Viper.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
-		RecoveryInterval:   time.Duration(cfg.Viper.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
-		FastTicks:          cfg.Viper.GetInt("slots.monitor_fast_ticks"),
-		UnhealthyThreshold: cfg.Viper.GetInt("slots.monitor_unhealthy_threshold"),
+		FastInterval:       time.Duration(b.v.GetInt("slots.monitor_fast_interval_seconds")) * time.Second,
+		SteadyInterval:     time.Duration(b.v.GetInt("slots.monitor_steady_interval_seconds")) * time.Second,
+		RecoveryInterval:   time.Duration(b.v.GetInt("slots.monitor_recovery_interval_seconds")) * time.Second,
+		FastTicks:          b.v.GetInt("slots.monitor_fast_ticks"),
+		UnhealthyThreshold: b.v.GetInt("slots.monitor_unhealthy_threshold"),
 	}
-	if monitorConfig.FastInterval == 0 {
-		monitorConfig.FastInterval = 10 * time.Second
-	}
-	if monitorConfig.SteadyInterval == 0 {
-		monitorConfig.SteadyInterval = 60 * time.Second
-	}
-	if monitorConfig.RecoveryInterval == 0 {
-		monitorConfig.RecoveryInterval = 15 * time.Second
-	}
-	if monitorConfig.FastTicks == 0 {
-		monitorConfig.FastTicks = 6
-	}
-	if monitorConfig.UnhealthyThreshold == 0 {
-		monitorConfig.UnhealthyThreshold = 3
-	}
-	slotMonitor := usecase.NewSlotMonitorUseCase(monitorLog, slotRepo, discovery, provisioner, monitorConfig)
-	slotUC.SetMonitor(slotMonitor)
+	b.slotMonitor = usecase.NewSlotMonitorUseCase(b.monitorLog, b.slotRepo, b.discovery, b.provisioner, monitorConfig)
+	b.slotUC.SetMonitor(b.slotMonitor)
 
-	slotUC.EventPub = hub
-	slotMonitor.EventPub = hub
-	ispProbe := netns.NewISPProbe(netnsLog)
+	gracePeriod := time.Duration(b.v.GetInt("devices.grace_period_seconds")) * time.Second
+	drainTimeout := time.Duration(b.v.GetInt("devices.drain_timeout_seconds")) * time.Second
+	b.deviceUC = usecase.NewDeviceUseCase(b.deviceLog,
+		b.deviceRepo, b.adbGateway, b.provisioner, b.slotRepo, b.slotUC, b.ispProbe,
+		b.adbWatcher, gracePeriod, drainTimeout, b.trafficRepo)
 
-	adbWatcher := adb.NewADBWatcher(adbLog, cfg.Viper.GetInt("devices.watcher_reconnect_max_seconds")*1000)
-	gracePeriod := time.Duration(cfg.Viper.GetInt("devices.grace_period_seconds")) * time.Second
-	if gracePeriod == 0 {
-		gracePeriod = 30 * time.Second
-	}
-	drainTimeout := time.Duration(cfg.Viper.GetInt("devices.drain_timeout_seconds")) * time.Second
-	if drainTimeout == 0 {
-		drainTimeout = 10 * time.Second
-	}
+	b.trafficUC = usecase.NewTrafficUseCase(b.trafficLog, b.trafficRepo)
+	b.proxyUC = usecase.NewProxyUseCase(b.proxyLog, b.slotRepo, b.deviceRepo, b.dialer, b.v.GetString("proxy.source_ip_strategy"), b.trafficRepo)
+	b.dnsUC = usecase.NewDNSUseCase(b.dnsLog, b.dnsRepo)
 
-	deviceUC := usecase.NewDeviceUseCase(deviceLog,
-		deviceRepo, adbGateway, provisioner, slotRepo, slotUC, ispProbe,
-		adbWatcher, gracePeriod, drainTimeout, trafficRepo)
-	deviceUC.EventPub = hub
-	trafficUC := usecase.NewTrafficUseCase(trafficLog, trafficRepo)
+	systemdGW := systemd.NewSystemdGateway(b.cfg.Logger.With("component", "systemd"), "moxy")
+	b.configUC = usecase.NewConfigUseCase(b.cfg.Logger.With("component", "config"), "config.json", systemdGW)
+}
 
-	proxyUC := usecase.NewProxyUseCase(proxyLog, slotRepo, deviceRepo, dialer, strategy, trafficRepo)
-	proxyUC.EventPub = hub
+func (b *bootstrapper) initDelivery() {
+	b.hub = sse.NewEventHub(b.sseLog, b.v.GetInt("sse.max_clients"))
+	b.ringHandler.SetHub(b.hub)
 
-	// Must be created before controllers so we can inject it.
-	proxyPort := cfg.Viper.GetInt("proxy.ipv4.port")
-	slotPortStart := cfg.Viper.GetInt("proxy.ipv4.slot_port_start")
-	ipv6Port := cfg.Viper.GetInt("proxy.ipv6.port")
-	ipv6SlotPortStart := cfg.Viper.GetInt("proxy.ipv6.slot_port_start")
-	portHandler := proxy.NewPortBasedHandler(proxyLog, proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
+	// Wire event publishers
+	b.slotUC.EventPub = b.hub
+	b.slotMonitor.EventPub = b.hub
+	b.deviceUC.EventPub = b.hub
+	b.proxyUC.EventPub = b.hub
 
-	// Wire teardown callback — cleans up stale proxy listeners after background device teardown
-	deviceUC.OnTeardown = func() {
-		slotNames := slotUC.GetSlotNames()
-		onlineAliases := deviceUC.ListOnlineAliases()
-		portHandler.SyncSlots(slotNames)
-		portHandler.SyncDevices(onlineAliases)
-		portHandler.SyncSlotsIPv6(slotNames)
-		portHandler.SyncDevicesIPv6(onlineAliases)
+	// Proxy port handler
+	proxyPort := b.v.GetInt("proxy.ipv4.port")
+	slotPortStart := b.v.GetInt("proxy.ipv4.slot_port_start")
+	ipv6Port := b.v.GetInt("proxy.ipv6.port")
+	ipv6SlotPortStart := b.v.GetInt("proxy.ipv6.slot_port_start")
+	b.portHandler = proxy.NewPortBasedHandler(b.proxyLog, b.proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
+
+	// Wire teardown callback
+	b.deviceUC.OnTeardown = func() {
+		slotNames := b.slotUC.GetSlotNames()
+		onlineAliases := b.deviceUC.ListOnlineAliases()
+		b.portHandler.SyncSlots(slotNames)
+		b.portHandler.SyncDevices(onlineAliases)
+		b.portHandler.SyncSlotsIPv6(slotNames)
+		b.portHandler.SyncDevicesIPv6(onlineAliases)
 	}
 
-	deviceCtrl := httpdelivery.NewDeviceController(deviceUC, deviceLog, portHandler, slotUC.GetSlotNames)
-	slotCtrl := httpdelivery.NewSlotController(slotUC, slotLog, portHandler)
-
-	dnsUC := usecase.NewDNSUseCase(dnsLog, dnsRepo)
-	dnsCtrl := httpdelivery.NewDNSController(dnsUC, dnsLog)
-
-	trafficCtrl := httpdelivery.NewTrafficController(trafficUC, trafficLog)
-
-	systemdGW := systemd.NewSystemdGateway(cfg.Logger.With("component", "systemd"), "moxy")
-	configUC := usecase.NewConfigUseCase(cfg.Logger.With("component", "config"), "config.json", systemdGW)
-	configCtrl := httpdelivery.NewConfigController(
-		cfg.Logger.With("component", "config"),
-		configUC,
-	)
-
-	sseDebounce := cfg.Viper.GetInt("sse.debounce_ms")
-	sseHeartbeat := cfg.Viper.GetInt("sse.heartbeat_seconds")
-	sseTrafficLimit := cfg.Viper.GetInt("sse.traffic_snapshot_limit")
+	// SSE traffic snapshot config
+	sseTrafficLimit := b.v.GetInt("sse.traffic_snapshot_limit")
 	if sseTrafficLimit == 0 {
 		sseTrafficLimit = 100
 	}
+	b.proxyUC.TrafficUC = b.trafficUC
+	b.proxyUC.SnapshotLimit = sseTrafficLimit
+	b.proxyUC.DNSUC = b.dnsUC
 
-	// Inject traffic snapshot config into proxyUC
-	proxyUC.TrafficUC = trafficUC
-	proxyUC.SnapshotLimit = sseTrafficLimit
-	proxyUC.DNSUC = dnsUC
+	// Controllers
+	deviceCtrl := httpdelivery.NewDeviceController(b.deviceUC, b.deviceLog, b.portHandler, b.slotUC.GetSlotNames)
+	slotCtrl := httpdelivery.NewSlotController(b.slotUC, b.slotLog, b.portHandler)
+	dnsCtrl := httpdelivery.NewDNSController(b.dnsUC, b.dnsLog)
+	trafficCtrl := httpdelivery.NewTrafficController(b.trafficUC, b.trafficLog)
+	configCtrl := httpdelivery.NewConfigController(
+		b.cfg.Logger.With("component", "config"),
+		b.configUC,
+	)
 
+	// SSE handler
 	sseSnapshot := func() (*sse.InitPayload, error) {
-		devices, err := deviceUC.List()
+		devices, err := b.deviceUC.List()
 		if err != nil {
 			return nil, err
 		}
-		slots := slotUC.ListAll()
-		logs := converter.LogEntriesToResponse(logRepo.GetRecent())
-		traffic := trafficUC.ListTop(sseTrafficLimit)
-		dnsStats := dnsUC.GetCacheStats()
+		slots := b.slotUC.ListAll()
+		logs := converter.LogEntriesToResponse(b.logRepo.GetRecent())
+		traffic := b.trafficUC.ListTop(sseTrafficLimit)
+		dnsStats := b.dnsUC.GetCacheStats()
 		return &sse.InitPayload{Devices: devices, Slots: slots, Logs: logs, Traffic: traffic, DNSStats: dnsStats}, nil
 	}
-	sseHandler := sse.NewSSEHandler(hub, sseLog, sseSnapshot, sseDebounce, sseHeartbeat)
+	sseHandler := sse.NewSSEHandler(b.hub, b.sseLog, sseSnapshot, b.v.GetInt("sse.debounce_ms"), b.v.GetInt("sse.heartbeat_seconds"))
 
 	// Routes
-	routeConfig := &route.RouteConfig{
-		App:               cfg.Fiber,
+	b.routeConfig = &route.RouteConfig{
+		App:               b.cfg.Fiber,
 		DeviceController:  deviceCtrl,
 		SlotController:    slotCtrl,
 		DNSController:     dnsCtrl,
 		TrafficController: trafficCtrl,
 		ConfigController:  configCtrl,
 		SSEHandler:        sseHandler,
-		Log:               cfg.Logger.With("component", "api"),
-		StaticFS:          cfg.StaticFS,
+		Log:               b.cfg.Logger.With("component", "api"),
+		StaticFS:          b.cfg.StaticFS,
 	}
+}
 
+func (b *bootstrapper) result() *BootstrapResult {
 	return &BootstrapResult{
-		SlotUseCase:   slotUC,
-		DeviceUseCase: deviceUC,
-		SlotMonitor:   slotMonitor,
-		PortHandler:   portHandler,
-		RouteConfig:   routeConfig,
-		EventHub:      hub,
-		RingHandler:   ringHandler,
+		SlotUseCase:   b.slotUC,
+		DeviceUseCase: b.deviceUC,
+		SlotMonitor:   b.slotMonitor,
+		PortHandler:   b.portHandler,
+		RouteConfig:   b.routeConfig,
+		EventHub:      b.hub,
+		RingHandler:   b.ringHandler,
 	}
 }

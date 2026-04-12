@@ -76,6 +76,12 @@ func NewDeviceUseCase(
 	drainTimeout time.Duration,
 	trafficRepo *repository.TrafficRepository,
 ) *DeviceUseCase {
+	if gracePeriod == 0 {
+		gracePeriod = 30 * time.Second
+	}
+	if drainTimeout == 0 {
+		drainTimeout = 10 * time.Second
+	}
 	return &DeviceUseCase{
 		Log:           log,
 		DeviceRepo:    deviceRepo,

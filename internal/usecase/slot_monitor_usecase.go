@@ -44,6 +44,21 @@ func NewSlotMonitorUseCase(
 	provisioner SlotProvisioner,
 	config SlotMonitorConfig,
 ) *SlotMonitorUseCase {
+	if config.FastInterval == 0 {
+		config.FastInterval = 10 * time.Second
+	}
+	if config.SteadyInterval == 0 {
+		config.SteadyInterval = 60 * time.Second
+	}
+	if config.RecoveryInterval == 0 {
+		config.RecoveryInterval = 15 * time.Second
+	}
+	if config.FastTicks == 0 {
+		config.FastTicks = 6
+	}
+	if config.UnhealthyThreshold == 0 {
+		config.UnhealthyThreshold = 3
+	}
 	return &SlotMonitorUseCase{
 		Log:         log,
 		SlotRepo:    slotRepo,
@@ -96,9 +111,6 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	fastTicks := c.Config.FastTicks
 	consecutiveFails := 0
 	threshold := c.Config.UnhealthyThreshold
-	if threshold <= 0 {
-		threshold = 3
-	}
 
 	// Rotation verification state (goroutine-local)
 	var pendingOldIPs []string 
