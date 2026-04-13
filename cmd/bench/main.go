@@ -16,24 +16,38 @@ import (
 )
 
 func main() {
+	mode := flag.String("mode", "rps", "Benchmark mode: rps or throughput")
 	proxyAddr := flag.String("proxy", "localhost:1080", "SOCKS5 proxy address")
-	target := flag.String("url", "https://www.google.com/generate_204", "Target URL to request")
+	target := flag.String("url", "", "Target URL (default: auto per mode)")
 	concurrency := flag.Int("c", 10, "Number of concurrent workers")
-	requests := flag.Int("n", 100, "Total number of requests")
-	timeout := flag.Duration("timeout", 15*time.Second, "Per-request timeout")
+	requests := flag.Int("n", 100, "Total requests (rps mode)")
+	timeout := flag.Duration("timeout", 15*time.Second, "Per-request timeout (rps mode)")
+	duration := flag.Duration("d", 15*time.Second, "Test duration (throughput mode)")
 	flag.Parse()
 
-	fmt.Printf("Moxy Benchmark\n")
-	fmt.Printf("══════════════════════════════════════\n")
-	fmt.Printf("Proxy:       %s\n", *proxyAddr)
-	fmt.Printf("Target:      %s\n", *target)
-	fmt.Printf("Concurrency: %d\n", *concurrency)
-	fmt.Printf("Requests:    %d\n", *requests)
-	fmt.Printf("Timeout:     %s\n", *timeout)
-	fmt.Printf("══════════════════════════════════════\n\n")
+	// Auto-select URL per mode if not specified
+	if *target == "" {
+		switch *mode {
+		case "throughput":
+			*target = "http://speedtest.tele2.net/10MB.zip"
+		default:
+			*target = "https://www.google.com/generate_204"
+		}
+	}
 
-	// Setup SOCKS5 dialer
-	dialer, err := proxy.SOCKS5("tcp", *proxyAddr, nil, proxy.Direct)
+	// Setup SOCKS5 client
+	client := createClient(*proxyAddr, *concurrency, *timeout)
+
+	switch *mode {
+	case "throughput":
+		runThroughput(client, *proxyAddr, *target, *concurrency, *duration)
+	default:
+		runRPS(client, *proxyAddr, *target, *concurrency, *requests, *timeout)
+	}
+}
+
+func createClient(proxyAddr string, concurrency int, timeout time.Duration) *http.Client {
+	dialer, err := proxy.SOCKS5("tcp", proxyAddr, nil, proxy.Direct)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create SOCKS5 dialer: %v\n", err)
 		os.Exit(1)
@@ -42,16 +56,28 @@ func main() {
 	transport := &http.Transport{
 		DialContext:         dialer.(proxy.ContextDialer).DialContext,
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: false},
-		MaxIdleConnsPerHost: *concurrency,
-		MaxConnsPerHost:     *concurrency,
-		DisableKeepAlives:   true, // Each request = fresh connection through proxy
+		MaxIdleConnsPerHost: concurrency,
+		MaxConnsPerHost:     concurrency,
+		DisableKeepAlives:   true,
 	}
-	client := &http.Client{
+	return &http.Client{
 		Transport: transport,
-		Timeout:   *timeout,
+		Timeout:   timeout,
 	}
+}
 
-	// Results
+// ── RPS Mode ─────────────────────────────────────────────────────────────────
+
+func runRPS(client *http.Client, proxyAddr, target string, concurrency, requests int, timeout time.Duration) {
+	fmt.Printf("Moxy Benchmark — RPS\n")
+	fmt.Printf("══════════════════════════════════════\n")
+	fmt.Printf("Proxy:       %s\n", proxyAddr)
+	fmt.Printf("Target:      %s\n", target)
+	fmt.Printf("Concurrency: %d\n", concurrency)
+	fmt.Printf("Requests:    %d\n", requests)
+	fmt.Printf("Timeout:     %s\n", timeout)
+	fmt.Printf("══════════════════════════════════════\n\n")
+
 	var (
 		successCount int64
 		errorCount   int64
@@ -61,9 +87,8 @@ func main() {
 		errMu        sync.Mutex
 	)
 
-	// Work channel
-	work := make(chan int, *requests)
-	for i := 0; i < *requests; i++ {
+	work := make(chan int, requests)
+	for i := 0; i < requests; i++ {
 		work <- i
 	}
 	close(work)
@@ -71,21 +96,20 @@ func main() {
 	fmt.Printf("Running...\n\n")
 	start := time.Now()
 
-	// Workers
 	var wg sync.WaitGroup
-	for w := 0; w < *concurrency; w++ {
+	for w := 0; w < concurrency; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for range work {
 				reqStart := time.Now()
-				resp, err := client.Get(*target)
+				resp, err := client.Get(target)
 				elapsed := time.Since(reqStart)
 
 				if err != nil {
 					atomic.AddInt64(&errorCount, 1)
 					errMu.Lock()
-					if len(errors) < 10 { // keep first 10 errors
+					if len(errors) < 10 {
 						errors = append(errors, err.Error())
 					}
 					errMu.Unlock()
@@ -115,7 +139,6 @@ func main() {
 	wg.Wait()
 	totalDuration := time.Since(start)
 
-	// Calculate percentiles
 	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 
 	total := successCount + errorCount
@@ -150,6 +173,117 @@ func main() {
 
 	fmt.Printf("\n")
 }
+
+// ── Throughput Mode ──────────────────────────────────────────────────────────
+
+func runThroughput(client *http.Client, proxyAddr, target string, concurrency int, duration time.Duration) {
+	client.Timeout = 30 * time.Second
+
+	fmt.Printf("Moxy Benchmark — Throughput\n")
+	fmt.Printf("══════════════════════════════════════\n")
+	fmt.Printf("Proxy:       %s\n", proxyAddr)
+	fmt.Printf("Target:      %s\n", target)
+	fmt.Printf("Concurrency: %d\n", concurrency)
+	fmt.Printf("Duration:    %s\n", duration)
+	fmt.Printf("══════════════════════════════════════\n\n")
+
+	var (
+		totalBytes    int64
+		totalRequests int64
+		totalErrors   int64
+		done          = make(chan struct{})
+	)
+
+	fmt.Printf("Running...\n\n")
+	start := time.Now()
+
+	go func() {
+		time.Sleep(duration)
+		close(done)
+	}()
+
+	// Progress ticker
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(start).Seconds()
+				bytes := atomic.LoadInt64(&totalBytes)
+				reqs := atomic.LoadInt64(&totalRequests)
+				errs := atomic.LoadInt64(&totalErrors)
+				mbps := float64(bytes) / elapsed / 1024 / 1024
+				fmt.Printf("  [%.0fs] %.2f MB/s (%.1f Mbps) | %d downloads | %d errors\n", elapsed, mbps, mbps*8, reqs, errs)
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	for w := 0; w < concurrency; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, 32*1024)
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+
+				resp, err := client.Get(target)
+				if err != nil {
+					atomic.AddInt64(&totalErrors, 1)
+					continue
+				}
+
+				if resp.StatusCode >= 400 {
+					_ = resp.Body.Close()
+					atomic.AddInt64(&totalErrors, 1)
+					continue
+				}
+
+				for {
+					n, err := resp.Body.Read(buf)
+					if n > 0 {
+						atomic.AddInt64(&totalBytes, int64(n))
+					}
+					if err != nil {
+						break
+					}
+				}
+				_ = resp.Body.Close()
+				atomic.AddInt64(&totalRequests, 1)
+			}
+		}()
+	}
+
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	bytes := atomic.LoadInt64(&totalBytes)
+	reqs := atomic.LoadInt64(&totalRequests)
+	errs := atomic.LoadInt64(&totalErrors)
+	mbps := float64(bytes) / elapsed.Seconds() / 1024 / 1024
+
+	fmt.Printf("\nResults\n")
+	fmt.Printf("══════════════════════════════════════\n")
+	fmt.Printf("Duration:    %s\n", elapsed.Round(time.Millisecond))
+	fmt.Printf("Downloads:   %d\n", reqs)
+	fmt.Printf("Errors:      %d\n", errs)
+	fmt.Printf("Total data:  %.2f MB\n", float64(bytes)/1024/1024)
+	fmt.Printf("\n")
+	fmt.Printf("Throughput\n")
+	fmt.Printf("──────────────────────────────────────\n")
+	fmt.Printf("  Speed:     %.2f MB/s\n", mbps)
+	fmt.Printf("  Speed:     %.2f Mbps\n", mbps*8)
+	fmt.Printf("\n")
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 func percentile(sorted []time.Duration, p float64) time.Duration {
 	if len(sorted) == 0 {
