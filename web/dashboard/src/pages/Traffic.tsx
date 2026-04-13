@@ -379,11 +379,13 @@ function TrafficRow({ entry }: { entry: TrafficEntry }) {
         }`}>
           {entry.protocol === 'ipv6' ? 'v6' : 'v4'}
         </span>
-        {(entry.transport === 'udp') && (
-          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-amber/15 text-accent-amber ml-1">
-            UDP
-          </span>
-        )}
+        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ml-1 ${
+          entry.transport === 'udp'
+            ? 'bg-accent-amber/15 text-accent-amber'
+            : 'bg-accent-green/15 text-accent-green'
+        }`}>
+          {(entry.transport || 'tcp').toUpperCase()}
+        </span>
       </td>
 
       {/* Connections */}
