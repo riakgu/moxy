@@ -23,7 +23,6 @@ const deviceStatusStyles: Record<string, { dot: string; text: string; class: str
   disconnected: { dot: 'bg-accent-amber animate-pulse-badge', text: 'Disconnected', class: 'text-accent-amber' },
   error: { dot: 'bg-accent-red', text: 'Error', class: 'text-accent-red' },
   offline: { dot: 'bg-text-muted', text: 'Offline', class: 'text-text-muted' },
-  removed: { dot: 'bg-text-muted', text: 'Removed', class: 'text-text-muted' },
 }
 
 const setupStepLabels: Record<string, string> = {
@@ -85,7 +84,7 @@ export default function DeviceCard({
   }
 
   const handleDelete = async () => {
-    if (!window.confirm(`Remove ${device.alias}? This will destroy all its slots and prevent auto-reconnect.`)) return
+    if (!window.confirm(`Delete ${device.alias}? This will destroy all its slots.`)) return
     setDeletingDevice(true)
     try {
       await onDeleteDevice(device.alias)
@@ -95,7 +94,7 @@ export default function DeviceCard({
   }
 
   const handleReset = async () => {
-    if (!window.confirm(`Reset ${device.alias}? This will destroy all its slots but keep the device as detected.`)) return
+    if (!window.confirm(`Reset ${device.alias}? This will destroy all slots and re-run setup.`)) return
     setResettingDevice(true)
     try {
       await onResetDevice(device.alias)
@@ -140,8 +139,8 @@ export default function DeviceCard({
         )}
       </button>
 
-      {/* Stats row — always visible for non-detected devices */}
-      {!isDetected && (
+      {/* Stats row — visible for online/disconnected devices */}
+      {isExpandable && (
         <div className="px-5 pb-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-muted font-mono">
           {slots.length > 0 && (
             <span>slot{slots.length !== 1 ? 's' : ''}: <span className="text-text-secondary">{slots.length}</span></span>
@@ -162,10 +161,9 @@ export default function DeviceCard({
         </div>
       )}
 
-      {/* Actions */}
+      {/* Actions — different per status */}
       <div className="px-5 pb-4 flex items-center gap-3">
-        {isDetected ? (
-          /* Detected: Setup button only */
+        {isDetected && (
           <button
             onClick={handleSetup}
             disabled={settingUp}
@@ -183,35 +181,39 @@ export default function DeviceCard({
               '⚡ Setup Device'
             )}
           </button>
-        ) : (
-          /* Online/Other: Provision + Delete */
+        )}
+
+        {isOnline && (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={250}
+              value={provisionCount}
+              onChange={(e) => setProvisionCount(parseInt(e.target.value, 10) || 1)}
+              className="w-16 px-2 py-1.5 bg-bg-primary border border-border-subtle rounded text-sm
+                font-mono text-text-primary focus:border-accent-cyan focus:outline-none"
+            />
+            <button
+              onClick={handleProvision}
+              disabled={provisioning}
+              className="px-3 py-1.5 text-xs font-medium rounded bg-accent-cyan/15 text-accent-cyan
+                hover:bg-accent-cyan/25 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
+            >
+              {provisioning ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-3 border border-accent-cyan border-t-transparent rounded-full animate-spin-slow" />
+                  Provisioning
+                </span>
+              ) : (
+                'Provision'
+              )}
+            </button>
+          </div>
+        )}
+
+        {(isOnline || isDisconnected || device.status === 'error' || device.status === 'offline') && (
           <>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={250}
-                value={provisionCount}
-                onChange={(e) => setProvisionCount(parseInt(e.target.value, 10) || 1)}
-                className="w-16 px-2 py-1.5 bg-bg-primary border border-border-subtle rounded text-sm
-                  font-mono text-text-primary focus:border-accent-cyan focus:outline-none"
-              />
-              <button
-                onClick={handleProvision}
-                disabled={provisioning || !isOnline}
-                className="px-3 py-1.5 text-xs font-medium rounded bg-accent-cyan/15 text-accent-cyan
-                  hover:bg-accent-cyan/25 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
-              >
-                {provisioning ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block w-3 h-3 border border-accent-cyan border-t-transparent rounded-full animate-spin-slow" />
-                    Provisioning
-                  </span>
-                ) : (
-                  'Provision'
-                )}
-              </button>
-            </div>
             <button
               onClick={handleReset}
               disabled={resettingDevice}
@@ -226,7 +228,7 @@ export default function DeviceCard({
               className="px-3 py-1.5 text-xs font-medium rounded bg-accent-red/10 text-accent-red
                 hover:bg-accent-red/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
             >
-              {deletingDevice ? 'Removing...' : 'Remove'}
+              {deletingDevice ? 'Deleting...' : 'Delete'}
             </button>
           </>
         )}

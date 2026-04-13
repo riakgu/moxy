@@ -109,13 +109,6 @@ func (c *DeviceUseCase) publishDevice(alias string) {
 	c.EventPub.Publish("device_updated", resp)
 }
 
-func (c *DeviceUseCase) publishDeviceRemoved(alias string) {
-	if c.EventPub == nil {
-		return
-	}
-	c.EventPub.Publish("device_removed", map[string]string{"alias": alias})
-}
-
 // No setup or provisioning — use Setup(alias) for that.
 func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 	serials, err := c.ADB.ListDevices()
@@ -249,24 +242,27 @@ func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
 		return fmt.Errorf("device %s not found", alias)
 	}
 	c.teardownDevice(device)
-	device.Status = entity.DeviceStatusRemoved
+	device.Status = entity.DeviceStatusDetected
+	device.SetupStep = ""
 	c.DeviceRepo.Put(device)
-	c.publishDeviceRemoved(alias)
+	c.publishDevice(alias)
 	return nil
 }
 
-func (c *DeviceUseCase) Reset(req *model.DeleteDeviceRequest) error {
+func (c *DeviceUseCase) Reset(ctx context.Context, req *model.DeleteDeviceRequest) (*model.SetupResponse, error) {
 	alias := req.Alias
 	device, ok := c.DeviceRepo.GetByAlias(alias)
 	if !ok {
-		return fmt.Errorf("device %s not found", alias)
+		return nil, fmt.Errorf("device %s not found", alias)
 	}
 	c.teardownDevice(device)
 	device.Status = entity.DeviceStatusDetected
 	device.SetupStep = ""
 	c.DeviceRepo.Put(device)
 	c.publishDevice(alias)
-	return nil
+
+	// Auto-trigger setup
+	return c.Setup(ctx, &model.SetupDeviceRequest{Alias: alias})
 }
 
 func (c *DeviceUseCase) Provision(req *model.ProvisionRequest) (*model.ProvisionResponse, error) {
@@ -322,10 +318,6 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	}
 
 	if device, exists := c.DeviceRepo.GetBySerial(serial); exists {
-		// Skip removed devices — watcher should not re-add them
-		if device.Status == entity.DeviceStatusRemoved {
-			return
-		}
 		// If device was offline/error (e.g. grace expired), reset to detected
 		if device.Status == entity.DeviceStatusOffline || device.Status == entity.DeviceStatusError {
 			device.Status = entity.DeviceStatusDetected

@@ -66,16 +66,16 @@ export default function Dashboard() {
   const handleDeleteDevice = async (alias: string) => {
     try {
       await deleteDevice(alias)
-      addToast(`Removed ${alias}`, 'success')
+      addToast(`Deleted ${alias}`, 'success')
     } catch (e) {
-      addToast(`Remove failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
+      addToast(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
   const handleResetDevice = async (alias: string) => {
     try {
       await resetDevice(alias)
-      addToast(`Reset ${alias} — ready for re-setup`, 'success')
+      addToast(`Reset ${alias} — back online`, 'success')
     } catch (e) {
       addToast(`Reset failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }

@@ -14,7 +14,7 @@ export interface Device {
   interface: string
   nameserver: string
   nat64_prefix: string
-  status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected' | 'removed'
+  status: 'detected' | 'offline' | 'setup' | 'online' | 'error' | 'disconnected'
   setup_step?: string
   slot_count: number
   unique_ips: number

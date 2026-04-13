@@ -82,11 +82,12 @@ func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
 }
 
 func (c *DeviceController) Reset(ctx *fiber.Ctx) error {
-	if err := c.DeviceUC.Reset(&model.DeleteDeviceRequest{Alias: ctx.Params("alias")}); err != nil {
+	resp, err := c.DeviceUC.Reset(ctx.UserContext(), &model.DeleteDeviceRequest{Alias: ctx.Params("alias")})
+	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	c.syncPorts()
-	return ctx.JSON(model.WebResponse[bool]{Data: true})
+	return ctx.JSON(model.WebResponse[*model.SetupResponse]{Data: resp})
 }
 
 func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
