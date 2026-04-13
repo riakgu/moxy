@@ -59,9 +59,9 @@ func (c *RouteConfig) Setup() {
 
 	// System routes
 	api.Get("/system/stats", c.SystemController.GetStats)
+	api.Post("/system/restart", c.SystemController.Restart)
 	api.Post("/system/restart-adb", c.SystemController.RestartADB)
 	api.Post("/system/cleanup", c.SystemController.CleanupNamespaces)
-	api.Post("/restart", c.SystemController.Restart)
 
 	// SSE event stream
 	api.Get("/events", c.SSEHandler.Stream)

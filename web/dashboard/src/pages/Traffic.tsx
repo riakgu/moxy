@@ -181,7 +181,7 @@ export default function Traffic() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-text-primary font-mono tracking-wide">
-            <span className="text-accent-cyan">▸</span> TRAFFIC
+            <span className="text-accent-cyan">▌</span> TRAFFIC
           </h1>
           <p className="text-xs text-text-muted mt-1 font-mono">
             {traffic

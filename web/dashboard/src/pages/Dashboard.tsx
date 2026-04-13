@@ -124,10 +124,10 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-mono text-2xl font-semibold tracking-wide">
-            <span className="text-accent-cyan">▸</span> Dashboard
+          <h1 className="text-xl font-semibold text-text-primary font-mono tracking-wide">
+            <span className="text-accent-cyan">▌</span> DASHBOARD
           </h1>
-          <p className="text-sm text-text-muted mt-1">
+          <p className="text-xs text-text-muted mt-1 font-mono">
             {devices.length} device{devices.length !== 1 ? 's' : ''} · {slots.length} slot{slots.length !== 1 ? 's' : ''}
             <span
               className={`inline-block w-2 h-2 rounded-full ml-2 align-middle ${connected ? 'bg-accent-green' : 'bg-accent-red animate-pulse'
