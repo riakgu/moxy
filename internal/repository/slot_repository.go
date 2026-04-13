@@ -59,6 +59,13 @@ func (r *SlotRepository) releaseIndex(idx int) {
 	r.freeList = append(r.freeList, idx)
 }
 
+// ReleaseIndex returns a slot index to the free pool (e.g. after failed creation).
+func (r *SlotRepository) ReleaseIndex(idx int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.releaseIndex(idx)
+}
+
 func parseSlotIdx(name string) (int, bool) {
 	if !strings.HasPrefix(name, "slot") {
 		return 0, false

@@ -194,6 +194,7 @@ func (c *SlotUseCase) RecycleSlot(request *model.ChangeIPRequest) (*model.SlotRe
 	if err != nil {
 		slot.Status = entity.SlotStatusUnhealthy
 		c.Log.Warn("recycle failed", "slot", request.SlotName, "error", err)
+		c.publishSlot(request.SlotName)
 		return nil, err
 	}
 
@@ -248,6 +249,7 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 		c.Log.Info("provisioning slot", "slot", slotName, "progress", fmt.Sprintf("%d/%d", i+1, toCreate))
 		if err := c.Provisioner.CreateSlot(&model.CreateSlotRequest{SlotIndex: idx, Interface: iface, DNS64: dns64}); err != nil {
 			c.Log.Error("provision failed", "slot", slotName, "error", err)
+			c.SlotRepo.ReleaseIndex(idx)
 			failed++
 			continue
 		}
@@ -356,6 +358,12 @@ func (c *SlotUseCase) TeardownByDevice(deviceAlias string, drainTimeout time.Dur
 		if drainTimeout > 0 {
 			if remaining := c.drainSlot(name, drainTimeout); remaining > 0 {
 				c.Log.Warn("forcing slot destroy", "device", deviceAlias, "slot", name, "active_connections", remaining)
+			}
+		}
+		// Remove NDP proxy entry before destroying namespace
+		if slot, ok := c.SlotRepo.Get(name); ok && slot.IPv6Address != "" && slot.Interface != "" {
+			if err := c.Provisioner.RemoveNDPProxyEntry(&model.NDPProxyEntryRequest{IPv6: slot.IPv6Address, Interface: slot.Interface}); err != nil {
+				c.Log.Warn("ndp proxy removal failed", "slot", name, "error", err)
 			}
 		}
 		if err := c.Provisioner.DestroySlot(&model.DestroySlotRequest{Name: name}); err != nil {
