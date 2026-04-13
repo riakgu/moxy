@@ -151,7 +151,7 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 
 	time.Sleep(slaacWaitDuration)
 
-	resolveReq := &model.ResolveSlotRequest{SlotName: slotName}
+	resolveReq := &model.ResolveSlotRequest{SlotName: slotName, Nameserver: dns64}
 	newIPv4, err = c.Discovery.ResolveSlotIP(resolveReq)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve %s: %w", slotName, err)

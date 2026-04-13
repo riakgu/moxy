@@ -4,7 +4,6 @@ package netns
 
 import (
 	"bufio"
-	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"time"
 	"log/slog"
 
+	mdns "github.com/miekg/dns"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -41,7 +41,51 @@ type IPInfoResponse struct {
 	RTT  string `json:"rtt"`
 }
 
-func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
+// lookupHostInNS resolves a hostname using miekg/dns synchronously.
+// This runs entirely on the calling goroutine (locked OS thread),
+// so it correctly stays within the network namespace.
+// Go's net.Resolver spawns goroutines that escape the namespace.
+func (d *Discovery) lookupHostInNS(host, nameserver string) ([]string, error) {
+	dnsAddr := net.JoinHostPort(nameserver, "53")
+	client := &mdns.Client{
+		Net:     "udp",
+		Timeout: 5 * time.Second,
+	}
+
+	fqdn := mdns.Fqdn(host)
+	var addrs []string
+
+	// Query AAAA (IPv6 / DNS64-synthesized)
+	msg := new(mdns.Msg)
+	msg.SetQuestion(fqdn, mdns.TypeAAAA)
+	resp, _, err := client.Exchange(msg, dnsAddr)
+	if err == nil && resp != nil {
+		for _, ans := range resp.Answer {
+			if aaaa, ok := ans.(*mdns.AAAA); ok {
+				addrs = append(addrs, aaaa.AAAA.String())
+			}
+		}
+	}
+
+	// Query A (IPv4 fallback)
+	msg = new(mdns.Msg)
+	msg.SetQuestion(fqdn, mdns.TypeA)
+	resp, _, err = client.Exchange(msg, dnsAddr)
+	if err == nil && resp != nil {
+		for _, ans := range resp.Answer {
+			if a, ok := ans.(*mdns.A); ok {
+				addrs = append(addrs, a.A.String())
+			}
+		}
+	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no DNS records for %s via %s", host, nameserver)
+	}
+	return addrs, nil
+}
+
+func (d *Discovery) httpGetInNamespace(slotName, nameserver, path string) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -65,37 +109,38 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 		return nil, fmt.Errorf("enter namespace %s: %w", slotName, err)
 	}
 
-	// Uses namespace's /etc/resolv.conf
-	resolver := &net.Resolver{PreferGo: true}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	ips, err := resolver.LookupHost(ctx, d.IPCheckHost)
+	// Resolve using miekg/dns — runs synchronously on this locked thread,
+	// so DNS queries go through the slot namespace's IPVLAN
+	ips, err := d.lookupHostInNS(d.IPCheckHost, nameserver)
 	if err != nil {
-		return nil, fmt.Errorf("DNS64 resolve for %s: %w", slotName, err)
+		return nil, fmt.Errorf("DNS resolve for %s in %s: %w", d.IPCheckHost, slotName, err)
 	}
+	d.Log.Debug("discovery dns resolved", "slot", slotName, "nameserver", nameserver, "host", d.IPCheckHost, "addrs", ips)
 
 	var conn net.Conn
 	for _, ip := range ips {
-		if strings.Contains(ip, ":") {
-			rawConn, dialErr := net.DialTimeout("tcp6", net.JoinHostPort(ip, "443"), 10*time.Second)
-			if dialErr != nil {
-				err = dialErr
-				continue
-			}
-			tlsConn := tls.Client(rawConn, &tls.Config{ServerName: d.IPCheckHost})
-			if hsErr := tlsConn.Handshake(); hsErr != nil {
-				_ = rawConn.Close()
-				err = hsErr
-				continue
-			}
-			conn = tlsConn
-			break
+		network := "tcp6"
+		if !strings.Contains(ip, ":") {
+			network = "tcp4"
 		}
+		rawConn, dialErr := net.DialTimeout(network, net.JoinHostPort(ip, "443"), 10*time.Second)
+		if dialErr != nil {
+			d.Log.Debug("discovery dial failed", "slot", slotName, "ip", ip, "error", dialErr)
+			err = dialErr
+			continue
+		}
+		tlsConn := tls.Client(rawConn, &tls.Config{ServerName: d.IPCheckHost})
+		if hsErr := tlsConn.Handshake(); hsErr != nil {
+			_ = rawConn.Close()
+			d.Log.Debug("discovery tls failed", "slot", slotName, "ip", ip, "error", hsErr)
+			err = hsErr
+			continue
+		}
+		conn = tlsConn
+		break
 	}
 	if conn == nil {
-		d.Log.Warn("discovery dns returned no reachable address", "slot", slotName, "addrs", len(ips), "error", err)
+		d.Log.Warn("discovery no reachable address", "slot", slotName, "tried", len(ips), "error", err)
 		return nil, fmt.Errorf("no reachable address for %s in %s: %v", d.IPCheckHost, slotName, err)
 	}
 	defer func() { _ = conn.Close() }()
@@ -126,7 +171,7 @@ func (d *Discovery) httpGetInNamespace(slotName, path string) ([]byte, error) {
 
 func (d *Discovery) ResolveSlotIP(req *model.ResolveSlotRequest) (string, error) {
 	slotName := req.SlotName
-	body, err := d.httpGetInNamespace(slotName, "/")
+	body, err := d.httpGetInNamespace(slotName, req.Nameserver, "/")
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +184,7 @@ func (d *Discovery) ResolveSlotIP(req *model.ResolveSlotRequest) (string, error)
 
 func (d *Discovery) ResolveSlotIPInfo(req *model.ResolveSlotRequest) (*model.SlotIPInfoResult, error) {
 	slotName := req.SlotName
-	body, err := d.httpGetInNamespace(slotName, "/json")
+	body, err := d.httpGetInNamespace(slotName, req.Nameserver, "/json")
 	if err != nil {
 		return nil, err
 	}

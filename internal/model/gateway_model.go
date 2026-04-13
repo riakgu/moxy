@@ -51,7 +51,8 @@ type BringInterfaceUpRequest struct {
 }
 
 type ResolveSlotRequest struct {
-	SlotName string
+	SlotName   string
+	Nameserver string
 }
 
 type SlotIPInfoResult struct {

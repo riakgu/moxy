@@ -127,7 +127,11 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		case <-time.After(interval):
 		}
 
-		resolveReq := &model.ResolveSlotRequest{SlotName: name}
+		nameserver := ""
+		if s, ok := c.SlotRepo.Get(name); ok {
+			nameserver = s.Nameserver
+		}
+		resolveReq := &model.ResolveSlotRequest{SlotName: name, Nameserver: nameserver}
 		ip, err := c.Discovery.ResolveSlotIP(resolveReq)
 		if err != nil {
 			if slot, ok := c.SlotRepo.Get(name); ok {
@@ -183,12 +187,12 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 }
 
 func (c *SlotMonitorUseCase) initialDiscovery(name string) {
-	resolveReq := &model.ResolveSlotRequest{SlotName: name}
-
 	slot, ok := c.SlotRepo.Get(name)
 	if !ok {
 		return
 	}
+
+	resolveReq := &model.ResolveSlotRequest{SlotName: name, Nameserver: slot.Nameserver}
 
 	info, err := c.Discovery.ResolveSlotIPInfo(resolveReq)
 	if err != nil {

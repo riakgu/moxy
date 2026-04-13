@@ -17,7 +17,7 @@ import (
 )
 
 type ISPProber interface {
-	Probe(hintDNS []string) (*model.ISPProbeResult, error)
+	Probe(hintDNS []string, iface string) (*model.ISPProbeResult, error)
 }
 
 type ADBOperator interface {
@@ -542,7 +542,7 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 				c.Log.Info("adb dns servers found", "device", device.Alias, "servers", adbDNS)
 			}
 
-			result, err := c.ISPProber.Probe(adbDNS)
+			result, err := c.ISPProber.Probe(adbDNS, device.Interface)
 			if err != nil {
 				return fmt.Errorf("ISP probe: %w", err)
 			}

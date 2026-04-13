@@ -125,8 +125,14 @@ func (p *Provisioner) CreateSlot(req *model.CreateSlotRequest) error {
 		}
 	}
 
+	// Write resolv.conf to /etc/netns/<name>/ — the standard Linux mechanism
+	// for namespace-specific DNS. ip-netns bind-mounts this automatically.
+	netnsDir := fmt.Sprintf("/etc/netns/%s", name)
+	if err := os.MkdirAll(netnsDir, 0755); err != nil {
+		return fmt.Errorf("create netns config dir for %s: %w", name, err)
+	}
 	resolvConf := fmt.Sprintf("nameserver %s\n", dns64)
-	if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf), 0644); err != nil {
+	if err := os.WriteFile(fmt.Sprintf("%s/resolv.conf", netnsDir), []byte(resolvConf), 0644); err != nil {
 		return fmt.Errorf("set DNS64 for %s: %w", name, err)
 	}
 
@@ -235,6 +241,8 @@ func (p *Provisioner) DestroySlot(req *model.DestroySlotRequest) error {
 	if err := netns.DeleteNamed(name); err != nil {
 		return fmt.Errorf("delete namespace %s: %w", name, err)
 	}
+	// Clean up namespace-specific config
+	_ = os.RemoveAll(fmt.Sprintf("/etc/netns/%s", name))
 	return nil
 }
 

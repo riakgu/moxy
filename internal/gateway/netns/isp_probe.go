@@ -3,13 +3,15 @@
 package netns
 
 import (
-	"context"
 	"fmt"
 	"net"
+	"syscall"
 	"time"
 	"log/slog"
 
+	mdns "github.com/miekg/dns"
 	"github.com/riakgu/moxy/internal/model"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -21,7 +23,7 @@ const (
 
 // Public DNS64 fallback servers. Tried when ADB DNS servers don't support DNS64.
 var dns64Fallbacks = []string{
-	"2001:4860:4860::64",   // Google Public DNS64 
+	"2001:4860:4860::64",   // Google Public DNS64
 	"2001:4860:4860::6464", // Google Public DNS64
 	"2606:4700:4700::64",   // Cloudflare DNS64
 }
@@ -35,13 +37,13 @@ func NewISPProbe(log *slog.Logger) *ISPProbe {
 	return &ISPProbe{Log: log}
 }
 
-func (p *ISPProbe) Probe(hintDNS []string) (*model.ISPProbeResult, error) {
+func (p *ISPProbe) Probe(hintDNS []string, iface string) (*model.ISPProbeResult, error) {
 	candidates := make([]string, 0, len(hintDNS)+len(dns64Fallbacks))
 	candidates = append(candidates, hintDNS...)
 	candidates = append(candidates, dns64Fallbacks...)
 
 	for _, ns := range candidates {
-		prefix, err := p.discoverNAT64Prefix(ns)
+		prefix, err := p.discoverNAT64Prefix(ns, iface)
 		if err != nil {
 			p.Log.Debug("dns64 test failed", "nameserver", ns, "error", err)
 			continue
@@ -56,30 +58,47 @@ func (p *ISPProbe) Probe(hintDNS []string) (*model.ISPProbeResult, error) {
 	return nil, fmt.Errorf("no DNS64-capable server found (tested %d candidates)", len(candidates))
 }
 
-func (p *ISPProbe) discoverNAT64Prefix(nameserver string) (string, error) {
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return net.DialTimeout("udp6", net.JoinHostPort(nameserver, "53"), rfc7050Timeout)
+func (p *ISPProbe) discoverNAT64Prefix(nameserver, iface string) (string, error) {
+	dnsAddr := net.JoinHostPort(nameserver, "53")
+
+	// Use miekg/dns — runs synchronously, no goroutine escape.
+	// SO_BINDTODEVICE forces DNS through tethering interface, not LAN.
+	client := &mdns.Client{
+		Net:     "udp6",
+		Timeout: rfc7050Timeout,
+		Dialer: &net.Dialer{
+			Timeout: rfc7050Timeout,
+			Control: func(network, address string, c syscall.RawConn) error {
+				if iface == "" {
+					return nil
+				}
+				var sErr error
+				if err := c.Control(func(fd uintptr) {
+					sErr = unix.SetsockoptString(int(fd), unix.SOL_SOCKET, unix.SO_BINDTODEVICE, iface)
+				}); err != nil {
+					return err
+				}
+				return sErr
+			},
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), rfc7050Timeout)
-	defer cancel()
+	msg := new(mdns.Msg)
+	msg.SetQuestion(mdns.Fqdn(rfc7050Host), mdns.TypeAAAA)
 
-	ips, err := resolver.LookupHost(ctx, rfc7050Host)
+	resp, _, err := client.Exchange(msg, dnsAddr)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s via %s: %w", rfc7050Host, nameserver, err)
 	}
 
-	for _, ipStr := range ips {
-		ip := net.ParseIP(ipStr)
-		if ip == nil || ip.To4() != nil {
-			continue // skip IPv4 results
+	for _, ans := range resp.Answer {
+		aaaa, ok := ans.(*mdns.AAAA)
+		if !ok {
+			continue
 		}
+		ip := aaaa.AAAA
 
 		// NAT64 address is prefix::/96 + IPv4 (4 bytes)
-		// The IPv4 part occupies the last 4 bytes of the 16-byte IPv6 address
 		ipBytes := ip.To16()
 		if ipBytes == nil {
 			continue
