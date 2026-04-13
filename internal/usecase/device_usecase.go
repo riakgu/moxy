@@ -284,7 +284,7 @@ func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
 		serial := device.Serial
 		c.DeviceRepo.Delete(serial)
 		if c.EventPub != nil {
-			c.EventPub.Publish("device_removed", map[string]string{"serial": serial})
+			c.EventPub.Publish("device_removed", map[string]string{"serial": serial, "alias": device.Alias})
 		}
 	}
 	return nil
@@ -390,7 +390,7 @@ func (c *DeviceUseCase) handleDisconnect(serial string) {
 	if device.Alias == "" {
 		c.DeviceRepo.Delete(serial)
 		if c.EventPub != nil {
-			c.EventPub.Publish("device_removed", map[string]string{"serial": serial})
+			c.EventPub.Publish("device_removed", map[string]string{"serial": serial, "alias": device.Alias})
 		}
 		c.Log.Info("detected device unplugged", "serial", serial)
 		return

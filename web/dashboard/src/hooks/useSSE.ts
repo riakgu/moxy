@@ -52,9 +52,11 @@ export function useSSE(): SSEState {
     })
 
     es.addEventListener('device_removed', (e: MessageEvent) => {
-      const { serial } = JSON.parse(e.data) as { serial: string }
+      const { serial, alias } = JSON.parse(e.data) as { serial: string; alias?: string }
       setDevices((prev) => prev.filter((d) => d.serial !== serial))
-      setSlots((prev) => prev.filter((s) => s.device_alias !== serial))
+      if (alias) {
+        setSlots((prev) => prev.filter((s) => s.device_alias !== alias))
+      }
     })
 
     es.addEventListener('slot_updated', (e: MessageEvent) => {
