@@ -26,6 +26,7 @@ type SlotProvisioner interface {
 	CleanupNamespaces(req *model.CleanupNamespacesRequest) (int, error)
 	ConfigureDHCP(req *model.ConfigureDHCPRequest) error
 	ConfigureIPv6SLAAC(req *model.ConfigureIPv6SLAACRequest) error
+	BringInterfaceUp(req *model.BringInterfaceUpRequest) error
 }
 
 type SlotDiscovery interface {

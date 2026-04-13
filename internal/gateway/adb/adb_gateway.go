@@ -192,10 +192,7 @@ func (g *ADBGateway) DetectInterfaceForSerial(req *model.ADBDeviceRequest) (stri
 
 	for _, iface := range ifaces {
 		name := iface.Name
-		if !strings.HasPrefix(name, "usb") && !strings.HasPrefix(name, "rndis") && !strings.HasPrefix(name, "enp") {
-			continue
-		}
-		if iface.Flags&net.FlagUp == 0 {
+		if !strings.HasPrefix(name, "usb") && !strings.HasPrefix(name, "rndis") && !strings.HasPrefix(name, "enp") && !strings.HasPrefix(name, "enx") {
 			continue
 		}
 

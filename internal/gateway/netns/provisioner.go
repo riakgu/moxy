@@ -157,6 +157,18 @@ func (p *Provisioner) ConfigureIPv6SLAAC(req *model.ConfigureIPv6SLAACRequest) e
 	return nil
 }
 
+func (p *Provisioner) BringInterfaceUp(req *model.BringInterfaceUpRequest) error {
+	link, err := netlink.LinkByName(req.Interface)
+	if err != nil {
+		return fmt.Errorf("get interface %s: %w", req.Interface, err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return fmt.Errorf("bring up %s: %w", req.Interface, err)
+	}
+	p.Log.Info("interface brought up", "interface", req.Interface)
+	return nil
+}
+
 func (p *Provisioner) EnableNDPProxy(req *model.EnableNDPProxyRequest) error {
 	iface := req.Interface
 	path := fmt.Sprintf("/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface)

@@ -46,6 +46,10 @@ type ConfigureIPv6SLAACRequest struct {
 	Interface string
 }
 
+type BringInterfaceUpRequest struct {
+	Interface string
+}
+
 type ResolveSlotRequest struct {
 	SlotName string
 }

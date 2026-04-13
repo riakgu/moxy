@@ -485,6 +485,9 @@ func (c *DeviceUseCase) setup(ctx context.Context, device *entity.Device) error 
 			device.Interface = iface
 			return nil
 		}},
+		{"interface_up", func() error {
+			return c.Provisioner.BringInterfaceUp(&model.BringInterfaceUpRequest{Interface: device.Interface})
+		}},
 		{"enabled_data", func() error { return c.ADB.EnableData(&model.ADBDeviceRequest{Serial: device.Serial}) }},
 		{"dismissed_dialog", func() error { return c.ADB.DismissDataDialog(&model.ADBDeviceRequest{Serial: device.Serial}) }},
 		{"disabled_wifi", func() error { return c.ADB.DisableWifi(&model.ADBDeviceRequest{Serial: device.Serial}) }},
