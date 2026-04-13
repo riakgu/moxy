@@ -16,6 +16,7 @@ import (
 	"github.com/riakgu/moxy/internal/delivery/sse"
 	"github.com/riakgu/moxy/internal/gateway/adb"
 	"github.com/riakgu/moxy/internal/gateway/netns"
+	"github.com/riakgu/moxy/internal/gateway/system"
 	"github.com/riakgu/moxy/internal/gateway/systemd"
 	"github.com/riakgu/moxy/internal/model/converter"
 	"github.com/riakgu/moxy/internal/repository"
@@ -33,6 +34,7 @@ type BootstrapResult struct {
 	SlotUseCase   *usecase.SlotUseCase
 	DeviceUseCase *usecase.DeviceUseCase
 	SlotMonitor   *usecase.SlotMonitorUseCase
+	SystemUseCase *usecase.SystemUseCase
 	PortHandler   *proxy.PortBasedHandler
 	RouteConfig   *route.RouteConfig
 	EventHub      *sse.EventHub
@@ -73,6 +75,7 @@ type bootstrapper struct {
 	resolver    *netns.CachingResolver
 	dialer      *netns.SetnsDialer
 	ispProbe    *netns.ISPProbe
+	systemGW *system.SystemGateway
 
 	// usecases
 	slotUC      *usecase.SlotUseCase
@@ -82,6 +85,7 @@ type bootstrapper struct {
 	proxyUC     *usecase.ProxyUseCase
 	dnsUC       *usecase.DNSUseCase
 	configUC    *usecase.ConfigUseCase
+	systemUC    *usecase.SystemUseCase
 
 	// delivery
 	hub         *sse.EventHub
@@ -216,6 +220,10 @@ func (b *bootstrapper) initDelivery() {
 	b.proxyUC.SnapshotLimit = sseTrafficLimit
 	b.proxyUC.DNSUC = b.dnsUC
 
+	// System
+	b.systemGW = system.NewSystemGateway(b.cfg.Logger.With("component", "system_gw"))
+	b.systemUC = usecase.NewSystemUseCase(b.cfg.Logger.With("component", "system"), b.systemGW)
+
 	// Controllers
 	deviceCtrl := httpdelivery.NewDeviceController(b.deviceUC, b.deviceLog)
 	slotCtrl := httpdelivery.NewSlotController(b.slotUC, b.slotLog)
@@ -224,6 +232,13 @@ func (b *bootstrapper) initDelivery() {
 	configCtrl := httpdelivery.NewConfigController(
 		b.cfg.Logger.With("component", "config"),
 		b.configUC,
+	)
+	systemCtrl := httpdelivery.NewSystemController(
+		b.cfg.Logger.With("component", "system_ctrl"),
+		b.systemUC,
+		b.configUC,
+		b.adbGateway,
+		b.slotUC,
 	)
 
 	// SSE handler
@@ -248,6 +263,7 @@ func (b *bootstrapper) initDelivery() {
 		DNSController:     dnsCtrl,
 		TrafficController: trafficCtrl,
 		ConfigController:  configCtrl,
+		SystemController:  systemCtrl,
 		SSEHandler:        sseHandler,
 		Log:               b.cfg.Logger.With("component", "api"),
 		StaticFS:          b.cfg.StaticFS,
@@ -259,6 +275,7 @@ func (b *bootstrapper) result() *BootstrapResult {
 		SlotUseCase:   b.slotUC,
 		DeviceUseCase: b.deviceUC,
 		SlotMonitor:   b.slotMonitor,
+		SystemUseCase: b.systemUC,
 		PortHandler:   b.portHandler,
 		RouteConfig:   b.routeConfig,
 		EventHub:      b.hub,

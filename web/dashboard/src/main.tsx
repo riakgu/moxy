@@ -5,6 +5,7 @@ import App from './App'
 import Dashboard from './pages/Dashboard'
 import Logs from './pages/Logs'
 import Traffic from './pages/Traffic'
+import System from './pages/System'
 import Config from './pages/Config'
 import './index.css'
 
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')!).render(
           <Route index element={<Dashboard />} />
           <Route path="traffic" element={<Traffic />} />
           <Route path="logs" element={<Logs />} />
+          <Route path="system" element={<System />} />
           <Route path="config" element={<Config />} />
         </Route>
       </Routes>

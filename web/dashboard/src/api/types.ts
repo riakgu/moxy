@@ -164,3 +164,22 @@ export interface DNSCacheStats {
   total_misses: number
   total_hit_rate_percent: number
 }
+
+// System Stats — matches model.SystemStatsResponse
+export interface SystemStats {
+  cpu_percent: number
+  mem_used_bytes: number
+  mem_total_bytes: number
+  temperature: number
+  load_avg_1: number
+  load_avg_5: number
+  load_avg_15: number
+  disk_used_bytes: number
+  disk_total_bytes: number
+  host_uptime_seconds: number
+  process_uptime_seconds: number
+  goroutines: number
+  go_version: string
+  hostname: string
+  arch: string
+}

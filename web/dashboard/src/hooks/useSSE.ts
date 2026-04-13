@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Device, Slot, LogEntry, TrafficList, DNSCacheStats } from '../api/types'
+import type { Device, Slot, LogEntry, TrafficList, DNSCacheStats, SystemStats } from '../api/types'
 
 interface SSEState {
   devices: Device[]
@@ -7,6 +7,7 @@ interface SSEState {
   logs: LogEntry[]
   traffic: TrafficList | null
   dnsStats: DNSCacheStats | null
+  systemStats: SystemStats | null
   connected: boolean
   error: string | null
 }
@@ -19,6 +20,7 @@ export function useSSE(): SSEState {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [traffic, setTraffic] = useState<TrafficList | null>(null)
   const [dnsStats, setDnsStats] = useState<DNSCacheStats | null>(null)
+  const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
@@ -98,6 +100,11 @@ export function useSSE(): SSEState {
       setDnsStats(data)
     })
 
+    es.addEventListener('system_stats', (e: MessageEvent) => {
+      const data = JSON.parse(e.data) as SystemStats
+      setSystemStats(data)
+    })
+
     es.onopen = () => {
       setConnected(true)
       setError(null)
@@ -115,5 +122,5 @@ export function useSSE(): SSEState {
     }
   }, [])
 
-  return { devices, slots, logs, traffic, dnsStats, connected, error }
+  return { devices, slots, logs, traffic, dnsStats, systemStats, connected, error }
 }

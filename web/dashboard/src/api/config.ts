@@ -16,7 +16,3 @@ export async function saveConfig(config: MoxyConfig): Promise<ConfigSaveResult> 
     body: JSON.stringify(config),
   })
 }
-
-export async function restartService(): Promise<string> {
-  return apiFetch<string>('/restart', { method: 'POST' })
-}

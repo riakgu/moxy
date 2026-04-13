@@ -43,6 +43,22 @@ func main() {
 
 	go b.DeviceUseCase.StartWatching(context.Background())
 
+	// Periodic system stats SSE publisher
+	stopStats := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopStats:
+				return
+			case <-ticker.C:
+				stats := b.SystemUseCase.Collect()
+				b.EventHub.Publish("system_stats", stats)
+			}
+		}
+	}()
+
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 	go func() {
 		if err := app.Listen(apiAddr); err != nil {
@@ -63,6 +79,7 @@ func main() {
 
 	log.Info("shutting down")
 
+	close(stopStats)
 	b.SlotMonitor.StopAll()
 
 	drainTimeout := time.Duration(v.GetInt("devices.drain_timeout_seconds")) * time.Second

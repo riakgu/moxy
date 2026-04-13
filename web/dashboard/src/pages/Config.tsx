@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { getConfig, saveConfig, restartService } from '../api/config'
+import { getConfig, saveConfig } from '../api/config'
+import { useNavigate } from 'react-router-dom'
 import type { MoxyConfig } from '../api/types'
 
 // Field metadata for rendering the form
@@ -104,13 +105,13 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
 ]
 
 export default function Config() {
+  const navigate = useNavigate()
   const [config, setConfig] = useState<MoxyConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<MoxyConfig | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const [restarting, setRestarting] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  const [showRestartModal, setShowRestartModal] = useState(false)
+  const [restartBanner, setRestartBanner] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -170,8 +171,10 @@ export default function Config() {
       setSavedConfig(result.config)
       setConfig(result.config)
       if (result.restart_required) {
-        showToast('Config saved. Restart required for port/pool changes.', 'success')
+        setRestartBanner(true)
+        showToast('Config saved. Some changes need a restart.', 'success')
       } else {
+        setRestartBanner(false)
         showToast('Config applied live ✓', 'success')
       }
     } catch (err: unknown) {
@@ -189,21 +192,6 @@ export default function Config() {
       setSaving(false)
     }
   }, [config, showToast])
-
-  const handleRestart = useCallback(async () => {
-    setRestarting(true)
-    try {
-      await restartService()
-      setShowRestartModal(false)
-      showToast('Restarting... Dashboard will reconnect automatically.', 'success')
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast('Restart failed: ' + message, 'error')
-      setRestarting(false)
-    }
-    // Don't set restarting=false on success — the process is dying.
-    // SSE reconnect handles recovery.
-  }, [showToast])
 
   const toggleCollapse = useCallback((title: string) => {
     setCollapsed((prev) => ({ ...prev, [title]: !prev[title] }))
@@ -257,6 +245,22 @@ export default function Config() {
           </p>
         </div>
       </div>
+
+      {/* Restart required banner */}
+      {restartBanner && (
+        <div className="flex items-center justify-between bg-accent-amber/10 border border-accent-amber/30 rounded-lg px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-accent-amber">⚠</span>
+            <span className="text-accent-amber text-xs font-mono">Some changes require a restart to take effect</span>
+          </div>
+          <button
+            onClick={() => navigate('/system')}
+            className="px-3 py-1.5 rounded text-xs font-mono font-semibold bg-accent-amber/20 text-accent-amber border border-accent-amber/40 hover:bg-accent-amber/30 transition-colors whitespace-nowrap"
+          >
+            Go to System →
+          </button>
+        </div>
+      )}
 
       {/* Unsaved changes bar */}
       {isDirty && (
@@ -391,92 +395,6 @@ export default function Config() {
           )}
         </div>
       ))}
-
-      {/* System section — Restart */}
-      <div className="bg-bg-surface border border-border-subtle rounded-lg card-glow overflow-hidden">
-        <div className="px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-text-primary font-mono tracking-wider uppercase mb-4">
-            System
-          </h2>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-text-secondary font-mono">Restart the Moxy service to apply config changes</p>
-              <p className="text-[10px] text-text-muted font-mono mt-1">All active connections will be dropped and slots re-provisioned</p>
-            </div>
-            <button
-              onClick={() => setShowRestartModal(true)}
-              disabled={restarting}
-              className="px-4 py-2 rounded text-xs font-mono font-semibold bg-accent-red/10 text-accent-red border border-accent-red/30 hover:bg-accent-red/20 transition-colors disabled:opacity-50 whitespace-nowrap"
-            >
-              {restarting ? (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 border-2 border-accent-red/40 border-t-accent-red rounded-full animate-spin-slow" />
-                  Restarting...
-                </span>
-              ) : (
-                '⟳ Restart Service'
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Restart confirmation modal — portal to escape transform context */}
-      {showRestartModal && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-bg-surface border border-border-active rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-mono font-semibold text-accent-amber flex items-center gap-2">
-              <span>⚠</span> Restart Moxy?
-            </h3>
-
-            <div className="space-y-2 text-sm text-text-secondary font-mono">
-              <p className="text-text-muted text-xs uppercase tracking-wider">This will:</p>
-              <ul className="space-y-1.5 text-xs">
-                <li className="flex items-start gap-2">
-                  <span className="text-accent-red mt-0.5">✕</span>
-                  <span>Drop all active proxy connections</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-accent-red mt-0.5">✕</span>
-                  <span>Clear traffic stats, DNS cache, and logs</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-accent-red mt-0.5">✕</span>
-                  <span>Re-provision all slots (new IPs will be assigned)</span>
-                </li>
-              </ul>
-            </div>
-
-            <p className="text-xs text-accent-green font-mono flex items-center gap-2">
-              <span>✓</span> Devices will be automatically re-detected after restart
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-border-subtle">
-              <button
-                onClick={() => setShowRestartModal(false)}
-                className="px-4 py-2 rounded text-xs font-mono font-medium border border-border-subtle bg-bg-surface text-text-secondary hover:text-text-primary hover:bg-bg-surface-hover transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRestart}
-                disabled={restarting}
-                className="px-4 py-2 rounded text-xs font-mono font-semibold bg-accent-red/20 text-accent-red border border-accent-red/40 hover:bg-accent-red/30 transition-colors disabled:opacity-50"
-              >
-                {restarting ? (
-                  <span className="flex items-center gap-2">
-                    <span className="inline-block w-3 h-3 border-2 border-accent-red/40 border-t-accent-red rounded-full animate-spin-slow" />
-                    Restarting...
-                  </span>
-                ) : (
-                  'Restart Now'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
 
       {/* Toast — portal to escape transform context */}
       {toast && createPortal(

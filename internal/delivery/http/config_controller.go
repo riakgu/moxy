@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -47,13 +46,3 @@ func (c *ConfigController) Update(ctx *fiber.Ctx) error {
 	return ctx.JSON(model.WebResponse[*usecase.ConfigSaveResult]{Data: result})
 }
 
-func (c *ConfigController) Restart(ctx *fiber.Ctx) error {
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		if err := c.ConfigUC.RestartService(); err != nil {
-			c.Log.Error("restart failed", "error", err)
-		}
-	}()
-
-	return ctx.JSON(model.WebResponse[string]{Data: "restarting"})
-}

@@ -20,6 +20,7 @@ type RouteConfig struct {
 	DNSController     *httpdelivery.DNSController
 	TrafficController *httpdelivery.TrafficController
 	ConfigController  *httpdelivery.ConfigController
+	SystemController  *httpdelivery.SystemController
 	SSEHandler        *sse.SSEHandler
 	Log               *slog.Logger
 	StaticFS          embed.FS
@@ -55,7 +56,12 @@ func (c *RouteConfig) Setup() {
 	// Config routes
 	api.Get("/config", c.ConfigController.Get)
 	api.Put("/config", c.ConfigController.Update)
-	api.Post("/restart", c.ConfigController.Restart)
+
+	// System routes
+	api.Get("/system/stats", c.SystemController.GetStats)
+	api.Post("/system/restart-adb", c.SystemController.RestartADB)
+	api.Post("/system/cleanup", c.SystemController.CleanupNamespaces)
+	api.Post("/restart", c.SystemController.Restart)
 
 	// SSE event stream
 	api.Get("/events", c.SSEHandler.Stream)

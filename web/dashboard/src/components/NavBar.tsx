@@ -5,7 +5,8 @@ const navLinks = [
   { to: '/', label: 'Dashboard', icon: '◈' },
   { to: '/traffic', label: 'Traffic', icon: '◆' },
   { to: '/logs', label: 'Logs', icon: '▣' },
-  { to: '/config', label: 'Config', icon: '⚙' },
+  { to: '/system', label: 'System', icon: '⚙' },
+  { to: '/config', label: 'Config', icon: '☰' },
 ]
 
 export default function NavBar() {
