@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 	"log/slog"
@@ -138,15 +139,22 @@ func (c *ProxyUseCase) dial(
 	transport string,
 	dialFn func(req *model.DialRequest) (net.Conn, error),
 ) (net.Conn, error) {
-	c.SlotRepo.IncrementConnections(slotName)
-	if slot, ok := c.SlotRepo.Get(slotName); ok {
-		atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
-		if c.EventPub != nil {
-			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
-		}
+	// Validate slot exists and is healthy before dialing
+	slot, ok := c.SlotRepo.Get(slotName)
+	if !ok {
+		return nil, fmt.Errorf("slot %s not found", slotName)
+	}
+	if slot.Status != entity.SlotStatusHealthy {
+		return nil, fmt.Errorf("slot %s is %s", slotName, slot.Status)
 	}
 
-	nameserver, nat64Prefix := c.getSlotConfig(slotName)
+	c.SlotRepo.IncrementConnections(slotName)
+	atomic.StoreInt64(&slot.LastUsedAt, time.Now().UnixMilli())
+	if c.EventPub != nil {
+		c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
+	}
+
+	nameserver, nat64Prefix := slot.Nameserver, slot.NAT64Prefix
 
 	conn, err := dialFn(&model.DialRequest{
 		SlotName:    slotName,
@@ -163,10 +171,7 @@ func (c *ProxyUseCase) dial(
 	c.Log.Debug("connection established", "slot", slotName, "target", targetAddr, "protocol", protocol, "transport", transport)
 
 	host, port, _ := net.SplitHostPort(targetAddr)
-	deviceAlias := ""
-	if slot, ok := c.SlotRepo.Get(slotName); ok {
-		deviceAlias = slot.DeviceAlias
-	}
+	deviceAlias := slot.DeviceAlias
 	key := entity.TrafficKey{Domain: host, Port: port, DeviceAlias: deviceAlias, Protocol: protocol, Transport: transport}
 	entry := c.TrafficRepo.Record(key)
 	atomic.AddInt64(&entry.ActiveConnections, 1)
@@ -186,19 +191,14 @@ func (c *ProxyUseCase) dial(
 	}, nil
 }
 
-func (c *ProxyUseCase) getSlotConfig(name string) (nameserver, nat64Prefix string) {
-	if slot, ok := c.SlotRepo.Get(name); ok {
-		return slot.Nameserver, slot.NAT64Prefix
-	}
-	return "", ""
-}
+
 
 type trackedConn struct {
 	net.Conn
 	slotName string
 	slotRepo *repository.SlotRepository
 	traffic  *entity.TrafficEntry
-	closed   bool
+	once     sync.Once
 }
 
 func (tc *trackedConn) Read(b []byte) (int, error) {
@@ -218,12 +218,11 @@ func (tc *trackedConn) Write(b []byte) (int, error) {
 }
 
 func (tc *trackedConn) Close() error {
-	if !tc.closed {
-		tc.closed = true
+	tc.once.Do(func() {
 		tc.slotRepo.DecrementConnections(tc.slotName)
 		if tc.traffic != nil {
 			atomic.AddInt64(&tc.traffic.ActiveConnections, -1)
 		}
-	}
+	})
 	return tc.Conn.Close()
 }
