@@ -16,6 +16,7 @@
         "port": 8080
     },
     "devices": {
+        "max_devices": 2,
         "grace_period_seconds": 30,
         "watcher_reconnect_max_seconds": 30,
         "drain_timeout_seconds": 10

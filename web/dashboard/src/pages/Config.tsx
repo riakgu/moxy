@@ -42,6 +42,7 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'Devices',
     group: 'devices',
     fields: [
+      { key: 'max_devices', label: 'Max Devices', type: 'number', min: 1, max: 100, description: 'Maximum devices that can be online simultaneously' },
       { key: 'grace_period_seconds', label: 'Grace Period (s)', type: 'number', min: 1, description: 'Seconds to wait before tearing down a disconnected device' },
       { key: 'watcher_reconnect_max_seconds', label: 'Watcher Reconnect Max (s)', type: 'number', min: 1, description: 'Maximum backoff for ADB watcher reconnection', readonly: true },
       { key: 'drain_timeout_seconds', label: 'Drain Timeout (s)', type: 'number', min: 1, description: 'Seconds to wait for active connections before force-destroying a slot', readonly: true },

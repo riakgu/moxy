@@ -58,7 +58,6 @@ type DeviceUseCase struct {
 	DrainTimeout  time.Duration
 	TrafficRepo   *repository.TrafficRepository
 	EventPub      EventPublisher
-	OnTeardown    func()
 	graceTimers   map[string]*time.Timer
 	mu            sync.Mutex
 }
@@ -98,15 +97,29 @@ func NewDeviceUseCase(
 	}
 }
 
-func (c *DeviceUseCase) publishDevice(alias string) {
+func (c *DeviceUseCase) publishDevice(aliasOrSerial string) {
 	if c.EventPub == nil {
 		return
 	}
-	resp, err := c.GetByAlias(&model.GetDeviceRequest{Alias: alias})
-	if err != nil {
+	device := c.findDevice(aliasOrSerial)
+	if device == nil {
 		return
 	}
-	c.EventPub.Publish("device_updated", resp)
+	slotCount := c.SlotRepo.CountByDevice(device.Alias)
+	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
+	rx, tx := c.TrafficRepo.TotalByDevice(device.Alias)
+	c.EventPub.Publish("device_updated", converter.DeviceToResponse(device, slotCount, uniqueIPs, rx, tx))
+}
+
+// findDevice looks up by alias first, then by serial.
+func (c *DeviceUseCase) findDevice(aliasOrSerial string) *entity.Device {
+	if d, ok := c.DeviceRepo.GetByAlias(aliasOrSerial); ok {
+		return d
+	}
+	if d, ok := c.DeviceRepo.GetBySerial(aliasOrSerial); ok {
+		return d
+	}
+	return nil
 }
 
 // No setup or provisioning — use Setup(alias) for that.
@@ -128,27 +141,34 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 
 		resp.Discovered++
 		device := &entity.Device{
-			Alias:  c.DeviceRepo.NextAlias(),
 			Serial: serial,
 			Status: entity.DeviceStatusDetected,
 		}
 		c.DeviceRepo.Put(device)
-		c.publishDevice(device.Alias)
+		c.publishDevice(device.Serial)
 	}
 
 	// guarded by c.mu to prevent race with grace timer
 	for _, device := range c.DeviceRepo.ListAll() {
-		if device.Status != entity.DeviceStatusOffline && !serialSet[device.Serial] {
-			c.mu.Lock()
-			// Cancel grace timer if one exists (prevents double teardown)
-			if timer, ok := c.graceTimers[device.Serial]; ok {
-				timer.Stop()
-				delete(c.graceTimers, device.Serial)
-			}
-			c.Log.Warn("device disconnected", "device", device.Alias, "serial", device.Serial)
-			c.teardownDevice(device)
-			c.mu.Unlock()
+		if serialSet[device.Serial] {
+			continue
 		}
+		// Detected device with no alias — just remove
+		if device.Alias == "" {
+			c.DeviceRepo.Delete(device.Serial)
+			continue
+		}
+		if device.Status == entity.DeviceStatusOffline || device.Status == entity.DeviceStatusDetected {
+			continue
+		}
+		c.mu.Lock()
+		if timer, ok := c.graceTimers[device.Serial]; ok {
+			timer.Stop()
+			delete(c.graceTimers, device.Serial)
+		}
+		c.Log.Warn("device disconnected", "device", device.Alias, "serial", device.Serial)
+		c.teardownDevice(device)
+		c.mu.Unlock()
 	}
 
 	for _, device := range c.DeviceRepo.ListAll() {
@@ -165,13 +185,22 @@ func (c *DeviceUseCase) Scan() (*model.ScanResponse, error) {
 }
 
 func (c *DeviceUseCase) Setup(ctx context.Context, req *model.SetupDeviceRequest) (*model.SetupResponse, error) {
-	alias := req.Alias
-	device, ok := c.DeviceRepo.GetByAlias(alias)
-	if !ok {
-		return nil, fmt.Errorf("device %s not found", alias)
+	// Look up by alias or serial (detected devices have no alias yet)
+	device := c.findDevice(req.Alias)
+	if device == nil {
+		return nil, fmt.Errorf("device %s not found", req.Alias)
 	}
 	if device.Status != entity.DeviceStatusDetected {
 		return nil, model.ErrDeviceNotDetected
+	}
+
+	// Allocate alias if the device doesn't have one yet
+	if device.Alias == "" {
+		alias, ok := c.DeviceRepo.AllocateAlias()
+		if !ok {
+			return nil, fmt.Errorf("max devices reached")
+		}
+		device.Alias = alias
 	}
 
 	device.Status = entity.DeviceStatusSetup
@@ -224,10 +253,9 @@ func (c *DeviceUseCase) List() ([]model.DeviceResponse, error) {
 }
 
 func (c *DeviceUseCase) GetByAlias(req *model.GetDeviceRequest) (*model.DeviceResponse, error) {
-	alias := req.Alias
-	device, ok := c.DeviceRepo.GetByAlias(alias)
-	if !ok {
-		return nil, fmt.Errorf("device %s not found", alias)
+	device := c.findDevice(req.Alias)
+	if device == nil {
+		return nil, fmt.Errorf("device %s not found", req.Alias)
 	}
 	slotCount := c.SlotRepo.CountByDevice(device.Alias)
 	uniqueIPs := c.SlotRepo.UniqueIPsByDevice(device.Alias)
@@ -236,33 +264,49 @@ func (c *DeviceUseCase) GetByAlias(req *model.GetDeviceRequest) (*model.DeviceRe
 }
 
 func (c *DeviceUseCase) Delete(req *model.DeleteDeviceRequest) error {
-	alias := req.Alias
-	device, ok := c.DeviceRepo.GetByAlias(alias)
-	if !ok {
-		return fmt.Errorf("device %s not found", alias)
+	device := c.findDevice(req.Alias)
+	if device == nil {
+		return fmt.Errorf("device %s not found", req.Alias)
 	}
-	c.teardownDevice(device)
-	device.Status = entity.DeviceStatusDetected
-	device.SetupStep = ""
-	c.DeviceRepo.Put(device)
-	c.publishDevice(alias)
+	if device.Alias != "" {
+		c.SlotProvision.TeardownByDevice(device.Alias, c.DrainTimeout)
+		c.DeviceRepo.ReleaseAlias(device.Alias)
+		device.Alias = "" // clear before Delete to prevent double-release
+	}
+
+	phonePresent := device.Status == entity.DeviceStatusOnline || device.Status == entity.DeviceStatusError
+	if phonePresent {
+		device.Status = entity.DeviceStatusDetected
+		device.SetupStep = ""
+		c.DeviceRepo.Put(device)
+		c.publishDevice(device.Serial)
+	} else {
+		serial := device.Serial
+		c.DeviceRepo.Delete(serial)
+		if c.EventPub != nil {
+			c.EventPub.Publish("device_removed", map[string]string{"serial": serial})
+		}
+	}
 	return nil
 }
 
 func (c *DeviceUseCase) Reset(ctx context.Context, req *model.DeleteDeviceRequest) (*model.SetupResponse, error) {
-	alias := req.Alias
-	device, ok := c.DeviceRepo.GetByAlias(alias)
-	if !ok {
-		return nil, fmt.Errorf("device %s not found", alias)
+	device := c.findDevice(req.Alias)
+	if device == nil {
+		return nil, fmt.Errorf("device %s not found", req.Alias)
 	}
-	c.teardownDevice(device)
+	oldAlias := device.Alias
+	if oldAlias != "" {
+		c.teardownDevice(device)
+	}
 	device.Status = entity.DeviceStatusDetected
 	device.SetupStep = ""
+	// Keep alias — Reset reuses the same dev index
 	c.DeviceRepo.Put(device)
-	c.publishDevice(alias)
+	c.publishDevice(device.Serial)
 
-	// Auto-trigger setup
-	return c.Setup(ctx, &model.SetupDeviceRequest{Alias: alias})
+	// Auto-trigger setup (will reuse existing alias)
+	return c.Setup(ctx, &model.SetupDeviceRequest{Alias: device.Serial})
 }
 
 func (c *DeviceUseCase) Provision(req *model.ProvisionRequest) (*model.ProvisionResponse, error) {
@@ -329,18 +373,40 @@ func (c *DeviceUseCase) handleConnect(serial string) {
 	}
 
 	device := &entity.Device{
-		Alias:  c.DeviceRepo.NextAlias(),
 		Serial: serial,
 		Status: entity.DeviceStatusDetected,
 	}
 	c.DeviceRepo.Put(device)
-	c.publishDevice(device.Alias)
-	c.Log.Info("device detected", "device", device.Alias, "serial", serial)
+	c.publishDevice(device.Serial)
+	c.Log.Info("device detected", "serial", serial)
 }
 
 func (c *DeviceUseCase) handleDisconnect(serial string) {
 	device, ok := c.DeviceRepo.GetBySerial(serial)
-	if !ok || device.Status != entity.DeviceStatusOnline {
+	if !ok {
+		return
+	}
+
+	if device.Alias == "" {
+		c.DeviceRepo.Delete(serial)
+		if c.EventPub != nil {
+			c.EventPub.Publish("device_removed", map[string]string{"serial": serial})
+		}
+		c.Log.Info("detected device unplugged", "serial", serial)
+		return
+	}
+
+	// Only handle online/setup/error devices
+	if device.Status != entity.DeviceStatusOnline &&
+		device.Status != entity.DeviceStatusSetup &&
+		device.Status != entity.DeviceStatusError {
+		return
+	}
+
+	// Error state: no grace period, just teardown immediately
+	if device.Status == entity.DeviceStatusError {
+		c.teardownDevice(device)
+		c.Log.Info("error device unplugged", "device", device.Alias, "serial", serial)
 		return
 	}
 
@@ -528,19 +594,4 @@ func (c *DeviceUseCase) teardownDevice(device *entity.Device) {
 	device.Status = entity.DeviceStatusOffline
 	c.DeviceRepo.Put(device)
 	c.publishDevice(device.Alias)
-
-	if c.OnTeardown != nil {
-		c.OnTeardown()
-	}
-}
-
-func (c *DeviceUseCase) ListOnlineAliases() []string {
-	devices := c.DeviceRepo.ListAll()
-	var aliases []string
-	for _, d := range devices {
-		if d.Status == entity.DeviceStatusOnline {
-			aliases = append(aliases, d.Alias)
-		}
-	}
-	return aliases
 }

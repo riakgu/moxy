@@ -6,32 +6,17 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/riakgu/moxy/internal/delivery/proxy"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 type DeviceController struct {
-	DeviceUC     *usecase.DeviceUseCase
-	Log          *slog.Logger
-	PortHandler  *proxy.PortBasedHandler
-	GetSlotNames func() []string
+	DeviceUC *usecase.DeviceUseCase
+	Log      *slog.Logger
 }
 
-func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *slog.Logger, portHandler *proxy.PortBasedHandler, getSlotNames func() []string) *DeviceController {
-	return &DeviceController{DeviceUC: deviceUC, Log: log, PortHandler: portHandler, GetSlotNames: getSlotNames}
-}
-
-func (c *DeviceController) syncPorts() {
-	if c.PortHandler == nil {
-		return
-	}
-	slotNames := c.GetSlotNames()
-	onlineAliases := c.DeviceUC.ListOnlineAliases()
-	c.PortHandler.SyncSlots(slotNames)
-	c.PortHandler.SyncDevices(onlineAliases)
-	c.PortHandler.SyncSlotsIPv6(slotNames)
-	c.PortHandler.SyncDevicesIPv6(onlineAliases)
+func NewDeviceController(deviceUC *usecase.DeviceUseCase, log *slog.Logger) *DeviceController {
+	return &DeviceController{DeviceUC: deviceUC, Log: log}
 }
 
 func (c *DeviceController) ListADB(ctx *fiber.Ctx) error {
@@ -50,7 +35,6 @@ func (c *DeviceController) Scan(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	c.syncPorts()
 	return ctx.JSON(model.WebResponse[*model.ScanResponse]{Data: resp})
 }
 
@@ -77,7 +61,6 @@ func (c *DeviceController) Delete(ctx *fiber.Ctx) error {
 	if err := c.DeviceUC.Delete(&model.DeleteDeviceRequest{Alias: ctx.Params("alias")}); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	c.syncPorts()
 	return ctx.JSON(model.WebResponse[bool]{Data: true})
 }
 
@@ -86,7 +69,6 @@ func (c *DeviceController) Reset(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	c.syncPorts()
 	return ctx.JSON(model.WebResponse[*model.SetupResponse]{Data: resp})
 }
 
@@ -101,7 +83,6 @@ func (c *DeviceController) Provision(ctx *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	c.syncPorts()
 	return ctx.JSON(model.WebResponse[*model.ProvisionResponse]{Data: resp})
 }
 
@@ -113,6 +94,5 @@ func (c *DeviceController) Setup(ctx *fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	c.syncPorts()
 	return ctx.JSON(model.WebResponse[*model.SetupResponse]{Data: resp})
 }

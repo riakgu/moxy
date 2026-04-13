@@ -21,8 +21,8 @@ export function deleteDevice(alias: string): Promise<boolean> {
   return apiFetch<boolean>(`/devices/${alias}`, { method: 'DELETE' })
 }
 
-export function resetDevice(alias: string): Promise<boolean> {
-  return apiFetch<boolean>(`/devices/${alias}/reset`, { method: 'POST' })
+export function resetDevice(alias: string): Promise<SetupResponse> {
+  return apiFetch<SetupResponse>(`/devices/${alias}/reset`, { method: 'POST' })
 }
 
 export function provisionDevice(alias: string, slots: number): Promise<ProvisionResponse> {

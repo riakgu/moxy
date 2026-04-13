@@ -65,10 +65,13 @@ export default function DeviceCard({
   const isExpandable = isOnline || isDisconnected
   const status = deviceStatusStyles[device.status] ?? deviceStatusStyles.offline
 
+  // Use alias if available, fall back to serial (detected devices have no alias)
+  const deviceId = device.alias || device.serial
+
   const handleSetup = async () => {
     setSettingUp(true)
     try {
-      await onSetupDevice(device.alias)
+      await onSetupDevice(deviceId)
     } finally {
       setSettingUp(false)
     }
@@ -77,27 +80,27 @@ export default function DeviceCard({
   const handleProvision = async () => {
     setProvisioning(true)
     try {
-      await onProvision(device.alias, provisionCount)
+      await onProvision(deviceId, provisionCount)
     } finally {
       setProvisioning(false)
     }
   }
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete ${device.alias}? This will destroy all its slots.`)) return
+    if (!window.confirm(`Delete ${deviceId}? This will destroy all its slots.`)) return
     setDeletingDevice(true)
     try {
-      await onDeleteDevice(device.alias)
+      await onDeleteDevice(deviceId)
     } finally {
       setDeletingDevice(false)
     }
   }
 
   const handleReset = async () => {
-    if (!window.confirm(`Reset ${device.alias}? This will destroy all slots and re-run setup.`)) return
+    if (!window.confirm(`Reset ${deviceId}? This will destroy all slots and re-run setup.`)) return
     setResettingDevice(true)
     try {
-      await onResetDevice(device.alias)
+      await onResetDevice(deviceId)
     } finally {
       setResettingDevice(false)
     }
@@ -116,12 +119,14 @@ export default function DeviceCard({
           ${isExpandable ? 'cursor-pointer hover:bg-bg-surface-hover/30' : 'cursor-default'}`}
       >
         <div className="flex items-center gap-4">
-          <span className="font-mono text-2xl font-semibold text-accent-cyan">{device.alias}</span>
-          <span className="text-sm text-text-secondary">
-            {isDetected
-              ? device.serial
-              : [device.carrier, device.model].filter(Boolean).join(' · ') || 'Unknown device'}
+          <span className="font-mono text-2xl font-semibold text-accent-cyan">
+            {device.alias || device.serial}
           </span>
+          {!isDetected && (
+            <span className="text-sm text-text-secondary">
+              {[device.carrier, device.model].filter(Boolean).join(' · ') || 'Unknown device'}
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status.class}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
             {status.text}
@@ -212,25 +217,26 @@ export default function DeviceCard({
           </div>
         )}
 
+        {(isOnline || device.status === 'error') && (
+          <button
+            onClick={handleReset}
+            disabled={resettingDevice}
+            className="px-3 py-1.5 text-xs font-medium rounded bg-accent-amber/10 text-accent-amber
+              hover:bg-accent-amber/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
+          >
+            {resettingDevice ? 'Resetting...' : 'Reset'}
+          </button>
+        )}
+
         {(isOnline || isDisconnected || device.status === 'error' || device.status === 'offline') && (
-          <>
-            <button
-              onClick={handleReset}
-              disabled={resettingDevice}
-              className="px-3 py-1.5 text-xs font-medium rounded bg-accent-amber/10 text-accent-amber
-                hover:bg-accent-amber/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
-            >
-              {resettingDevice ? 'Resetting...' : 'Reset'}
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deletingDevice}
-              className="px-3 py-1.5 text-xs font-medium rounded bg-accent-red/10 text-accent-red
-                hover:bg-accent-red/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
-            >
-              {deletingDevice ? 'Deleting...' : 'Delete'}
-            </button>
-          </>
+          <button
+            onClick={handleDelete}
+            disabled={deletingDevice}
+            className="px-3 py-1.5 text-xs font-medium rounded bg-accent-red/10 text-accent-red
+              hover:bg-accent-red/20 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-wait"
+          >
+            {deletingDevice ? 'Deleting...' : 'Delete'}
+          </button>
         )}
       </div>
 

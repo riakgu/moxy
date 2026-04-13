@@ -6,8 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 	"log/slog"
 
@@ -17,17 +15,17 @@ import (
 type PortBasedHandler struct {
 	Log           *slog.Logger
 	proxyUC       *usecase.ProxyUseCase
-	proxyPort     int 
-	slotStart     int 
-	ipv6Port      int 
-	ipv6SlotStart int 
+	proxyPort     int
+	slotStart     int
+	ipv6Port      int
+	ipv6SlotStart int
 	mu            sync.Mutex
 	shared        *MuxHandler
-	devices       map[string]*MuxHandler
-	slots         map[string]*MuxHandler 
 	ipv6Shared    *MuxHandler
-	ipv6Devices   map[string]*MuxHandler
-	ipv6Slots     map[string]*MuxHandler
+	devices       []*MuxHandler
+	ipv6Devices   []*MuxHandler
+	slots         []*MuxHandler
+	ipv6Slots     []*MuxHandler
 }
 
 func NewPortBasedHandler(
@@ -45,317 +43,146 @@ func NewPortBasedHandler(
 		slotStart:     slotStart,
 		ipv6Port:      ipv6Port,
 		ipv6SlotStart: ipv6SlotStart,
-		devices:       make(map[string]*MuxHandler),
-		slots:         make(map[string]*MuxHandler),
-		ipv6Devices:   make(map[string]*MuxHandler),
-		ipv6Slots:     make(map[string]*MuxHandler),
 	}
 }
 
-func (c *PortBasedHandler) StartShared() {
-	if c.proxyPort <= 0 {
-		return
+// StartAll pre-binds all ports at startup. Connections to non-existent slots/devices
+// are rejected at the proxy usecase level.
+func (c *PortBasedHandler) StartAll(maxDevices, maxSlots int) {
+	// Shared IPv4
+	if c.proxyPort > 0 {
+		c.shared = c.startListener(fmt.Sprintf(":%d", c.proxyPort), "shared-ipv4",
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				slotName, err := c.proxyUC.PickSlot()
+				if err != nil {
+					return nil, err
+				}
+				if network == "udp" {
+					return c.proxyUC.ConnectUDP(slotName, targetAddr)
+				}
+				return c.proxyUC.Connect(slotName, targetAddr)
+			})
 	}
-	addr := fmt.Sprintf(":%d", c.proxyPort)
-	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-		slotName, err := c.proxyUC.PickSlot()
-		if err != nil {
-			return nil, err
-		}
-		if network == "udp" {
-			return c.proxyUC.ConnectUDP(slotName, targetAddr)
-		}
-		return c.proxyUC.Connect(slotName, targetAddr)
+
+	// Shared IPv6
+	if c.ipv6Port > 0 {
+		c.ipv6Shared = c.startListener(fmt.Sprintf(":%d", c.ipv6Port), "shared-ipv6",
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				slotName, err := c.proxyUC.PickSlot()
+				if err != nil {
+					return nil, err
+				}
+				if network == "udp" {
+					return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
+				}
+				return c.proxyUC.ConnectIPv6(slotName, targetAddr)
+			})
 	}
-	c.shared = NewMuxHandler(c.Log, connect)
-	if err := c.shared.Listen(addr); err != nil {
-		c.Log.Error("shared proxy bind failed", "addr", addr, "error", err)
-		return
+
+	// Per-device IPv4
+	c.devices = make([]*MuxHandler, maxDevices)
+	for i := 1; i <= maxDevices; i++ {
+		if c.proxyPort <= 0 {
+			break
+		}
+		port := c.proxyPort + i
+		deviceAlias := fmt.Sprintf("dev%d", i)
+		c.devices[i-1] = c.startListener(fmt.Sprintf(":%d", port), fmt.Sprintf("device-%s-ipv4", deviceAlias),
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
+				if err != nil {
+					return nil, err
+				}
+				if network == "udp" {
+					return c.proxyUC.ConnectUDP(slotName, targetAddr)
+				}
+				return c.proxyUC.Connect(slotName, targetAddr)
+			})
+	}
+
+	// Per-device IPv6
+	c.ipv6Devices = make([]*MuxHandler, maxDevices)
+	for i := 1; i <= maxDevices; i++ {
+		if c.ipv6Port <= 0 {
+			break
+		}
+		port := c.ipv6Port + i
+		deviceAlias := fmt.Sprintf("dev%d", i)
+		c.ipv6Devices[i-1] = c.startListener(fmt.Sprintf(":%d", port), fmt.Sprintf("device-%s-ipv6", deviceAlias),
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
+				if err != nil {
+					return nil, err
+				}
+				if network == "udp" {
+					return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
+				}
+				return c.proxyUC.ConnectIPv6(slotName, targetAddr)
+			})
+	}
+
+	// Per-slot IPv4
+	c.slots = make([]*MuxHandler, maxSlots)
+	for i := 1; i <= maxSlots; i++ {
+		if c.slotStart <= 0 {
+			break
+		}
+		port := c.slotStart + i
+		slotName := fmt.Sprintf("slot%d", i)
+		c.slots[i-1] = c.startListener(fmt.Sprintf(":%d", port), fmt.Sprintf("slot-%s-ipv4", slotName),
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				if network == "udp" {
+					return c.proxyUC.ConnectUDP(slotName, targetAddr)
+				}
+				return c.proxyUC.Connect(slotName, targetAddr)
+			})
+	}
+
+	// Per-slot IPv6
+	c.ipv6Slots = make([]*MuxHandler, maxSlots)
+	for i := 1; i <= maxSlots; i++ {
+		if c.ipv6SlotStart <= 0 {
+			break
+		}
+		port := c.ipv6SlotStart + i
+		slotName := fmt.Sprintf("slot%d", i)
+		c.ipv6Slots[i-1] = c.startListener(fmt.Sprintf(":%d", port), fmt.Sprintf("slot-%s-ipv6", slotName),
+			func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
+				if network == "udp" {
+					return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
+				}
+				return c.proxyUC.ConnectIPv6(slotName, targetAddr)
+			})
+	}
+
+	c.Log.Info("all ports pre-bound",
+		"shared_ipv4", c.proxyPort > 0,
+		"shared_ipv6", c.ipv6Port > 0,
+		"devices", maxDevices,
+		"slots", maxSlots,
+	)
+}
+
+func (c *PortBasedHandler) startListener(addr, label string, connect func(ctx context.Context, network, targetAddr string) (net.Conn, error)) *MuxHandler {
+	handler := NewMuxHandler(c.Log, connect)
+	if err := handler.Listen(addr); err != nil {
+		c.Log.Error("proxy bind failed", "label", label, "addr", addr, "error", err)
+		return nil
 	}
 	go func() {
-		if err := c.shared.Serve(); err != nil {
-			c.Log.Error("shared proxy serve failed", "addr", addr, "error", err)
+		if err := handler.Serve(); err != nil {
+			c.Log.Warn("proxy serve ended", "label", label, "addr", addr, "error", err)
 		}
 	}()
-}
-
-func (c *PortBasedHandler) StartSharedIPv6() {
-	if c.ipv6Port <= 0 {
-		return
-	}
-	addr := fmt.Sprintf(":%d", c.ipv6Port)
-	connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-		slotName, err := c.proxyUC.PickSlot()
-		if err != nil {
-			return nil, err
-		}
-		if network == "udp" {
-			return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
-		}
-		return c.proxyUC.ConnectIPv6(slotName, targetAddr)
-	}
-	c.ipv6Shared = NewMuxHandler(c.Log, connect)
-	if err := c.ipv6Shared.Listen(addr); err != nil {
-		c.Log.Error("shared ipv6 proxy bind failed", "addr", addr, "error", err)
-		return
-	}
-	go func() {
-		if err := c.ipv6Shared.Serve(); err != nil {
-			c.Log.Error("shared ipv6 proxy serve failed", "addr", addr, "error", err)
-		}
-	}()
-}
-
-func (c *PortBasedHandler) SyncDevices(aliases []string) {
-	if c.proxyPort <= 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	desired := make(map[string]bool)
-	for _, alias := range aliases {
-		desired[alias] = true
-	}
-
-	for alias, handler := range c.devices {
-		if !desired[alias] {
-			c.Log.Info("device proxy stopped", "device", alias)
-			if err := handler.Shutdown(context.Background()); err != nil {
-				c.Log.Warn("device proxy shutdown failed", "device", alias, "error", err)
-			}
-			delete(c.devices, alias)
-		}
-	}
-
-	for _, alias := range aliases {
-		if _, exists := c.devices[alias]; exists {
-			continue
-		}
-		devIdx := deviceIndex(alias)
-		if devIdx <= 0 {
-			continue
-		}
-		port := c.proxyPort + devIdx
-		addr := fmt.Sprintf(":%d", port)
-
-		deviceAlias := alias // capture for closure
-		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
-			if err != nil {
-				return nil, err
-			}
-			if network == "udp" {
-				return c.proxyUC.ConnectUDP(slotName, targetAddr)
-			}
-			return c.proxyUC.Connect(slotName, targetAddr)
-		}
-
-		handler := NewMuxHandler(c.Log, connect)
-		if err := handler.Listen(addr); err != nil {
-			c.Log.Warn("device proxy bind failed", "device", deviceAlias, "addr", addr, "error", err)
-			continue
-		}
-		go func() {
-			if err := handler.Serve(); err != nil {
-				c.Log.Warn("device proxy serve failed", "device", deviceAlias, "addr", addr, "error", err)
-			}
-		}()
-
-		c.devices[alias] = handler
-		c.Log.Info("device proxy started", "device", alias, "port", port)
-	}
-}
-
-func (c *PortBasedHandler) SyncDevicesIPv6(aliases []string) {
-	if c.ipv6Port <= 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	desired := make(map[string]bool)
-	for _, alias := range aliases {
-		desired[alias] = true
-	}
-
-	for alias, handler := range c.ipv6Devices {
-		if !desired[alias] {
-			c.Log.Info("ipv6 device proxy stopped", "device", alias)
-			if err := handler.Shutdown(context.Background()); err != nil {
-				c.Log.Warn("ipv6 device proxy shutdown failed", "device", alias, "error", err)
-			}
-			delete(c.ipv6Devices, alias)
-		}
-	}
-
-	for _, alias := range aliases {
-		if _, exists := c.ipv6Devices[alias]; exists {
-			continue
-		}
-		devIdx := deviceIndex(alias)
-		if devIdx <= 0 {
-			continue
-		}
-		port := c.ipv6Port + devIdx
-		addr := fmt.Sprintf(":%d", port)
-
-		deviceAlias := alias
-		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			slotName, err := c.proxyUC.PickSlotForDevice(deviceAlias)
-			if err != nil {
-				return nil, err
-			}
-			if network == "udp" {
-				return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
-			}
-			return c.proxyUC.ConnectIPv6(slotName, targetAddr)
-		}
-
-		handler := NewMuxHandler(c.Log, connect)
-		if err := handler.Listen(addr); err != nil {
-			c.Log.Warn("ipv6 device proxy bind failed", "device", deviceAlias, "addr", addr, "error", err)
-			continue
-		}
-		go func() {
-			if err := handler.Serve(); err != nil {
-				c.Log.Warn("ipv6 device proxy serve failed", "device", deviceAlias, "addr", addr, "error", err)
-			}
-		}()
-
-		c.ipv6Devices[alias] = handler
-		c.Log.Info("ipv6 device proxy started", "device", alias, "port", port)
-	}
-}
-
-func (c *PortBasedHandler) SyncSlots(slotNames []string) {
-	if c.slotStart <= 0 {
-		return
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	desired := make(map[string]bool)
-	for _, name := range slotNames {
-		desired[name] = true
-	}
-
-	for name, handler := range c.slots {
-		if !desired[name] {
-			c.Log.Info("slot proxy stopped", "slot", name)
-			if err := handler.Shutdown(context.Background()); err != nil {
-				c.Log.Warn("slot proxy shutdown failed", "slot", name, "error", err)
-			}
-			delete(c.slots, name)
-		}
-	}
-
-	for _, name := range slotNames {
-		if _, exists := c.slots[name]; exists {
-			continue
-		}
-
-		slotIndex := extractSlotIndex(name)
-		if slotIndex < 0 {
-			continue
-		}
-
-		port := c.slotStart + slotIndex
-		addr := fmt.Sprintf(":%d", port)
-
-		slotName := name // capture for closure
-		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			if network == "udp" {
-				return c.proxyUC.ConnectUDP(slotName, targetAddr)
-			}
-			return c.proxyUC.Connect(slotName, targetAddr)
-		}
-
-		handler := NewMuxHandler(c.Log, connect)
-		if err := handler.Listen(addr); err != nil {
-			c.Log.Warn("slot proxy bind failed", "slot", slotName, "addr", addr, "error", err)
-			continue
-		}
-		go func() {
-			if err := handler.Serve(); err != nil {
-				c.Log.Warn("slot proxy serve failed", "slot", slotName, "addr", addr, "error", err)
-			}
-		}()
-
-		c.slots[name] = handler
-		c.Log.Info("slot proxy started", "slot", name, "port", port)
-	}
-}
-
-func (c *PortBasedHandler) SyncSlotsIPv6(slotNames []string) {
-	if c.ipv6SlotStart <= 0 {
-		return
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	desired := make(map[string]bool)
-	for _, name := range slotNames {
-		desired[name] = true
-	}
-
-	for name, handler := range c.ipv6Slots {
-		if !desired[name] {
-			c.Log.Info("ipv6 slot proxy stopped", "slot", name)
-			if err := handler.Shutdown(context.Background()); err != nil {
-				c.Log.Warn("ipv6 slot proxy shutdown failed", "slot", name, "error", err)
-			}
-			delete(c.ipv6Slots, name)
-		}
-	}
-
-	for _, name := range slotNames {
-		if _, exists := c.ipv6Slots[name]; exists {
-			continue
-		}
-
-		slotIndex := extractSlotIndex(name)
-		if slotIndex < 0 {
-			continue
-		}
-
-		port := c.ipv6SlotStart + slotIndex
-		addr := fmt.Sprintf(":%d", port)
-
-		slotName := name
-		connect := func(ctx context.Context, network, targetAddr string) (net.Conn, error) {
-			if network == "udp" {
-				return c.proxyUC.ConnectIPv6UDP(slotName, targetAddr)
-			}
-			return c.proxyUC.ConnectIPv6(slotName, targetAddr)
-		}
-
-		handler := NewMuxHandler(c.Log, connect)
-		if err := handler.Listen(addr); err != nil {
-			c.Log.Warn("ipv6 slot proxy bind failed", "slot", slotName, "addr", addr, "error", err)
-			continue
-		}
-		go func() {
-			if err := handler.Serve(); err != nil {
-				c.Log.Warn("ipv6 slot proxy serve failed", "slot", slotName, "addr", addr, "error", err)
-			}
-		}()
-
-		c.ipv6Slots[name] = handler
-		c.Log.Info("ipv6 slot proxy started", "slot", name, "port", port)
-	}
+	return handler
 }
 
 func (c *PortBasedHandler) GetPortMappings() map[string]int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	mappings := make(map[string]int, len(c.slots))
-	for name := range c.slots {
-		idx := extractSlotIndex(name)
-		if idx >= 0 {
-			mappings[name] = c.slotStart + idx
+	mappings := make(map[string]int)
+	for i, h := range c.slots {
+		if h != nil {
+			name := fmt.Sprintf("slot%d", i+1)
+			mappings[name] = c.slotStart + i + 1
 		}
 	}
 	return mappings
@@ -363,58 +190,32 @@ func (c *PortBasedHandler) GetPortMappings() map[string]int {
 
 func (c *PortBasedHandler) Shutdown(ctx context.Context) error {
 	c.mu.Lock()
-	if c.shared != nil {
-		if err := c.shared.Shutdown(ctx); err != nil {
-			c.Log.Warn("shared proxy shutdown failed", "error", err)
+	defer c.mu.Unlock()
+
+	shutdownHandler := func(h *MuxHandler, label string) {
+		if h == nil {
+			return
 		}
-	}
-	if c.ipv6Shared != nil {
-		if err := c.ipv6Shared.Shutdown(ctx); err != nil {
-			c.Log.Warn("ipv6 shared proxy shutdown failed", "error", err)
-		}
-	}
-	for alias, h := range c.devices {
 		if err := h.Shutdown(ctx); err != nil {
-			c.Log.Warn("device proxy shutdown failed", "device", alias, "error", err)
+			c.Log.Warn("proxy shutdown failed", "label", label, "error", err)
 		}
 	}
-	for alias, h := range c.ipv6Devices {
-		if err := h.Shutdown(ctx); err != nil {
-			c.Log.Warn("ipv6 device proxy shutdown failed", "device", alias, "error", err)
-		}
+
+	shutdownHandler(c.shared, "shared-ipv4")
+	shutdownHandler(c.ipv6Shared, "shared-ipv6")
+
+	for i, h := range c.devices {
+		shutdownHandler(h, fmt.Sprintf("device-dev%d-ipv4", i+1))
 	}
-	for name, h := range c.slots {
-		if err := h.Shutdown(ctx); err != nil {
-			c.Log.Warn("slot proxy shutdown failed", "slot", name, "error", err)
-		}
+	for i, h := range c.ipv6Devices {
+		shutdownHandler(h, fmt.Sprintf("device-dev%d-ipv6", i+1))
 	}
-	for name, h := range c.ipv6Slots {
-		if err := h.Shutdown(ctx); err != nil {
-			c.Log.Warn("ipv6 slot proxy shutdown failed", "slot", name, "error", err)
-		}
+	for i, h := range c.slots {
+		shutdownHandler(h, fmt.Sprintf("slot%d-ipv4", i+1))
 	}
-	c.mu.Unlock()
+	for i, h := range c.ipv6Slots {
+		shutdownHandler(h, fmt.Sprintf("slot%d-ipv6", i+1))
+	}
+
 	return nil
-}
-
-func extractSlotIndex(name string) int {
-	if strings.HasPrefix(name, "slot") {
-		n, err := strconv.Atoi(name[4:])
-		if err != nil {
-			return -1
-		}
-		return n
-	}
-	return -1
-}
-
-func deviceIndex(alias string) int {
-	if strings.HasPrefix(alias, "dev") {
-		n, err := strconv.Atoi(alias[3:])
-		if err != nil {
-			return -1
-		}
-		return n
-	}
-	return -1
 }

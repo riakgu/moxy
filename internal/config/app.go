@@ -37,6 +37,7 @@ type BootstrapResult struct {
 	RouteConfig   *route.RouteConfig
 	EventHub      *sse.EventHub
 	RingHandler   *sse.RingHandler
+	ADBGateway    *adb.ADBGateway
 }
 
 type bootstrapper struct {
@@ -117,7 +118,7 @@ func (b *bootstrapper) initLogging() {
 }
 
 func (b *bootstrapper) initRepositories() {
-	b.deviceRepo = repository.NewDeviceRepository(b.deviceLog)
+	b.deviceRepo = repository.NewDeviceRepository(b.deviceLog, b.v.GetInt("devices.max_devices"))
 	b.slotRepo = repository.NewSlotRepository(b.slotLog, b.v.GetInt("slots.max_slots"))
 	b.trafficRepo = repository.NewTrafficRepository(b.trafficLog, b.v.GetInt("traffic.max_tracked"))
 	b.dnsRepo = repository.NewDNSCacheRepository(b.dnsLog, b.v.GetInt("dns.cache_max_entries_per_device"))
@@ -182,16 +183,6 @@ func (b *bootstrapper) initDelivery() {
 	ipv6SlotPortStart := b.v.GetInt("proxy.ipv6.slot_port_start")
 	b.portHandler = proxy.NewPortBasedHandler(b.proxyLog, b.proxyUC, proxyPort, slotPortStart, ipv6Port, ipv6SlotPortStart)
 
-	// Wire teardown callback
-	b.deviceUC.OnTeardown = func() {
-		slotNames := b.slotUC.GetSlotNames()
-		onlineAliases := b.deviceUC.ListOnlineAliases()
-		b.portHandler.SyncSlots(slotNames)
-		b.portHandler.SyncDevices(onlineAliases)
-		b.portHandler.SyncSlotsIPv6(slotNames)
-		b.portHandler.SyncDevicesIPv6(onlineAliases)
-	}
-
 	// SSE traffic snapshot config
 	sseTrafficLimit := b.v.GetInt("sse.traffic_snapshot_limit")
 	if sseTrafficLimit == 0 {
@@ -202,8 +193,8 @@ func (b *bootstrapper) initDelivery() {
 	b.proxyUC.DNSUC = b.dnsUC
 
 	// Controllers
-	deviceCtrl := httpdelivery.NewDeviceController(b.deviceUC, b.deviceLog, b.portHandler, b.slotUC.GetSlotNames)
-	slotCtrl := httpdelivery.NewSlotController(b.slotUC, b.slotLog, b.portHandler)
+	deviceCtrl := httpdelivery.NewDeviceController(b.deviceUC, b.deviceLog)
+	slotCtrl := httpdelivery.NewSlotController(b.slotUC, b.slotLog)
 	dnsCtrl := httpdelivery.NewDNSController(b.dnsUC, b.dnsLog)
 	trafficCtrl := httpdelivery.NewTrafficController(b.trafficUC, b.trafficLog)
 	configCtrl := httpdelivery.NewConfigController(
@@ -248,5 +239,6 @@ func (b *bootstrapper) result() *BootstrapResult {
 		RouteConfig:   b.routeConfig,
 		EventHub:      b.hub,
 		RingHandler:   b.ringHandler,
+		ADBGateway:    b.adbGateway,
 	}
 }

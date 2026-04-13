@@ -42,40 +42,42 @@ export default function Dashboard() {
     }, 3000)
   }, [])
 
-  const handleSetupDevice = async (alias: string) => {
+  const handleSetupDevice = async (id: string) => {
     try {
-      const result = await setupDevice(alias)
+      const result = await setupDevice(id)
+      const name = result.device.alias || id
       const msg = result.provision
-        ? `${alias} online — ${result.provision.created} slot provisioned`
-        : `${alias} online`
+        ? `${name} online — ${result.provision.created} slot${result.provision.created !== 1 ? 's' : ''} provisioned`
+        : `${name} online`
       addToast(msg, 'success')
     } catch (e) {
       addToast(`Setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
-  const handleProvision = async (alias: string, count: number) => {
+  const handleProvision = async (id: string, count: number) => {
     try {
-      const result = await provisionDevice(alias, count)
-      addToast(`Provisioned ${result.created} slots for ${alias}`, 'success')
+      const result = await provisionDevice(id, count)
+      addToast(`Provisioned ${result.created} slot${result.created !== 1 ? 's' : ''} for ${id}`, 'success')
     } catch (e) {
       addToast(`Provision failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
-  const handleDeleteDevice = async (alias: string) => {
+  const handleDeleteDevice = async (id: string) => {
     try {
-      await deleteDevice(alias)
-      addToast(`Deleted ${alias}`, 'success')
+      await deleteDevice(id)
+      addToast(`Deleted — ready for re-setup`, 'success')
     } catch (e) {
       addToast(`Delete failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
   }
 
-  const handleResetDevice = async (alias: string) => {
+  const handleResetDevice = async (id: string) => {
     try {
-      await resetDevice(alias)
-      addToast(`Reset ${alias} — back online`, 'success')
+      const result = await resetDevice(id)
+      const name = result.device.alias || id
+      addToast(`Reset ${name} — back online`, 'success')
     } catch (e) {
       addToast(`Reset failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     }
@@ -169,9 +171,9 @@ export default function Dashboard() {
             )}
             {devices.map((device, i) => (
               <DeviceCard
-                key={device.alias}
+                key={device.alias || device.serial}
                 device={device}
-                slots={slots.filter((s) => s.device_alias === device.alias)}
+                slots={slots.filter((s) => device.alias && s.device_alias === device.alias)}
                 onProvision={handleProvision}
                 onDeleteDevice={handleDeleteDevice}
                 onResetDevice={handleResetDevice}

@@ -6,22 +6,19 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"github.com/riakgu/moxy/internal/delivery/proxy"
 	"github.com/riakgu/moxy/internal/model"
 	"github.com/riakgu/moxy/internal/usecase"
 )
 
 type SlotController struct {
-	UseCase     *usecase.SlotUseCase
-	Log         *slog.Logger
-	PortHandler *proxy.PortBasedHandler
+	UseCase *usecase.SlotUseCase
+	Log     *slog.Logger
 }
 
-func NewSlotController(useCase *usecase.SlotUseCase, log *slog.Logger, portHandler *proxy.PortBasedHandler) *SlotController {
+func NewSlotController(useCase *usecase.SlotUseCase, log *slog.Logger) *SlotController {
 	return &SlotController{
-		UseCase:     useCase,
-		Log:         log,
-		PortHandler: portHandler,
+		UseCase: useCase,
+		Log:     log,
 	}
 }
 
@@ -82,12 +79,6 @@ func (c *SlotController) Delete(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	if c.PortHandler != nil {
-		slotNames := c.UseCase.GetSlotNames()
-		c.PortHandler.SyncSlots(slotNames)
-		c.PortHandler.SyncSlotsIPv6(slotNames)
-	}
-
 	return ctx.JSON(model.WebResponse[string]{
 		Data: "slot deleted",
 	})
@@ -97,12 +88,6 @@ func (c *SlotController) Cleanup(ctx *fiber.Ctx) error {
 	cleaned, err := c.UseCase.CleanupOrphans()
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-
-	if c.PortHandler != nil {
-		slotNames := c.UseCase.GetSlotNames()
-		c.PortHandler.SyncSlots(slotNames)
-		c.PortHandler.SyncSlotsIPv6(slotNames)
 	}
 
 	return ctx.JSON(model.WebResponse[model.CleanupResponse]{

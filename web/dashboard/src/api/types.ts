@@ -94,6 +94,7 @@ export interface MoxyConfig {
     port: number
   }
   devices: {
+    max_devices: number
     grace_period_seconds: number
     watcher_reconnect_max_seconds: number
     drain_timeout_seconds: number

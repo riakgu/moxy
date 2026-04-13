@@ -30,6 +30,7 @@ type APIConfig struct {
 }
 
 type DevicesConfig struct {
+	MaxDevices                 int `json:"max_devices"`
 	GracePeriodSeconds         int `json:"grace_period_seconds"`
 	WatcherReconnectMaxSeconds int `json:"watcher_reconnect_max_seconds"`
 	DrainTimeoutSeconds        int `json:"drain_timeout_seconds"`

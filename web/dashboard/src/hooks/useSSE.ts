@@ -41,7 +41,7 @@ export function useSSE(): SSEState {
     es.addEventListener('device_updated', (e: MessageEvent) => {
       const device = JSON.parse(e.data) as Device
       setDevices((prev) => {
-        const idx = prev.findIndex((d) => d.alias === device.alias)
+        const idx = prev.findIndex((d) => d.serial === device.serial)
         if (idx >= 0) {
           const next = [...prev]
           next[idx] = device
@@ -52,10 +52,9 @@ export function useSSE(): SSEState {
     })
 
     es.addEventListener('device_removed', (e: MessageEvent) => {
-      const { alias } = JSON.parse(e.data) as { alias: string }
-      setDevices((prev) => prev.filter((d) => d.alias !== alias))
-      // Also remove slots belonging to this device
-      setSlots((prev) => prev.filter((s) => s.device_alias !== alias))
+      const { serial } = JSON.parse(e.data) as { serial: string }
+      setDevices((prev) => prev.filter((d) => d.serial !== serial))
+      setSlots((prev) => prev.filter((s) => s.device_alias !== serial))
     })
 
     es.addEventListener('slot_updated', (e: MessageEvent) => {

@@ -40,7 +40,6 @@ func (m *MuxHandler) Listen(addr string) error {
 		return fmt.Errorf("mux listen: %w", err)
 	}
 	m.ln = ln
-	m.Log.Info("listener started", "addr", addr, "protocols", "SOCKS5+HTTP")
 	return nil
 }
 

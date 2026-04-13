@@ -24,22 +24,24 @@ func main() {
 		StaticFS: web.StaticFS,
 	})
 
-	b.RouteConfig.Setup()
+	// ── Startup ─────────────────────────────────────────────
 
+	b.RouteConfig.Setup()
 	go b.EventHub.Run()
 
-	b.PortHandler.StartShared()
-	b.PortHandler.StartSharedIPv6()
+	b.PortHandler.StartAll(v.GetInt("devices.max_devices"), v.GetInt("slots.max_slots"))
 
-	log.Info("cleaning up orphaned namespaces")
 	if cleaned, err := b.SlotUseCase.CleanupOrphans(); err != nil {
 		log.Warn("namespace cleanup failed", "error", err)
 	} else if cleaned > 0 {
 		log.Info("orphaned namespaces cleaned", "count", cleaned)
 	}
 
-	watchCtx, watchCancel := context.WithCancel(context.Background())
-	go b.DeviceUseCase.StartWatching(watchCtx)
+	if err := b.ADBGateway.EnsureServer(); err != nil {
+		log.Warn("adb server start failed", "error", err)
+	}
+
+	go b.DeviceUseCase.StartWatching(context.Background())
 
 	apiAddr := fmt.Sprintf(":%d", v.GetInt("api.port"))
 	go func() {
@@ -49,16 +51,20 @@ func main() {
 		}
 	}()
 
+	log.Info("moxy started", "api", apiAddr)
+
+	// ── Wait for shutdown signal ────────────────────────────
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info("shutdown initiated")
-	watchCancel()
+	// ── Graceful shutdown ───────────────────────────────────
+
+	log.Info("shutting down")
+
 	b.SlotMonitor.StopAll()
 
-	// Teardown all slots (destroy namespaces) before closing ports
-	log.Info("tearing down all slots")
 	drainTimeout := time.Duration(v.GetInt("devices.drain_timeout_seconds")) * time.Second
 	devices, _ := b.DeviceUseCase.List()
 	for _, d := range devices {
@@ -71,15 +77,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 	defer cancel()
 
-	log.Info("stopping proxy listeners")
 	if err := b.PortHandler.Shutdown(ctx); err != nil {
 		log.Warn("proxy shutdown incomplete", "error", err)
 	}
-
 	if err := app.ShutdownWithTimeout(shutdownDrain); err != nil {
 		log.Error("api shutdown failed", "error", err)
 	}
 
 	log.Info("moxy stopped")
-
 }

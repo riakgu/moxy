@@ -22,6 +22,17 @@ func NewADBGateway(log *slog.Logger) *ADBGateway {
 	return &ADBGateway{Log: log}
 }
 
+// EnsureServer restarts the ADB server to guarantee a clean connection.
+func (g *ADBGateway) EnsureServer() error {
+	_ = exec.Command("adb", "kill-server").Run()
+	out, err := exec.Command("adb", "start-server").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("adb start-server: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	g.Log.Info("adb server ready")
+	return nil
+}
+
 func (g *ADBGateway) ListDevices() ([]string, error) {
 	out, err := exec.Command("adb", "devices").Output()
 	if err != nil {

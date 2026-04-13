@@ -107,6 +107,9 @@ func (uc *ConfigUseCase) validateConfig(cfg *model.MoxyConfig) map[string]string
 		errs["api.port"] = "must be between 1 and 65535"
 	}
 
+	if cfg.Devices.MaxDevices < 1 || cfg.Devices.MaxDevices > 100 {
+		errs["devices.max_devices"] = "must be between 1 and 100"
+	}
 	if cfg.Devices.GracePeriodSeconds < 1 {
 		errs["devices.grace_period_seconds"] = "must be >= 1"
 	}
