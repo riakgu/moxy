@@ -7,19 +7,16 @@ type SlotResponse struct {
 	Nameserver        string `json:"nameserver"`
 	NAT64Prefix       string `json:"nat64_prefix"`
 	IPv6Address       string `json:"ipv6_address"`
-	PublicIPv4s       []string `json:"public_ipv4s"`
+	IPv4Address       string `json:"ipv4_address"`
 	City              string   `json:"city"`
 	ASN               string   `json:"asn"`
 	Org               string   `json:"org"`
 	RTT               string   `json:"rtt"`
 	Status            string   `json:"status"`
 	ActiveConnections int64  `json:"active_connections"`
-	LastCheckedAt     int64  `json:"last_checked_at"`
-	NextCheckAt       int64  `json:"next_check_at"`
 	LastUsedAt        int64  `json:"last_used_at"`
 	MonitorState      string `json:"monitor_state"`
-	IPChangedAt       int64  `json:"ip_changed_at"`
-	IPChangeCount     int    `json:"ip_change_count"`
+
 }
 
 type GetSlotRequest struct {

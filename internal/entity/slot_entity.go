@@ -14,17 +14,14 @@ type Slot struct {
 	Nameserver        string
 	NAT64Prefix       string
 	IPv6Address       string
-	PublicIPv4s       []string
+	IPv4Address       string
 	City              string
 	ASN               string
 	Org               string
 	RTT               string
 	Status            string
 	ActiveConnections int64
-	LastCheckedAt     int64
-	NextCheckAt       int64
 	LastUsedAt        int64
 	MonitorState      string
-	IPChangedAt       int64
-	IPChangeCount     int
+
 }

@@ -164,10 +164,9 @@ func (c *SlotUseCase) rerollSlotNamespace(slotName string, slotIndex int, iface 
 	}
 
 	if slot, ok := c.SlotRepo.Get(slotName); ok {
-		slot.PublicIPv4s = []string{newIPv4}
+		slot.IPv4Address = newIPv4
 		slot.IPv6Address = newIPv6
 		slot.Status = entity.SlotStatusHealthy
-		slot.LastCheckedAt = time.Now().UnixMilli()
 	}
 
 	return newIPv4, newIPv6, nil
@@ -276,17 +275,8 @@ func (c *SlotUseCase) ProvisionSlots(deviceAlias string, iface string, count int
 
 	pairSet := make(map[string]bool)
 	for _, s := range c.SlotRepo.ListAll() {
-		if s.Status == entity.SlotStatusHealthy {
-			sorted := make([]string, 0, len(s.PublicIPv4s))
-			for _, ip := range s.PublicIPv4s {
-				if ip != "" {
-					sorted = append(sorted, ip)
-				}
-			}
-			if len(sorted) > 0 {
-				sort.Strings(sorted)
-				pairSet[strings.Join(sorted, ",")] = true
-			}
+		if s.Status == entity.SlotStatusHealthy && s.IPv4Address != "" {
+			pairSet[s.IPv4Address] = true
 		}
 	}
 

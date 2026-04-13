@@ -55,21 +55,11 @@ export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProp
     }
   }
 
-  const ips = slot.public_ipv4s ?? []
-
   return (
     <tr className="slot-row border-b border-border-subtle/50 hover:bg-bg-surface-hover/50 transition-colors">
       <td className="py-2.5 px-3 font-mono text-sm text-accent-cyan">{slot.name}</td>
       <td className="py-2.5 px-3 font-mono text-sm">
-        {ips.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            {ips.map((ip, i) => (
-              <span key={ip} className={i > 0 ? 'text-text-secondary text-xs' : ''}>
-                {ip}
-              </span>
-            ))}
-          </div>
-        ) : '—'}
+        {slot.ipv4_address || '—'}
       </td>
       <td className="py-2.5 px-3 text-sm text-text-secondary">{slot.city || '—'}</td>
       <td className="py-2.5 px-3">
@@ -78,14 +68,16 @@ export default function SlotRow({ slot, onChangeIP, onDelete, now }: SlotRowProp
           {status.text}
         </span>
       </td>
-      <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
-        {timeAgo(slot.last_used_at, now)}
-      </td>
-      <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
-        {timeAgo(slot.ip_changed_at, now)}
+      <td className="py-2.5 px-3 text-xs font-mono text-text-secondary">
+        {slot.rtt || '—'}
       </td>
       <td className="py-2.5 px-3 text-xs font-mono text-text-secondary">
-        {slot.ip_change_count}
+        {slot.active_connections > 0 ? (
+          <span className="text-accent-cyan">{slot.active_connections}</span>
+        ) : '0'}
+      </td>
+      <td className="py-2.5 px-3 text-xs text-text-muted font-mono">
+        {timeAgo(slot.last_used_at, now)}
       </td>
       <td className="py-2.5 px-3">
         <div className="flex items-center gap-1.5">

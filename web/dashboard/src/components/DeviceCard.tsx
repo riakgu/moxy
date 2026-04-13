@@ -148,8 +148,7 @@ export default function DeviceCard({
           )}
           {(() => {
             const uniqueIPs = new Set(
-              slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
-                .filter(p => p !== '')
+              slots.map(s => s.ipv4_address).filter(ip => ip && ip !== '')
             ).size
             return uniqueIPs > 0 ? (
               <span>unique ip{uniqueIPs !== 1 ? 's' : ''}: <span className="text-text-secondary">{uniqueIPs}</span></span>

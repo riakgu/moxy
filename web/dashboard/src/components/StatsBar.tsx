@@ -26,8 +26,7 @@ function StatItem({ label, value, glowClass, delay }: StatItemProps) {
 
 export default function StatsBar({ slots, dnsHitRate }: StatsBarProps) {
   const uniqueIPs = new Set(
-    slots.map(s => [...(s.public_ipv4s ?? [])].filter(Boolean).sort().join(','))
-         .filter(p => p !== '')
+    slots.map(s => s.ipv4_address).filter(ip => ip && ip !== '')
   ).size
   const healthySlots = slots.filter((s) => s.status === 'healthy').length
   const unhealthySlots = slots.filter((s) => s.status === 'unhealthy').length

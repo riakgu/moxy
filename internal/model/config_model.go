@@ -38,12 +38,9 @@ type DevicesConfig struct {
 type SlotsConfig struct {
 	MaxSlots                       int    `json:"max_slots"`
 	MaxSlotsPerDevice              int    `json:"max_slots_per_device"`
-	MaxPoolSize                    int    `json:"max_pool_size"`
 	IPCheckHost                    string `json:"ip_check_host"`
-	MonitorFastIntervalSeconds     int    `json:"monitor_fast_interval_seconds"`
 	MonitorSteadyIntervalSeconds   int    `json:"monitor_steady_interval_seconds"`
 	MonitorRecoveryIntervalSeconds int    `json:"monitor_recovery_interval_seconds"`
-	MonitorFastTicks               int    `json:"monitor_fast_ticks"`
 	MonitorUnhealthyThreshold      int    `json:"monitor_unhealthy_threshold"`
 }
 

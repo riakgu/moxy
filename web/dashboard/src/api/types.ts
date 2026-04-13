@@ -31,19 +31,15 @@ export interface Slot {
   nameserver: string
   nat64_prefix: string
   ipv6_address: string
-  public_ipv4s: string[]
+  ipv4_address: string
   city: string
   asn: string
   org: string
   rtt: string
   status: 'healthy' | 'unhealthy' | 'discovering' | 'suspended'
   active_connections: number
-  last_checked_at: number
-  next_check_at: number
   last_used_at: number
   monitor_state: string
-  ip_changed_at: number
-  ip_change_count: number
 }
 
 // Scan — matches model.ScanResponse
@@ -105,12 +101,9 @@ export interface MoxyConfig {
   slots: {
     max_slots: number
     max_slots_per_device: number
-    max_pool_size: number
     ip_check_host: string
-    monitor_fast_interval_seconds: number
     monitor_steady_interval_seconds: number
     monitor_recovery_interval_seconds: number
-    monitor_fast_ticks: number
     monitor_unhealthy_threshold: number
   }
   dns: {

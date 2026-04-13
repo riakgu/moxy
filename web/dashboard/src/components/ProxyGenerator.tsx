@@ -162,7 +162,7 @@ export default function ProxyGenerator({ devices, slots }: ProxyGeneratorProps) 
             >
               {slots.map((s) => (
                 <option key={s.name} value={s.name}>
-                  {s.name} — {s.public_ipv4s?.join(', ') || 'no IP'} ({s.status})
+                  {s.name} — {s.ipv4_address || 'no IP'} ({s.status})
                 </option>
               ))}
             </select>

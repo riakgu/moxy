@@ -4,8 +4,6 @@ package usecase
 
 import (
 	"context"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 	"log/slog"
@@ -17,12 +15,9 @@ import (
 )
 
 type SlotMonitorConfig struct {
-	FastInterval       time.Duration
 	SteadyInterval     time.Duration
 	RecoveryInterval   time.Duration
-	FastTicks          int
 	UnhealthyThreshold int
-	MaxPoolSize        int
 }
 
 type SlotMonitorUseCase struct {
@@ -44,23 +39,14 @@ func NewSlotMonitorUseCase(
 	provisioner SlotProvisioner,
 	config SlotMonitorConfig,
 ) *SlotMonitorUseCase {
-	if config.FastInterval == 0 {
-		config.FastInterval = 10 * time.Second
-	}
 	if config.SteadyInterval == 0 {
 		config.SteadyInterval = 60 * time.Second
 	}
 	if config.RecoveryInterval == 0 {
 		config.RecoveryInterval = 15 * time.Second
 	}
-	if config.FastTicks == 0 {
-		config.FastTicks = 6
-	}
 	if config.UnhealthyThreshold == 0 {
 		config.UnhealthyThreshold = 3
-	}
-	if config.MaxPoolSize == 0 {
-		config.MaxPoolSize = 3
 	}
 	return &SlotMonitorUseCase{
 		Log:         log,
@@ -111,29 +97,27 @@ func (c *SlotMonitorUseCase) StopAll() {
 }
 
 func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
-	fastTicks := c.Config.FastTicks
 	consecutiveFails := 0
 	threshold := c.Config.UnhealthyThreshold
 
-	c.burstDetect(name)
+	// Initial discovery: single IP info + IPv6
+	c.initialDiscovery(name)
 
 	for {
+		slot, ok := c.SlotRepo.Get(name)
+
+		// Determine interval and state
 		interval := c.Config.SteadyInterval
-		state := "steady"
-		if fastTicks > 0 {
-			interval = c.Config.FastInterval
-			state = "fast"
-			fastTicks--
+		state := "monitoring"
+		if ok && slot.Status == entity.SlotStatusUnhealthy {
+			interval = c.Config.RecoveryInterval
+			state = "recovery"
+		} else if consecutiveFails > 0 {
+			interval = c.Config.RecoveryInterval
+			state = "degraded"
 		}
 
-		slot, ok := c.SlotRepo.Get(name)
 		if ok {
-			if slot.Status == entity.SlotStatusUnhealthy {
-				interval = c.Config.RecoveryInterval
-				state = "recovery"
-				fastTicks = c.Config.FastTicks
-			}
-			slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 			slot.MonitorState = state
 		}
 
@@ -151,8 +135,6 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 					continue
 				}
 				consecutiveFails++
-				slot.LastCheckedAt = time.Now().UnixMilli()
-				slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 				if consecutiveFails >= threshold {
 					slot.Status = entity.SlotStatusUnhealthy
 					c.Log.Warn("slot unhealthy", "slot", name, "consecutive_failures", consecutiveFails)
@@ -175,16 +157,11 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 		}
 
 		consecutiveFails = 0
-		slot.LastCheckedAt = time.Now().UnixMilli()
 		slot.Status = entity.SlotStatusHealthy
 
-		if !containsIP(slot.PublicIPv4s, ip) {
-			slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
-			c.capPool(slot)
-			slot.IPChangeCount++
-			slot.IPChangedAt = time.Now().UnixMilli()
-			c.Log.Info("ip changed", "slot", name, "ip", ip, "pool", poolKey(slot.PublicIPv4s))
-			fastTicks = c.Config.FastTicks
+		if ip != slot.IPv4Address {
+			slot.IPv4Address = ip
+			c.Log.Info("ip changed", "slot", name, "ip", ip)
 
 			// Refresh geo info on IP change
 			if info, err := c.Discovery.ResolveSlotIPInfo(resolveReq); err == nil {
@@ -195,7 +172,6 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 			}
 		}
 
-		slot.NextCheckAt = time.Now().Add(interval).UnixMilli()
 		if c.EventPub != nil {
 			c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
 		}
@@ -206,75 +182,34 @@ func (c *SlotMonitorUseCase) monitorSlot(ctx context.Context, name string) {
 	}
 }
 
-func (c *SlotMonitorUseCase) burstDetect(name string) {
-	seen := make(map[string]bool)
-	var ips []string
-	var city, asn, org, rtt string
-
+func (c *SlotMonitorUseCase) initialDiscovery(name string) {
 	resolveReq := &model.ResolveSlotRequest{SlotName: name}
-	for i := 0; i < 5; i++ {
-		info, err := c.Discovery.ResolveSlotIPInfo(resolveReq)
-		if err != nil {
-			c.Log.Warn("burst check failed", "slot", name, "attempt", i+1, "error", err)
-			continue
-		}
-		if city == "" {
-			city = info.City
-			asn = info.ASN
-			org = info.Org
-			rtt = info.RTT
-		}
-		if !seen[info.IP] {
-			seen[info.IP] = true
-			ips = append(ips, info.IP)
-		}
-	}
-
-	ipv6, _ := c.Discovery.ResolveSlotIPv6(resolveReq)
 
 	slot, ok := c.SlotRepo.Get(name)
 	if !ok {
 		return
 	}
 
-	now := time.Now().UnixMilli()
-	slot.LastCheckedAt = now
-
-	if len(ips) == 0 {
+	info, err := c.Discovery.ResolveSlotIPInfo(resolveReq)
+	if err != nil {
+		c.Log.Warn("initial discovery failed", "slot", name, "error", err)
 		slot.Status = entity.SlotStatusUnhealthy
-		c.Log.Warn("pool detection failed", "slot", name)
 		return
 	}
 
-	if len(slot.PublicIPv4s) == 0 {
-		slot.PublicIPv4s = ips
-		slot.IPChangedAt = now
-		c.Log.Info("pool discovered", "slot", name, "pool", poolKey(ips))
-	} else {
-		for _, ip := range ips {
-			if !containsIP(slot.PublicIPv4s, ip) {
-				slot.PublicIPv4s = append(slot.PublicIPv4s, ip)
-			}
-		}
-	}
-	c.capPool(slot)
-
-	slot.City = city
-	slot.ASN = asn
-	slot.Org = org
-	slot.RTT = rtt
+	slot.IPv4Address = info.IP
+	slot.City = info.City
+	slot.ASN = info.ASN
+	slot.Org = info.Org
+	slot.RTT = info.RTT
 	slot.Status = entity.SlotStatusHealthy
+	c.Log.Info("ip discovered", "slot", name, "ip", info.IP)
 
+	ipv6, _ := c.Discovery.ResolveSlotIPv6(resolveReq)
 	c.updateIPv6Helper(slot, ipv6)
 
 	if c.EventPub != nil {
 		c.EventPub.Publish("slot_updated", converter.SlotToResponse(slot))
-	}
-}
-
-func (c *SlotMonitorUseCase) capPool(slot *entity.Slot) {
-	if len(slot.PublicIPv4s) > c.Config.MaxPoolSize {
-		slot.PublicIPv4s = slot.PublicIPv4s[len(slot.PublicIPv4s)-c.Config.MaxPoolSize:]
 	}
 }
 
@@ -301,24 +236,4 @@ func (c *SlotMonitorUseCase) updateIPv6Helper(slot *entity.Slot, ipv6 string) {
 			c.Log.Warn("ndp proxy failed", "slot", slot.Name, "error", err)
 		}
 	}
-}
-
-func containsIP(pair []string, ip string) bool {
-	for _, p := range pair {
-		if p == ip {
-			return true
-		}
-	}
-	return false
-}
-
-// poolKey returns a sorted, comma-separated string of IPs for logging.
-func poolKey(ips []string) string {
-	if len(ips) == 0 {
-		return ""
-	}
-	sorted := make([]string, len(ips))
-	copy(sorted, ips)
-	sort.Strings(sorted)
-	return strings.Join(sorted, ", ")
 }

@@ -123,23 +123,14 @@ func (uc *ConfigUseCase) validateConfig(cfg *model.MoxyConfig) map[string]string
 	if cfg.Slots.MaxSlotsPerDevice < 1 || cfg.Slots.MaxSlotsPerDevice > cfg.Slots.MaxSlots {
 		errs["slots.max_slots_per_device"] = fmt.Sprintf("must be between 1 and %d (max_slots)", cfg.Slots.MaxSlots)
 	}
-	if cfg.Slots.MaxPoolSize < 1 {
-		errs["slots.max_pool_size"] = "must be >= 1"
-	}
 	if cfg.Slots.IPCheckHost == "" {
 		errs["slots.ip_check_host"] = "must not be empty"
-	}
-	if cfg.Slots.MonitorFastIntervalSeconds < 1 {
-		errs["slots.monitor_fast_interval_seconds"] = "must be >= 1"
 	}
 	if cfg.Slots.MonitorSteadyIntervalSeconds < 1 {
 		errs["slots.monitor_steady_interval_seconds"] = "must be >= 1"
 	}
 	if cfg.Slots.MonitorRecoveryIntervalSeconds < 1 {
 		errs["slots.monitor_recovery_interval_seconds"] = "must be >= 1"
-	}
-	if cfg.Slots.MonitorFastTicks < 1 {
-		errs["slots.monitor_fast_ticks"] = "must be >= 1"
 	}
 	if cfg.Slots.MonitorUnhealthyThreshold < 1 {
 		errs["slots.monitor_unhealthy_threshold"] = "must be >= 1"
