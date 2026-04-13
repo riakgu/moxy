@@ -30,6 +30,13 @@ func NewTrafficRepository(log *slog.Logger, maxEntries int) *TrafficRepository {
 	}
 }
 
+// SetMaxEntries updates the max tracked entries limit at runtime.
+func (r *TrafficRepository) SetMaxEntries(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxEntries = n
+}
+
 func (r *TrafficRepository) Record(key entity.TrafficKey) *entity.TrafficEntry {
 	now := time.Now().UnixMilli()
 

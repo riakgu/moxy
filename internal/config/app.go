@@ -164,6 +164,30 @@ func (b *bootstrapper) initUseCases() {
 
 	systemdGW := systemd.NewSystemdGateway(b.cfg.Logger.With("component", "systemd"), "moxy")
 	b.configUC = usecase.NewConfigUseCase(b.cfg.Logger.With("component", "config"), "config.json", systemdGW)
+
+	// Hot-reload wiring
+	b.configUC.HotReload = &usecase.HotReloader{
+		Log:         b.cfg.Logger.With("component", "hot_reload"),
+		ProxyUC:     b.proxyUC,
+		DeviceUC:    b.deviceUC,
+		SlotUC:      b.slotUC,
+		SlotMonitor: b.slotMonitor,
+		SetIPCheckHost: func(host string) {
+			b.discovery.IPCheckHost = host
+		},
+		SetWatcherBackoff: func(ms int) {
+			b.adbWatcher.MaxReconnectMs = ms
+		},
+		SetDNSCacheTTL: func(min, max time.Duration) {
+			b.resolver.SetTTL(min, max)
+		},
+		SetDNSCacheMaxSize: func(n int) {
+			b.dnsRepo.SetMaxEntries(n)
+		},
+		SetTrafficMax: func(n int) {
+			b.trafficRepo.SetMaxEntries(n)
+		},
+	}
 }
 
 func (b *bootstrapper) initDelivery() {

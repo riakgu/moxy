@@ -43,6 +43,12 @@ func NewCachingResolver(log *slog.Logger, cache DNSCache, config CacheConfig) *C
 	}
 }
 
+// SetTTL updates the min/max TTL bounds at runtime.
+func (cr *CachingResolver) SetTTL(min, max time.Duration) {
+	cr.config.MinTTL = min
+	cr.config.MaxTTL = max
+}
+
 func (cr *CachingResolver) Resolve(hostname, nameserver, nat64Prefix string) (string, error) {
 	if ipv6, ok := cr.cache.Lookup(nameserver, nat64Prefix, hostname); ok {
 		return ipv6, nil

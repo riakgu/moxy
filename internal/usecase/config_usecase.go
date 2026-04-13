@@ -19,6 +19,7 @@ type ConfigUseCase struct {
 	Log        *slog.Logger
 	ConfigPath string
 	Service    ServiceManager
+	HotReload  *HotReloader
 }
 
 func NewConfigUseCase(log *slog.Logger, configPath string, service ServiceManager) *ConfigUseCase {
@@ -38,9 +39,20 @@ func (uc *ConfigUseCase) GetConfig() (json.RawMessage, error) {
 	return json.RawMessage(data), nil
 }
 
-func (uc *ConfigUseCase) UpdateConfig(cfg *model.MoxyConfig) (json.RawMessage, error) {
+type ConfigSaveResult struct {
+	Config          json.RawMessage `json:"config"`
+	RestartRequired bool            `json:"restart_required"`
+}
+
+func (uc *ConfigUseCase) UpdateConfig(cfg *model.MoxyConfig) (*ConfigSaveResult, error) {
 	if errs := uc.validateConfig(cfg); errs != nil {
 		return nil, &ValidationError{Fields: errs}
+	}
+
+	// Check if restart-only fields changed
+	restartRequired := false
+	if prev, err := uc.loadCurrentConfig(); err == nil {
+		restartRequired = needsRestart(prev, cfg)
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "    ")
@@ -60,8 +72,43 @@ func (uc *ConfigUseCase) UpdateConfig(cfg *model.MoxyConfig) (json.RawMessage, e
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
 
-	uc.Log.Info("config updated via dashboard")
-	return json.RawMessage(data), nil
+	// Apply hot-reloadable fields immediately
+	if uc.HotReload != nil {
+		uc.HotReload.Apply(cfg)
+	}
+
+	uc.Log.Info("config updated via dashboard", "restart_required", restartRequired)
+	return &ConfigSaveResult{
+		Config:          json.RawMessage(data),
+		RestartRequired: restartRequired,
+	}, nil
+}
+
+func (uc *ConfigUseCase) loadCurrentConfig() (*model.MoxyConfig, error) {
+	data, err := os.ReadFile(uc.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	var cfg model.MoxyConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func needsRestart(prev, next *model.MoxyConfig) bool {
+	return prev.Proxy.IPv4.Port != next.Proxy.IPv4.Port ||
+		prev.Proxy.IPv4.SlotPortStart != next.Proxy.IPv4.SlotPortStart ||
+		prev.Proxy.IPv6.Port != next.Proxy.IPv6.Port ||
+		prev.Proxy.IPv6.SlotPortStart != next.Proxy.IPv6.SlotPortStart ||
+		prev.API.Port != next.API.Port ||
+		prev.Devices.MaxDevices != next.Devices.MaxDevices ||
+		prev.Slots.MaxSlots != next.Slots.MaxSlots ||
+		prev.SSE.DebounceMs != next.SSE.DebounceMs ||
+		prev.SSE.HeartbeatSeconds != next.SSE.HeartbeatSeconds ||
+		prev.SSE.MaxClients != next.SSE.MaxClients ||
+		prev.Log.Format != next.Log.Format ||
+		prev.Server.ShutdownDrainSeconds != next.Server.ShutdownDrainSeconds
 }
 
 func (uc *ConfigUseCase) RestartService() error {

@@ -35,7 +35,7 @@ func (c *ConfigController) Update(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
-	data, err := c.ConfigUC.UpdateConfig(&cfg)
+	result, err := c.ConfigUC.UpdateConfig(&cfg)
 	if err != nil {
 		var valErr *usecase.ValidationError
 		if errors.As(err, &valErr) {
@@ -44,7 +44,7 @@ func (c *ConfigController) Update(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return ctx.JSON(model.WebResponse[json.RawMessage]{Data: data})
+	return ctx.JSON(model.WebResponse[*usecase.ConfigSaveResult]{Data: result})
 }
 
 func (c *ConfigController) Restart(ctx *fiber.Ctx) error {

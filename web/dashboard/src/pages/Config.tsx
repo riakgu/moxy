@@ -14,7 +14,7 @@ interface FieldDef {
   warning?: string
   min?: number
   max?: number
-  readonly?: boolean
+  restartRequired?: boolean
 }
 
 const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[] = [
@@ -22,10 +22,10 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'Proxy',
     group: 'proxy',
     fields: [
-      { key: 'port', subgroup: 'ipv4', label: 'IPv4 Port', type: 'number', min: 1, max: 65535, description: 'Main SOCKS5/HTTP proxy port', readonly: true },
-      { key: 'slot_port_start', subgroup: 'ipv4', label: 'IPv4 Slot Port Start', type: 'number', min: 1, max: 65535, description: 'First port for per-slot proxy listeners', readonly: true },
-      { key: 'port', subgroup: 'ipv6', label: 'IPv6 Port', type: 'number', min: 0, max: 65535, description: 'IPv6-preferred proxy port (0 = disabled)', readonly: true },
-      { key: 'slot_port_start', subgroup: 'ipv6', label: 'IPv6 Slot Port Start', type: 'number', min: 0, max: 65535, description: 'First port for per-slot IPv6 listeners (0 = disabled)', readonly: true },
+      { key: 'port', subgroup: 'ipv4', label: 'IPv4 Port', type: 'number', min: 1, max: 65535, description: 'Main SOCKS5/HTTP proxy port', restartRequired: true },
+      { key: 'slot_port_start', subgroup: 'ipv4', label: 'IPv4 Slot Port Start', type: 'number', min: 1, max: 65535, description: 'First port for per-slot proxy listeners', restartRequired: true },
+      { key: 'port', subgroup: 'ipv6', label: 'IPv6 Port', type: 'number', min: 0, max: 65535, description: 'IPv6-preferred proxy port (0 = disabled)', restartRequired: true },
+      { key: 'slot_port_start', subgroup: 'ipv6', label: 'IPv6 Slot Port Start', type: 'number', min: 0, max: 65535, description: 'First port for per-slot IPv6 listeners (0 = disabled)', restartRequired: true },
       { key: 'source_ip_strategy', label: 'Strategy', type: 'select', options: ['random', 'round-robin', 'least-connections'], description: 'Load balancing strategy for slot selection' },
       { key: 'udp_idle_timeout_seconds', label: 'UDP Idle Timeout (s)', type: 'number', min: 10, description: 'Seconds of inactivity before closing a UDP association' },
       { key: 'udp_max_associations', label: 'UDP Max Associations', type: 'number', min: 1, max: 10000, description: 'Maximum concurrent UDP ASSOCIATE sessions' },
@@ -35,28 +35,28 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'API',
     group: 'api',
     fields: [
-      { key: 'port', label: 'Port', type: 'number', min: 1, max: 65535, description: 'Dashboard and API port', readonly: true },
+      { key: 'port', label: 'Port', type: 'number', min: 1, max: 65535, description: 'Dashboard and API port', restartRequired: true },
     ],
   },
   {
     title: 'Devices',
     group: 'devices',
     fields: [
-      { key: 'max_devices', label: 'Max Devices', type: 'number', min: 1, max: 100, description: 'Maximum devices that can be online simultaneously' },
+      { key: 'max_devices', label: 'Max Devices', type: 'number', min: 1, max: 100, description: 'Maximum devices that can be online simultaneously', restartRequired: true },
       { key: 'grace_period_seconds', label: 'Grace Period (s)', type: 'number', min: 1, description: 'Seconds to wait before tearing down a disconnected device' },
-      { key: 'watcher_reconnect_max_seconds', label: 'Watcher Reconnect Max (s)', type: 'number', min: 1, description: 'Maximum backoff for ADB watcher reconnection', readonly: true },
-      { key: 'drain_timeout_seconds', label: 'Drain Timeout (s)', type: 'number', min: 1, description: 'Seconds to wait for active connections before force-destroying a slot', readonly: true },
+      { key: 'watcher_reconnect_max_seconds', label: 'Watcher Reconnect Max (s)', type: 'number', min: 1, description: 'Maximum backoff for ADB watcher reconnection' },
+      { key: 'drain_timeout_seconds', label: 'Drain Timeout (s)', type: 'number', min: 1, description: 'Seconds to wait for active connections before force-destroying a slot' },
     ],
   },
   {
     title: 'Slots',
     group: 'slots',
     fields: [
-      { key: 'max_slots', label: 'Max Slots', type: 'number', min: 1, max: 10000, description: 'Global maximum slots across all devices' },
+      { key: 'max_slots', label: 'Max Slots', type: 'number', min: 1, max: 10000, description: 'Global maximum slots across all devices', restartRequired: true },
       { key: 'max_slots_per_device', label: 'Max Slots Per Device', type: 'number', min: 1, max: 1000, description: 'Maximum network namespaces per USB device' },
       { key: 'ip_check_host', label: 'IP Check Host', type: 'text', description: 'Hostname used for IP discovery checks' },
       { key: 'monitor_steady_interval_seconds', label: 'Steady Interval (s)', type: 'number', min: 1, description: 'Health check interval during normal monitoring' },
-      { key: 'monitor_recovery_interval_seconds', label: 'Recovery Interval (s)', type: 'number', min: 1, description: 'Check interval during RECOVERY phase', readonly: true },
+      { key: 'monitor_recovery_interval_seconds', label: 'Recovery Interval (s)', type: 'number', min: 1, description: 'Check interval during RECOVERY phase' },
       { key: 'monitor_unhealthy_threshold', label: 'Unhealthy Threshold', type: 'number', min: 1, description: 'Consecutive failures before marking slot unhealthy' },
     ],
   },
@@ -80,17 +80,17 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     title: 'SSE',
     group: 'sse',
     fields: [
-      { key: 'debounce_ms', label: 'Debounce (ms)', type: 'number', min: 100, description: 'Event coalescing window for SSE push', readonly: true },
-      { key: 'heartbeat_seconds', label: 'Heartbeat (s)', type: 'number', min: 5, description: 'SSE keepalive ping interval', readonly: true },
-      { key: 'max_clients', label: 'Max Clients', type: 'number', min: 1, description: 'Maximum concurrent SSE connections', readonly: true },
-      { key: 'traffic_snapshot_limit', label: 'Traffic Snapshot Limit', type: 'number', min: 10, description: 'Max traffic entries pushed via SSE (REST returns all)', readonly: true },
+      { key: 'debounce_ms', label: 'Debounce (ms)', type: 'number', min: 100, description: 'Event coalescing window for SSE push', restartRequired: true },
+      { key: 'heartbeat_seconds', label: 'Heartbeat (s)', type: 'number', min: 5, description: 'SSE keepalive ping interval', restartRequired: true },
+      { key: 'max_clients', label: 'Max Clients', type: 'number', min: 1, description: 'Maximum concurrent SSE connections', restartRequired: true },
+      { key: 'traffic_snapshot_limit', label: 'Traffic Snapshot Limit', type: 'number', min: 10, description: 'Max traffic entries pushed via SSE (REST returns all)' },
     ],
   },
   {
     title: 'Server',
     group: 'server',
     fields: [
-      { key: 'shutdown_drain_seconds', label: 'Shutdown Drain (s)', type: 'number', min: 1, description: 'Seconds to wait for in-flight requests during graceful shutdown', readonly: true },
+      { key: 'shutdown_drain_seconds', label: 'Shutdown Drain (s)', type: 'number', min: 1, description: 'Seconds to wait for in-flight requests during graceful shutdown', restartRequired: true },
     ],
   },
   {
@@ -98,8 +98,7 @@ const SECTIONS: { title: string; group: keyof MoxyConfig; fields: FieldDef[] }[]
     group: 'log',
     fields: [
       { key: 'level', label: 'Level', type: 'select', options: ['debug', 'info', 'warn', 'error'], description: 'Minimum log level' },
-      { key: 'format', label: 'Format', type: 'select', options: ['json', 'text'], description: 'Log output format', readonly: true },
-      { key: 'ring_buffer_size', label: 'Ring Buffer Size', type: 'number', min: 100, description: 'In-memory log buffer entries for SSE streaming', readonly: true },
+      { key: 'format', label: 'Format', type: 'select', options: ['json', 'text'], description: 'Log output format', restartRequired: true },
     ],
   },
 ]
@@ -167,10 +166,14 @@ export default function Config() {
     setSaving(true)
     setErrors({})
     try {
-      const saved = await saveConfig(config)
-      setSavedConfig(saved)
-      setConfig(saved)
-      showToast('Config saved. Restart required to apply.', 'success')
+      const result = await saveConfig(config)
+      setSavedConfig(result.config)
+      setConfig(result.config)
+      if (result.restart_required) {
+        showToast('Config saved. Restart required for port/pool changes.', 'success')
+      } else {
+        showToast('Config applied live ✓', 'success')
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       try {
@@ -335,6 +338,9 @@ export default function Config() {
                     {/* Label */}
                     <label className="flex items-center gap-1.5 text-xs font-mono text-text-secondary">
                       <span className={changed ? 'text-accent-amber' : ''}>{field.label}</span>
+                      {field.restartRequired && (
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-accent-amber/10 text-accent-amber border border-accent-amber/20" title="Requires restart to take effect">restart</span>
+                      )}
                       {field.warning && (
                         <span className="text-accent-amber cursor-help" title={field.warning}>⚠</span>
                       )}
@@ -345,9 +351,7 @@ export default function Config() {
                       <select
                         value={String(value ?? '')}
                         onChange={(e) => updateField(section.group, field.key, e.target.value, field.subgroup)}
-                        disabled={field.readonly}
-                        className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors appearance-none ${field.readonly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                          } ${error ? 'border-accent-red/60' : changed ? 'border-accent-amber/40' : 'border-border-subtle'
+                        className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors appearance-none cursor-pointer ${error ? 'border-accent-red/60' : changed ? 'border-accent-amber/40' : 'border-border-subtle'
                           }`}
                       >
                         {field.options!.map((opt) => (
@@ -360,7 +364,6 @@ export default function Config() {
                         value={value ?? ''}
                         min={field.min}
                         max={field.max}
-                        disabled={field.readonly}
                         onChange={(e) =>
                           updateField(
                             section.group,
@@ -369,8 +372,7 @@ export default function Config() {
                             field.subgroup,
                           )
                         }
-                        className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors ${field.readonly ? 'opacity-50 cursor-not-allowed' : ''
-                          } ${error ? 'border-accent-red/60' : changed ? 'border-accent-amber/40' : 'border-border-subtle'
+                        className={`w-full bg-bg-primary border rounded px-3 py-2 text-sm font-mono text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-cyan/50 focus:ring-1 focus:ring-accent-cyan/20 transition-colors ${error ? 'border-accent-red/60' : changed ? 'border-accent-amber/40' : 'border-border-subtle'
                           }`}
                       />
                     )}

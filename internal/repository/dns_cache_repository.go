@@ -51,6 +51,13 @@ func NewDNSCacheRepository(log *slog.Logger, maxEntriesPerDevice int) *DNSCacheR
 	}
 }
 
+// SetMaxEntries updates the per-device cache size limit at runtime.
+func (r *DNSCacheRepository) SetMaxEntries(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxEntriesPerDevice = n
+}
+
 func (r *DNSCacheRepository) Lookup(nameserver, nat64Prefix, hostname string) (string, bool) {
 	key := dnsCacheKey{Nameserver: nameserver, NAT64Prefix: nat64Prefix}
 
