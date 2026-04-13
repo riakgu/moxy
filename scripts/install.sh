@@ -211,6 +211,9 @@ ExecStart=${BINARY}
 Restart=on-failure
 RestartSec=5
 
+LimitNOFILE=65535
+LimitNPROC=65535
+
 [Install]
 WantedBy=multi-user.target
 EOF
